@@ -6,16 +6,17 @@
 #include <rclcpp/logging.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
-namespace rmgo_core::controller::chassis {
+namespace rmgo_core::controller::chassis
+{
 
-class ChassisController : public controller_interface::ChainableControllerInterface {
+class ChassisController : public controller_interface::ChainableControllerInterface
+{
 public:
   ChassisController() = default;
 
   controller_interface::CallbackReturn on_init() override
   {
-    target_controller_name_ =
-      auto_declare<std::string>("target_controller_name", "chassis_power_controller");
+    target_controller_name_ = auto_declare<std::string>("target_controller_name", "chassis_power_controller");
     return controller_interface::CallbackReturn::SUCCESS;
   }
 
@@ -25,7 +26,8 @@ public:
     config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
     const std::string target_controller_name = get_target_controller_name();
     config.names.reserve(chassis_command_suffixes.size());
-    for (const char * suffix : chassis_command_suffixes) {
+    for (const char* suffix : chassis_command_suffixes)
+    {
       config.names.push_back(target_controller_name + "/" + suffix);
     }
     return config;
@@ -39,27 +41,23 @@ public:
     };
   }
 
-  std::vector<hardware_interface::CommandInterface::SharedPtr>
-  on_export_reference_interfaces_list() override
+  std::vector<hardware_interface::CommandInterface::SharedPtr> on_export_reference_interfaces_list() override
   {
     reference_interfaces_.assign(3, 0.0);
 
     const std::string controller_name = get_node()->get_name();
     return {
-      std::make_shared<hardware_interface::CommandInterface>(
-        controller_name, "linear/x/velocity", &reference_interfaces_[0]),
-      std::make_shared<hardware_interface::CommandInterface>(
-        controller_name, "linear/y/velocity", &reference_interfaces_[1]),
-      std::make_shared<hardware_interface::CommandInterface>(
-        controller_name, "angular/z/velocity", &reference_interfaces_[2]),
+      std::make_shared<hardware_interface::CommandInterface>(controller_name, "linear/x/velocity",
+                                                             &reference_interfaces_[0]),
+      std::make_shared<hardware_interface::CommandInterface>(controller_name, "linear/y/velocity",
+                                                             &reference_interfaces_[1]),
+      std::make_shared<hardware_interface::CommandInterface>(controller_name, "angular/z/velocity",
+                                                             &reference_interfaces_[2]),
     };
   }
 
-  std::vector<hardware_interface::StateInterface::SharedPtr>
-  on_export_state_interfaces_list() override
-  {
-    return {};
-  }
+  std::vector<hardware_interface::StateInterface::SharedPtr> on_export_state_interfaces_list() override
+  { return {}; }
 
   bool on_set_chained_mode(bool chained_mode) override
   {
@@ -67,11 +65,11 @@ public:
     return true;
   }
 
-  controller_interface::CallbackReturn on_configure(
-    const rclcpp_lifecycle::State & /*previous_state*/) override
+  controller_interface::CallbackReturn on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override
   {
     target_controller_name_ = get_target_controller_name();
-    if (target_controller_name_.empty()) {
+    if (target_controller_name_.empty())
+    {
       RCLCPP_ERROR(get_node()->get_logger(), "target_controller_name must not be empty");
       return controller_interface::CallbackReturn::ERROR;
     }
@@ -80,57 +78,53 @@ public:
     return controller_interface::CallbackReturn::SUCCESS;
   }
 
-  controller_interface::CallbackReturn on_activate(
-    const rclcpp_lifecycle::State & /*previous_state*/) override
+  controller_interface::CallbackReturn on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override
   {
-    if (command_interfaces_.size() != chassis_command_suffixes.size()) {
-      RCLCPP_ERROR(
-        get_node()->get_logger(),
-        "Expected %zu command interfaces, got %zu",
-        chassis_command_suffixes.size(),
-        command_interfaces_.size());
+    if (command_interfaces_.size() != chassis_command_suffixes.size())
+    {
+      RCLCPP_ERROR(get_node()->get_logger(), "Expected %zu command interfaces, got %zu",
+                   chassis_command_suffixes.size(), command_interfaces_.size());
       return controller_interface::CallbackReturn::ERROR;
     }
 
     reset_references();
-    if (!write_chassis_commands({0.0, 0.0, 0.0})) {
+    if (!write_chassis_commands({ 0.0, 0.0, 0.0 }))
+    {
       return controller_interface::CallbackReturn::ERROR;
     }
     return controller_interface::CallbackReturn::SUCCESS;
   }
 
-  controller_interface::CallbackReturn on_deactivate(
-    const rclcpp_lifecycle::State & /*previous_state*/) override
+  controller_interface::CallbackReturn on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override
   {
     reset_references();
-    if (!write_chassis_commands({0.0, 0.0, 0.0})) {
+    if (!write_chassis_commands({ 0.0, 0.0, 0.0 }))
+    {
       return controller_interface::CallbackReturn::ERROR;
     }
     return controller_interface::CallbackReturn::SUCCESS;
   }
 
-  controller_interface::return_type update_reference_from_subscribers(
-    const rclcpp::Time & /*time*/,
-    const rclcpp::Duration & /*period*/) override
+  controller_interface::return_type update_reference_from_subscribers(const rclcpp::Time& /*time*/,
+                                                                      const rclcpp::Duration& /*period*/) override
   {
-    if (!is_in_chained_mode()) {
+    if (!is_in_chained_mode())
+    {
       reset_references();
     }
     return controller_interface::return_type::OK;
   }
 
-  controller_interface::return_type update_and_write_commands(
-    const rclcpp::Time & /*time*/,
-    const rclcpp::Duration & /*period*/) override
+  controller_interface::return_type update_and_write_commands(const rclcpp::Time& /*time*/,
+                                                              const rclcpp::Duration& /*period*/) override
   {
-    return write_chassis_commands(
-             {reference_interfaces_[0], reference_interfaces_[1], reference_interfaces_[2]}) ?
-             controller_interface::return_type::OK :
-             controller_interface::return_type::ERROR;
+    return write_chassis_commands({ reference_interfaces_[0], reference_interfaces_[1], reference_interfaces_[2] }) ?
+               controller_interface::return_type::OK :
+               controller_interface::return_type::ERROR;
   }
 
 private:
-  static constexpr std::array<const char *, 3> chassis_command_suffixes = {
+  static constexpr std::array<const char*, 3> chassis_command_suffixes = {
     "linear/x/velocity",
     "linear/y/velocity",
     "angular/z/velocity",
@@ -138,7 +132,8 @@ private:
 
   void reset_references()
   {
-    if (reference_interfaces_.size() < 3) {
+    if (reference_interfaces_.size() < 3)
+    {
       reference_interfaces_.assign(3, 0.0);
       return;
     }
@@ -149,11 +144,10 @@ private:
 
   std::string get_target_controller_name() const
   {
-    if (const auto node = get_node()) {
+    if (const auto node = get_node())
+    {
       const auto parameter = node->get_parameter("target_controller_name");
-      if (
-        parameter.get_type() == rclcpp::ParameterType::PARAMETER_STRING &&
-        !parameter.as_string().empty())
+      if (parameter.get_type() == rclcpp::ParameterType::PARAMETER_STRING && !parameter.as_string().empty())
       {
         return parameter.as_string();
       }
@@ -162,15 +156,14 @@ private:
     return target_controller_name_;
   }
 
-  bool write_chassis_commands(const std::array<double, 3> & commands)
+  bool write_chassis_commands(const std::array<double, 3>& commands)
   {
-    for (std::size_t index = 0; index < commands.size(); ++index) {
-      if (!command_interfaces_[index].set_value(commands[index])) {
-        RCLCPP_ERROR(
-          get_node()->get_logger(),
-          "Failed to write chained command '%s/%s'",
-          target_controller_name_.c_str(),
-          chassis_command_suffixes[index]);
+    for (std::size_t index = 0; index < commands.size(); ++index)
+    {
+      if (!command_interfaces_[index].set_value(commands[index]))
+      {
+        RCLCPP_ERROR(get_node()->get_logger(), "Failed to write chained command '%s/%s'",
+                     target_controller_name_.c_str(), chassis_command_suffixes[index]);
         return false;
       }
     }
@@ -182,6 +175,5 @@ private:
 
 }  // namespace rmgo_core::controller::chassis
 
-PLUGINLIB_EXPORT_CLASS(
-  rmgo_core::controller::chassis::ChassisController,
-  controller_interface::ChainableControllerInterface)
+PLUGINLIB_EXPORT_CLASS(rmgo_core::controller::chassis::ChassisController,
+                       controller_interface::ChainableControllerInterface)
