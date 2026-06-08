@@ -1,0 +1,30 @@
+{
+  "name": "rmgo-develop",
+  "dockerComposeFile": [
+    "docker-compose.yml",
+    ".generated/docker-compose.local.override.yml"
+  ],
+  "service": "rmgo-develop",
+  "workspaceFolder": "/workspaces/rmgo",
+  "remoteUser": "root",
+  "shutdownAction": "stopCompose",
+  "initializeCommand": "bash .devcontainer/scripts/generate-local-override.sh && bash .devcontainer/scripts/probe-host-tools.sh",
+  "postCreateCommand": "bash .devcontainer/scripts/setup-shell-history.sh && bash .devcontainer/scripts/bootstrap-tools.sh && bash .devcontainer/scripts/setup-workspace.sh",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "remote.autoForwardPorts": false
+      },
+      "extensions": [
+        "llvm-vs-code-extensions.vscode-clangd",
+        "ms-python.vscode-pylance",
+        "ms-python.python",
+        "ms-python.debugpy",
+        "KylinIdeTeam.cmake-intellisence",
+        "ms-iot.vscode-ros",
+        "streetsidesoftware.code-spell-checker",
+        "mhutchie.git-graph"
+      ]
+    }
+  }
+}
