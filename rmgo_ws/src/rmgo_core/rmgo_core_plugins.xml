@@ -4,7 +4,23 @@
     type="rmgo_core::controller::chassis::ChassisController"
     base_class_type="controller_interface::ChainableControllerInterface">
     <description>
-      Omni chassis ros2_control chainable controller for RMGO.
+      High-level chassis chain controller for RMGO.
+    </description>
+  </class>
+  <class
+    name="rmgo_core/ChassisPowerController"
+    type="rmgo_core::controller::chassis::ChassisPowerController"
+    base_class_type="controller_interface::ChainableControllerInterface">
+    <description>
+      Chassis power scaling chain controller for RMGO.
+    </description>
+  </class>
+  <class
+    name="rmgo_core/OmniWheelController"
+    type="rmgo_core::controller::chassis::OmniWheelController"
+    base_class_type="controller_interface::ChainableControllerInterface">
+    <description>
+      Omni wheel inverse kinematics chain controller for RMGO.
     </description>
   </class>
   <class

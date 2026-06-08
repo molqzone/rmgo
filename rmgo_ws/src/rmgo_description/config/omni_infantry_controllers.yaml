@@ -5,6 +5,12 @@ controller_manager:
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
+    omni_wheel_controller:
+      type: rmgo_core/OmniWheelController
+
+    chassis_power_controller:
+      type: rmgo_core/ChassisPowerController
+
     chassis_controller:
       type: rmgo_core/ChassisController
 
@@ -15,6 +21,19 @@ controller_manager:
       type: position_controllers/JointGroupPositionController
 
 chassis_controller:
+  ros__parameters:
+    target_controller_name: chassis_power_controller
+
+chassis_power_controller:
+  ros__parameters:
+    target_controller_name: omni_wheel_controller
+    power_limit_topic: /chassis_power_limit
+    default_power_limit: 80.0
+    nominal_power_limit: 80.0
+    min_power_scale: 0.0
+    power_limit_timeout: 0.5
+
+omni_wheel_controller:
   ros__parameters:
     wheel_joints:
       - left_front_wheel_joint
