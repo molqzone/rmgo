@@ -18,6 +18,7 @@ add_library(
   rmgo_chassis_controller
   SHARED
   src/controller/chassis/chassis_controller.cpp
+  src/interface/teleop_remote.cpp
 )
 
 ament_target_dependencies(
@@ -31,6 +32,13 @@ ament_target_dependencies(
   realtime_tools
 )
 
+target_include_directories(
+  rmgo_chassis_controller
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
 install(
   TARGETS rmgo_chassis_controller
   DESTINATION lib/${PROJECT_NAME}
@@ -41,6 +49,11 @@ pluginlib_export_plugin_description_file(controller_interface rmgo_core_plugins.
 install(
   FILES rmgo_core_plugins.xml
   DESTINATION share/${PROJECT_NAME}
+)
+
+install(
+  DIRECTORY include/
+  DESTINATION include
 )
 
 if(BUILD_TESTING)
