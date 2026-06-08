@@ -61,6 +61,14 @@ cd /workspaces/rmgo_ws
 colcon build
 ```
 
+## Preview the RMCS-derived omni infantry model
+
+From inside the container:
+
+```bash
+ros2 launch rmgo_description display.launch.py
+```
+
 ## Devcontainer
 
 This repo also includes an RMCS-style devcontainer under `.devcontainer/`.

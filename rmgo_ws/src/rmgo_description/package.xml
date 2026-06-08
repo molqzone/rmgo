@@ -2,13 +2,19 @@
 <package format="3">
   <name>rmgo_description</name>
   <version>0.0.0</version>
-  <description>Robot description assets for RMGO.</description>
+  <description>RMGO robot description assets derived from the RMCS omni infantry model.</description>
   <maintainer email="todo@rmgo.local">rmgo</maintainer>
-  <license>Apache-2.0</license>
+  <license>GPL-3.0-only</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>joint_state_publisher</exec_depend>
+  <exec_depend>joint_state_publisher_gui</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>urdf_launch</exec_depend>
   <exec_depend>xacro</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
