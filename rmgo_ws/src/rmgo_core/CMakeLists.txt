@@ -18,8 +18,10 @@ add_library(
   rmgo_chassis_controller
   SHARED
   src/controller/chassis/chassis_controller.cpp
-  src/interface/teleop_remote.cpp
+  src/controller/remote/teleop_remote_controller.cpp
 )
+
+target_compile_features(rmgo_chassis_controller PUBLIC cxx_std_20)
 
 ament_target_dependencies(
   rmgo_chassis_controller
