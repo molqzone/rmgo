@@ -13,11 +13,14 @@ find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(realtime_tools REQUIRED)
+find_package(std_msgs REQUIRED)
 
 add_library(
   rmgo_chassis_controller
   SHARED
   src/controller/chassis/chassis_controller.cpp
+  src/controller/chassis/chassis_power_controller.cpp
+  src/controller/chassis/omni_wheel_controller.cpp
   src/controller/remote/teleop_remote_controller.cpp
 )
 
@@ -32,6 +35,7 @@ ament_target_dependencies(
   rclcpp
   rclcpp_lifecycle
   realtime_tools
+  std_msgs
 )
 
 target_include_directories(

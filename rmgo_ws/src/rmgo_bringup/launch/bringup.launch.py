@@ -16,6 +16,8 @@ def generate_launch_description():
                 output="screen",
                 arguments=[
                     "joint_state_broadcaster",
+                    "omni_wheel_controller",
+                    "chassis_power_controller",
                     "chassis_controller",
                     "teleop_remote_controller",
                     "gimbal_position_controller",
