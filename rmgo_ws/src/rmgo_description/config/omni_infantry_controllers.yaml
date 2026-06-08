@@ -23,6 +23,24 @@ controller_manager:
 chassis_controller:
   ros__parameters:
     target_controller_name: chassis_power_controller
+    wheel_joints:
+      - left_front_wheel_joint
+      - left_back_wheel_joint
+      - right_back_wheel_joint
+      - right_front_wheel_joint
+    wheel_state_interface_name: velocity
+    wheel_radius: 0.07
+    chassis_radius_x: 0.15897
+    chassis_radius_y: 0.15897
+    linear_x_kp: 0.0
+    linear_x_ki: 0.0
+    linear_x_kd: 0.0
+    linear_y_kp: 0.0
+    linear_y_ki: 0.0
+    linear_y_kd: 0.0
+    angular_z_kp: 0.0
+    angular_z_ki: 0.0
+    angular_z_kd: 0.0
 
 chassis_power_controller:
   ros__parameters:
