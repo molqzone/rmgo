@@ -1,5 +1,26 @@
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    return LaunchDescription()
+    controller_manager = LaunchConfiguration("controller_manager")
+
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument("controller_manager", default_value="/controller_manager"),
+            Node(
+                package="controller_manager",
+                executable="spawner",
+                output="screen",
+                arguments=[
+                    "joint_state_broadcaster",
+                    "chassis_controller",
+                    "gimbal_position_controller",
+                    "--controller-manager",
+                    controller_manager,
+                ],
+            ),
+        ]
+    )

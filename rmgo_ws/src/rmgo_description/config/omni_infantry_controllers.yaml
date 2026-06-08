@@ -5,19 +5,26 @@ controller_manager:
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
-    wheel_velocity_controller:
-      type: velocity_controllers/JointGroupVelocityController
+    chassis_controller:
+      type: rmgo_core/ChassisController
 
     gimbal_position_controller:
       type: position_controllers/JointGroupPositionController
 
-wheel_velocity_controller:
+chassis_controller:
   ros__parameters:
-    joints:
+    cmd_vel_topic: /cmd_vel
+    wheel_joints:
       - left_front_wheel_joint
       - left_back_wheel_joint
       - right_back_wheel_joint
       - right_front_wheel_joint
+    command_interface_name: velocity
+    wheel_radius: 0.07
+    chassis_radius_x: 0.15897
+    chassis_radius_y: 0.15897
+    command_timeout: 0.25
+    max_wheel_velocity: 40.0
 
 gimbal_position_controller:
   ros__parameters:

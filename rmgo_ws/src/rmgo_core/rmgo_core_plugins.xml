@@ -1,0 +1,10 @@
+<library path="rmgo_chassis_controller">
+  <class
+    name="rmgo_core/ChassisController"
+    type="rmgo_core::controller::chassis::ChassisController"
+    base_class_type="controller_interface::ChainableControllerInterface">
+    <description>
+      Omni chassis ros2_control chainable controller for RMGO.
+    </description>
+  </class>
+</library>
