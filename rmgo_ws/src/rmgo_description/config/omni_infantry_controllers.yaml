@@ -8,13 +8,14 @@ controller_manager:
     chassis_controller:
       type: rmgo_core/ChassisController
 
+    teleop_remote_controller:
+      type: rmgo_core/TeleopRemoteController
+
     gimbal_position_controller:
       type: position_controllers/JointGroupPositionController
 
 chassis_controller:
   ros__parameters:
-    remote_type: teleop
-    cmd_vel_topic: /cmd_vel
     wheel_joints:
       - left_front_wheel_joint
       - left_back_wheel_joint
@@ -24,8 +25,13 @@ chassis_controller:
     wheel_radius: 0.07
     chassis_radius_x: 0.15897
     chassis_radius_y: 0.15897
-    command_timeout: 0.25
     max_wheel_velocity: 40.0
+
+teleop_remote_controller:
+  ros__parameters:
+    target_controller_name: chassis_controller
+    cmd_vel_topic: /cmd_vel
+    command_timeout: 0.25
 
 gimbal_position_controller:
   ros__parameters:

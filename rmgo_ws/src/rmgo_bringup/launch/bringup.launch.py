@@ -17,7 +17,9 @@ def generate_launch_description():
                 arguments=[
                     "joint_state_broadcaster",
                     "chassis_controller",
+                    "teleop_remote_controller",
                     "gimbal_position_controller",
+                    "--activate-as-group",
                     "--controller-manager",
                     controller_manager,
                 ],

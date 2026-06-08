@@ -1,20 +1,14 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include <controller_interface/chainable_controller_interface.hpp>
-#include <geometry_msgs/msg/twist.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/logging.hpp>
 #include <rclcpp_lifecycle/state.hpp>
-
-#include "rmgo_core/remote.hpp"
-#include "rmgo_core/teleop_remote.hpp"
 
 namespace rmgo_core::controller::chassis {
 
@@ -31,14 +25,11 @@ public:
         "left_back_wheel_joint",
         "right_back_wheel_joint",
         "right_front_wheel_joint"});
-    remote_type_ = auto_declare<std::string>("remote_type", "teleop");
-    cmd_vel_topic_ = auto_declare<std::string>("cmd_vel_topic", "/cmd_vel");
     command_interface_name_ =
       auto_declare<std::string>("command_interface_name", hardware_interface::HW_IF_VELOCITY);
     wheel_radius_ = auto_declare<double>("wheel_radius", 0.07);
     chassis_radius_x_ = auto_declare<double>("chassis_radius_x", 0.15897);
     chassis_radius_y_ = auto_declare<double>("chassis_radius_y", 0.15897);
-    command_timeout_ = auto_declare<double>("command_timeout", 0.25);
     max_wheel_velocity_ = auto_declare<double>("max_wheel_velocity", 40.0);
 
     return controller_interface::CallbackReturn::SUCCESS;
@@ -87,9 +78,7 @@ public:
 
   bool on_set_chained_mode(bool chained_mode) override
   {
-    if (remote_) {
-      remote_->set_enabled(!chained_mode);
-    }
+    (void)chained_mode;
     return true;
   }
 
@@ -97,13 +86,10 @@ public:
     const rclcpp_lifecycle::State & /*previous_state*/) override
   {
     wheel_joints_ = get_node()->get_parameter("wheel_joints").as_string_array();
-    remote_type_ = get_node()->get_parameter("remote_type").as_string();
-    cmd_vel_topic_ = get_node()->get_parameter("cmd_vel_topic").as_string();
     command_interface_name_ = get_node()->get_parameter("command_interface_name").as_string();
     wheel_radius_ = get_node()->get_parameter("wheel_radius").as_double();
     chassis_radius_x_ = get_node()->get_parameter("chassis_radius_x").as_double();
     chassis_radius_y_ = get_node()->get_parameter("chassis_radius_y").as_double();
-    command_timeout_ = get_node()->get_parameter("command_timeout").as_double();
     max_wheel_velocity_ = get_node()->get_parameter("max_wheel_velocity").as_double();
 
     if (wheel_joints_.size() != 4) {
@@ -116,21 +102,6 @@ public:
     }
     if (chassis_radius_x_ < 0.0 || chassis_radius_y_ < 0.0) {
       RCLCPP_ERROR(get_node()->get_logger(), "chassis radii must be non-negative");
-      return controller_interface::CallbackReturn::ERROR;
-    }
-
-    if (remote_type_ == "teleop") {
-      remote_ = std::make_unique<TeleopRemote>(cmd_vel_topic_, command_timeout_);
-    } else {
-      RCLCPP_ERROR(
-        get_node()->get_logger(),
-        "Unsupported remote_type '%s'",
-        remote_type_.c_str());
-      return controller_interface::CallbackReturn::ERROR;
-    }
-
-    if (remote_->configure(get_node()) != controller_interface::CallbackReturn::SUCCESS) {
-      RCLCPP_ERROR(get_node()->get_logger(), "Failed to configure remote '%s'", remote_type_.c_str());
       return controller_interface::CallbackReturn::ERROR;
     }
 
@@ -150,13 +121,6 @@ public:
       return controller_interface::CallbackReturn::ERROR;
     }
 
-    if (remote_ && remote_->activate() != controller_interface::CallbackReturn::SUCCESS) {
-      RCLCPP_ERROR(get_node()->get_logger(), "Failed to activate remote '%s'", remote_type_.c_str());
-      return controller_interface::CallbackReturn::ERROR;
-    }
-    if (remote_) {
-      remote_->set_enabled(!is_in_chained_mode());
-    }
     reset_references();
     if (!write_wheel_commands({0.0, 0.0, 0.0, 0.0})) {
       return controller_interface::CallbackReturn::ERROR;
@@ -167,13 +131,6 @@ public:
   controller_interface::CallbackReturn on_deactivate(
     const rclcpp_lifecycle::State & /*previous_state*/) override
   {
-    if (remote_) {
-      remote_->set_enabled(false);
-      if (remote_->deactivate() != controller_interface::CallbackReturn::SUCCESS) {
-        RCLCPP_ERROR(get_node()->get_logger(), "Failed to deactivate remote '%s'", remote_type_.c_str());
-        return controller_interface::CallbackReturn::ERROR;
-      }
-    }
     reset_references();
     if (!write_wheel_commands({0.0, 0.0, 0.0, 0.0})) {
       return controller_interface::CallbackReturn::ERROR;
@@ -182,23 +139,12 @@ public:
   }
 
   controller_interface::return_type update_reference_from_subscribers(
-    const rclcpp::Time & time,
+    const rclcpp::Time & /*time*/,
     const rclcpp::Duration & /*period*/) override
   {
-    if (!remote_) {
+    if (!is_in_chained_mode()) {
       reset_references();
-      return controller_interface::return_type::OK;
     }
-
-    const auto command = remote_->calculate(time);
-    if (!command.valid) {
-      reset_references();
-      return controller_interface::return_type::OK;
-    }
-
-    reference_interfaces_[0] = command.vx;
-    reference_interfaces_[1] = command.vy;
-    reference_interfaces_[2] = command.wz;
     return controller_interface::return_type::OK;
   }
 
@@ -278,15 +224,11 @@ private:
   }
 
   std::vector<std::string> wheel_joints_;
-  std::string remote_type_;
-  std::string cmd_vel_topic_;
   std::string command_interface_name_;
   double wheel_radius_ = 0.07;
   double chassis_radius_x_ = 0.15897;
   double chassis_radius_y_ = 0.15897;
-  double command_timeout_ = 0.25;
   double max_wheel_velocity_ = 40.0;
-  std::unique_ptr<rmgo_core::RemoteBase> remote_;
 };
 
 }  // namespace rmgo_core::controller::chassis

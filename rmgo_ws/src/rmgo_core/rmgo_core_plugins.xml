@@ -7,4 +7,12 @@
       Omni chassis ros2_control chainable controller for RMGO.
     </description>
   </class>
+  <class
+    name="rmgo_core/TeleopRemoteController"
+    type="rmgo_core::controller::remote::TeleopRemoteController"
+    base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Teleop upstream controller that feeds chassis reference interfaces for RMGO.
+    </description>
+  </class>
 </library>
