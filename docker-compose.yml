@@ -1,0 +1,13 @@
+services:
+  ros2:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: rmgo-ros2-jazzy
+    stdin_open: true
+    tty: true
+    working_dir: /workspaces/rmgo_ws
+    volumes:
+      - ./rmgo_ws:/workspaces/rmgo_ws
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
