@@ -1,0 +1,15 @@
+services:
+  rmgo-develop:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    privileged: true
+    init: true
+    command: /bin/bash -lc "while sleep 1000; do :; done"
+    working_dir: /workspaces/rmgo
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    volumes:
+      - type: bind
+        source: ..
+        target: /workspaces/rmgo

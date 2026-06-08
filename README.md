@@ -61,3 +61,13 @@ cd /workspaces/rmgo_ws
 colcon build
 ```
 
+## Devcontainer
+
+This repo also includes an RMCS-style devcontainer under `.devcontainer/`.
+Open the repository root in VS Code and choose `Reopen in Container`.
+
+The devcontainer uses the repository root as the workspace folder and keeps the
+existing ROS workspace at `rmgo_ws/` inside it.
+The initialization step uses `bash` on the host, so on Windows you should have
+Git Bash or WSL available.
+
