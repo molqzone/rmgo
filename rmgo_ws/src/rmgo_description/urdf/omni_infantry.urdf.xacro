@@ -3,6 +3,7 @@
   <xacro:property name="wheel_distance_x" value="0.31794"/>
   <xacro:property name="wheel_distance_y" value="0.31794"/>
   <xacro:property name="gimbal_center_height" value="0.32059"/>
+  <xacro:property name="controllers_file" value="$(find rmgo_description)/config/omni_infantry_controllers.yaml"/>
 
   <material name="white">
     <color rgba="1 1 1 1"/>
@@ -27,6 +28,7 @@
     </link>
     <joint name="${name}_wheel_joint" type="continuous">
       <axis xyz="1 0 0"/>
+      <limit effort="20.0" velocity="40.0"/>
       <parent link="base_link"/>
       <child link="${name}_wheel_link"/>
       <origin rpy="${rpy}" xyz="${xyz}"/>
@@ -55,6 +57,7 @@
   </link>
   <joint name="yaw_joint" type="continuous">
     <axis xyz="0 0 1"/>
+    <limit effort="10.0" velocity="6.0"/>
     <parent link="base_link"/>
     <child link="yaw_link"/>
     <origin xyz="0 0 ${gimbal_center_height}"/>
@@ -65,6 +68,7 @@
   </link>
   <joint name="pitch_joint" type="continuous">
     <axis xyz="0 1 0"/>
+    <limit effort="10.0" velocity="6.0"/>
     <parent link="yaw_link"/>
     <child link="pitch_link"/>
   </joint>
@@ -89,4 +93,47 @@
     <child link="camera_link"/>
     <origin xyz="0.06603 0 0.082"/>
   </joint>
+
+  <ros2_control name="OmniInfantryGz" type="system">
+    <hardware>
+      <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+    </hardware>
+
+    <joint name="left_front_wheel_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="left_back_wheel_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="right_back_wheel_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="right_front_wheel_joint">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="yaw_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="pitch_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+
+  <gazebo>
+    <plugin filename="libgz_ros2_control-system.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>${controllers_file}</parameters>
+    </plugin>
+  </gazebo>
 </robot>

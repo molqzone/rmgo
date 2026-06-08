@@ -10,7 +10,17 @@ if [ ! -d "$src_path" ]; then
     exit 1
 fi
 
+restore_nounset=0
+if [[ $- == *u* ]]; then
+    restore_nounset=1
+    set +u
+fi
+
 source "/opt/ros/${ROS_DISTRO:-jazzy}/setup.bash"
+
+if [ "$restore_nounset" -eq 1 ]; then
+    set -u
+fi
 
 if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
     rosdep init

@@ -1,0 +1,26 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    wheel_velocity_controller:
+      type: velocity_controllers/JointGroupVelocityController
+
+    gimbal_position_controller:
+      type: position_controllers/JointGroupPositionController
+
+wheel_velocity_controller:
+  ros__parameters:
+    joints:
+      - left_front_wheel_joint
+      - left_back_wheel_joint
+      - right_back_wheel_joint
+      - right_front_wheel_joint
+
+gimbal_position_controller:
+  ros__parameters:
+    joints:
+      - yaw_joint
+      - pitch_joint
