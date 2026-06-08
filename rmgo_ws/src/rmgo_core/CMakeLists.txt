@@ -13,7 +13,6 @@ find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(realtime_tools REQUIRED)
-find_package(std_msgs REQUIRED)
 
 add_library(
   rmgo_chassis_controller
@@ -35,7 +34,6 @@ ament_target_dependencies(
   rclcpp
   rclcpp_lifecycle
   realtime_tools
-  std_msgs
 )
 
 target_include_directories(

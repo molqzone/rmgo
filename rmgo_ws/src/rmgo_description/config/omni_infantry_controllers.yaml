@@ -27,11 +27,6 @@ chassis_controller:
 chassis_power_controller:
   ros__parameters:
     target_controller_name: omni_wheel_controller
-    power_limit_topic: /chassis_power_limit
-    default_power_limit: 80.0
-    nominal_power_limit: 80.0
-    min_power_scale: 0.0
-    power_limit_timeout: 0.5
 
 omni_wheel_controller:
   ros__parameters:
