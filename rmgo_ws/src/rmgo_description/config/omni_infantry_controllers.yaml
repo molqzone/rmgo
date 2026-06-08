@@ -13,6 +13,7 @@ controller_manager:
 
 chassis_controller:
   ros__parameters:
+    remote_type: teleop
     cmd_vel_topic: /cmd_vel
     wheel_joints:
       - left_front_wheel_joint
