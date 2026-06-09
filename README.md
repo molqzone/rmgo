@@ -79,3 +79,5 @@ existing ROS workspace at `rmgo_ws/` inside it.
 The initialization step uses `bash` on the host, so on Windows you should have
 Git Bash or WSL available.
 
+TODO: Delete all trace in the future when stable.
+
