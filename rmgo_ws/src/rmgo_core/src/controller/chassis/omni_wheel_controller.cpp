@@ -17,9 +17,9 @@ namespace rmgo_core::controller::chassis
 class OmniWheelController : public controller_interface::ChainableControllerInterface
 {
 public:
-  using ChassisCommand = Eigen::Vector3d;
+  using BaseLinkVelocityCommand = Eigen::Vector3d;
   using WheelCommand = Eigen::Vector4d;
-  using ChassisToWheelMatrix = Eigen::Matrix<double, 4, 3>;
+  using BaseLinkToWheelMatrix = Eigen::Matrix<double, 4, 3>;
 
   controller_interface::CallbackReturn on_init() override
   {
@@ -62,12 +62,12 @@ public:
 
     const std::string controller_name = get_node()->get_name();
     return {
-      std::make_shared<hardware_interface::CommandInterface>(controller_name, chassis_command_suffixes[0],
-                                                             &chassis_reference_[0]),
-      std::make_shared<hardware_interface::CommandInterface>(controller_name, chassis_command_suffixes[1],
-                                                             &chassis_reference_[1]),
-      std::make_shared<hardware_interface::CommandInterface>(controller_name, chassis_command_suffixes[2],
-                                                             &chassis_reference_[2]),
+      std::make_shared<hardware_interface::CommandInterface>(controller_name, base_link_velocity_suffixes[0],
+                                                             &base_link_velocity_reference_[0]),
+      std::make_shared<hardware_interface::CommandInterface>(controller_name, base_link_velocity_suffixes[1],
+                                                             &base_link_velocity_reference_[1]),
+      std::make_shared<hardware_interface::CommandInterface>(controller_name, base_link_velocity_suffixes[2],
+                                                             &base_link_velocity_reference_[2]),
     };
   }
 
@@ -108,7 +108,7 @@ public:
       return controller_interface::CallbackReturn::ERROR;
     }
 
-    chassis_to_wheel_ = make_chassis_to_wheel_matrix();
+    base_link_to_wheel_ = make_base_link_to_wheel_matrix();
     reset_references();
     return controller_interface::CallbackReturn::SUCCESS;
   }
@@ -147,15 +147,18 @@ public:
   controller_interface::return_type update_and_write_commands(const rclcpp::Time& /*time*/,
                                                               const rclcpp::Duration& /*period*/) override
   {
-    const ChassisCommand chassis_command{ chassis_reference_[0], chassis_reference_[1], chassis_reference_[2] };
-    WheelCommand wheel_commands = inverse_kinematics(chassis_command);
+    const BaseLinkVelocityCommand base_link_velocity_command{ base_link_velocity_reference_[0],
+                                                              base_link_velocity_reference_[1],
+                                                              base_link_velocity_reference_[2] };
+    WheelCommand wheel_commands = inverse_kinematics(base_link_velocity_command);
     constrain_wheel_commands(wheel_commands);
 
     if (trace_commands_ && ++trace_counter_ % 100 == 0)
     {
-      RCLCPP_INFO(get_node()->get_logger(), "[trace] omni wheel in=(%.3f %.3f %.3f) wheel_cmd=(%.3f %.3f %.3f %.3f)",
-                  chassis_command.x(), chassis_command.y(), chassis_command.z(), wheel_commands.x(), wheel_commands.y(),
-                  wheel_commands.z(), wheel_commands.w());
+      RCLCPP_INFO(get_node()->get_logger(),
+                  "[trace] omni wheel base_link_velocity=(%.3f %.3f %.3f) wheel_cmd=(%.3f %.3f %.3f %.3f)",
+                  base_link_velocity_command.x(), base_link_velocity_command.y(), base_link_velocity_command.z(),
+                  wheel_commands.x(), wheel_commands.y(), wheel_commands.z(), wheel_commands.w());
     }
 
     return write_wheel_commands(wheel_commands) ? controller_interface::return_type::OK :
@@ -163,25 +166,28 @@ public:
   }
 
 private:
-  static constexpr std::array<const char*, 3> chassis_command_suffixes = {
+  // ros2_control exchanges scalar reference interfaces, but the three values
+  // are semantically a BaseLink-frame chassis velocity command, matching the
+  // RMCS BaseLink::DirectionVector convention at this controller boundary.
+  static constexpr std::array<const char*, 3> base_link_velocity_suffixes = {
     "linear/x/velocity",
     "linear/y/velocity",
     "angular/z/velocity",
   };
 
-  ChassisToWheelMatrix make_chassis_to_wheel_matrix() const
+  BaseLinkToWheelMatrix make_base_link_to_wheel_matrix() const
   {
     const double lever_arm = chassis_radius_x_ + chassis_radius_y_;
 
-    ChassisToWheelMatrix matrix;
+    BaseLinkToWheelMatrix matrix;
     matrix << -1.0, 1.0, lever_arm, -1.0, -1.0, lever_arm, 1.0, -1.0, lever_arm, 1.0, 1.0, lever_arm;
     matrix *= -1.0 / (std::numbers::sqrt2 * wheel_radius_);
     return matrix;
   }
 
-  WheelCommand inverse_kinematics(const ChassisCommand& chassis_command) const
+  WheelCommand inverse_kinematics(const BaseLinkVelocityCommand& base_link_velocity_command) const
   {
-    return chassis_to_wheel_ * chassis_command;
+    return base_link_to_wheel_ * base_link_velocity_command;
   }
 
   void constrain_wheel_commands(WheelCommand& wheel_commands) const
@@ -202,7 +208,7 @@ private:
 
   void reset_references()
   {
-    chassis_reference_.fill(0.0);
+    base_link_velocity_reference_.fill(0.0);
   }
 
   bool write_wheel_commands(const WheelCommand& wheel_commands)
@@ -227,8 +233,8 @@ private:
   double max_wheel_velocity_ = 40.0;
   bool trace_commands_ = false;
   std::size_t trace_counter_ = 0;
-  std::array<double, 3> chassis_reference_{ 0.0, 0.0, 0.0 };
-  ChassisToWheelMatrix chassis_to_wheel_ = ChassisToWheelMatrix::Zero();
+  std::array<double, 3> base_link_velocity_reference_{ 0.0, 0.0, 0.0 };
+  BaseLinkToWheelMatrix base_link_to_wheel_ = BaseLinkToWheelMatrix::Zero();
 };
 
 }  // namespace rmgo_core::controller::chassis
