@@ -1,12 +1,14 @@
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <cstdint>
+#include <memory>
 #include <numbers>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include <controller_interface/chainable_controller_interface.hpp>
-#include <eigen3/Eigen/Dense>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/logging.hpp>
@@ -20,24 +22,13 @@ namespace rmgo_core::controller::chassis
 class ChassisController : public controller_interface::ChainableControllerInterface
 {
 public:
-  using ChassisCommand = Eigen::Vector3d;
-  using WheelState = Eigen::Vector4d;
-  using ChassisToWheelMatrix = Eigen::Matrix<double, 4, 3>;
-  using WheelToChassisMatrix = Eigen::Matrix<double, 3, 4>;
-
-  ChassisController() = default;
-
   controller_interface::CallbackReturn on_init() override
   {
     target_controller_name_ = auto_declare<std::string>("target_controller_name", "chassis_power_controller");
-    wheel_joints_ = auto_declare<std::vector<std::string>>(
-        "wheel_joints", std::vector<std::string>{ "left_front_wheel_joint", "left_back_wheel_joint",
-                                                  "right_back_wheel_joint", "right_front_wheel_joint" });
-    wheel_state_interface_name_ =
-        auto_declare<std::string>("wheel_state_interface_name", hardware_interface::HW_IF_VELOCITY);
-    wheel_radius_ = auto_declare<double>("wheel_radius", 0.07);
-    chassis_radius_x_ = auto_declare<double>("chassis_radius_x", 0.15897);
-    chassis_radius_y_ = auto_declare<double>("chassis_radius_y", 0.15897);
+    yaw_joint_name_ = auto_declare<std::string>("yaw_joint_name", "yaw_joint");
+    yaw_state_interface_name_ =
+        auto_declare<std::string>("yaw_state_interface_name", hardware_interface::HW_IF_POSITION);
+    command_source_frame_ = auto_declare<std::string>("command_source_frame", "yaw");
     trace_commands_ = auto_declare<bool>("trace_commands", false);
     return controller_interface::CallbackReturn::SUCCESS;
   }
@@ -46,6 +37,7 @@ public:
   {
     controller_interface::InterfaceConfiguration config;
     config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
+
     const std::string target_controller_name = get_target_controller_name();
     config.names.reserve(chassis_command_suffixes.size());
     for (const char* suffix : chassis_command_suffixes)
@@ -59,11 +51,7 @@ public:
   {
     controller_interface::InterfaceConfiguration config;
     config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-    config.names.reserve(wheel_joints_.size());
-    for (const auto& joint_name : wheel_joints_)
-    {
-      config.names.push_back(joint_name + "/" + wheel_state_interface_name_);
-    }
+    config.names.push_back(get_yaw_state_interface_name());
     return config;
   }
 
@@ -73,12 +61,14 @@ public:
 
     const std::string controller_name = get_node()->get_name();
     return {
-      std::make_shared<hardware_interface::CommandInterface>(controller_name, "linear/x/velocity",
-                                                             &chassis_reference_[0]),
-      std::make_shared<hardware_interface::CommandInterface>(controller_name, "linear/y/velocity",
-                                                             &chassis_reference_[1]),
-      std::make_shared<hardware_interface::CommandInterface>(controller_name, "angular/z/velocity",
-                                                             &chassis_reference_[2]),
+      std::make_shared<hardware_interface::CommandInterface>(controller_name, remote_command_suffixes[0],
+                                                             &remote_command_reference_[0]),
+      std::make_shared<hardware_interface::CommandInterface>(controller_name, remote_command_suffixes[1],
+                                                             &remote_command_reference_[1]),
+      std::make_shared<hardware_interface::CommandInterface>(controller_name, remote_command_suffixes[2],
+                                                             &remote_command_reference_[2]),
+      std::make_shared<hardware_interface::CommandInterface>(controller_name, remote_command_suffixes[3],
+                                                             &remote_command_reference_[3]),
     };
   }
 
@@ -96,54 +86,37 @@ public:
   controller_interface::CallbackReturn on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override
   {
     target_controller_name_ = get_target_controller_name();
-    wheel_joints_ = get_node()->get_parameter("wheel_joints").as_string_array();
-    wheel_state_interface_name_ = get_node()->get_parameter("wheel_state_interface_name").as_string();
-    wheel_radius_ = get_node()->get_parameter("wheel_radius").as_double();
-    chassis_radius_x_ = get_node()->get_parameter("chassis_radius_x").as_double();
-    chassis_radius_y_ = get_node()->get_parameter("chassis_radius_y").as_double();
-    trace_commands_ = get_node()->get_parameter("trace_commands").as_bool();
+    yaw_joint_name_ = get_string_parameter_or("yaw_joint_name", yaw_joint_name_);
+    yaw_state_interface_name_ = get_string_parameter_or("yaw_state_interface_name", yaw_state_interface_name_);
+    command_source_frame_ = get_string_parameter_or("command_source_frame", command_source_frame_);
+    trace_commands_.store(get_node()->get_parameter("trace_commands").as_bool());
 
     if (target_controller_name_.empty())
     {
       RCLCPP_ERROR(get_node()->get_logger(), "target_controller_name must not be empty");
       return controller_interface::CallbackReturn::ERROR;
     }
-    if (wheel_joints_.size() != 4)
+    if (yaw_joint_name_.empty() || yaw_state_interface_name_.empty())
     {
-      RCLCPP_ERROR(get_node()->get_logger(), "wheel_joints must contain exactly 4 joints");
+      RCLCPP_ERROR(get_node()->get_logger(), "yaw joint state interface must not be empty");
       return controller_interface::CallbackReturn::ERROR;
     }
-    if (wheel_state_interface_name_.empty())
+    if (command_source_frame_ != "yaw" && command_source_frame_ != "base_link")
     {
-      RCLCPP_ERROR(get_node()->get_logger(), "wheel_state_interface_name must not be empty");
-      return controller_interface::CallbackReturn::ERROR;
-    }
-    if (wheel_radius_ <= 0.0)
-    {
-      RCLCPP_ERROR(get_node()->get_logger(), "wheel_radius must be positive");
-      return controller_interface::CallbackReturn::ERROR;
-    }
-    if (chassis_radius_x_ < 0.0 || chassis_radius_y_ < 0.0)
-    {
-      RCLCPP_ERROR(get_node()->get_logger(), "chassis radii must be non-negative");
-      return controller_interface::CallbackReturn::ERROR;
-    }
-    if ((chassis_radius_x_ + chassis_radius_y_) <= 0.0)
-    {
-      RCLCPP_ERROR(get_node()->get_logger(), "sum of chassis radii must be positive");
+      RCLCPP_ERROR(get_node()->get_logger(), "command_source_frame must be 'yaw' or 'base_link'");
       return controller_interface::CallbackReturn::ERROR;
     }
 
-    chassis_to_wheel_ = make_chassis_to_wheel_matrix();
-    wheel_to_chassis_ = make_wheel_to_chassis_matrix(chassis_to_wheel_);
+    declare_parameter_if_missing<double>("twist_angular", std::numbers::pi / 6.0);
+    declare_parameter_if_missing<double>("follow_velocity_feedforward", 0.0);
+    twist_angular_ = get_node()->get_parameter("twist_angular").as_double();
+    follow_velocity_feedforward_ = get_node()->get_parameter("follow_velocity_feedforward").as_double();
 
     auto& node = *get_node();
-    linear_x_pid_ = rmgo_core::pid::make_pid_calculator(node, "linear_x_", 0.0, 0.0, 0.0);
-    linear_y_pid_ = rmgo_core::pid::make_pid_calculator(node, "linear_y_", 0.0, 0.0, 0.0);
-    angular_z_pid_ = rmgo_core::pid::make_pid_calculator(node, "angular_z_", 0.0, 0.0, 0.0);
+    follow_pid_ = rmgo_core::pid::make_pid_calculator(node, "follow_", 0.0, 0.0, 0.0);
 
     reset_references();
-    reset_pid_calculators();
+    reset_pid();
     return controller_interface::CallbackReturn::SUCCESS;
   }
 
@@ -155,31 +128,26 @@ public:
                    chassis_command_suffixes.size(), command_interfaces_.size());
       return controller_interface::CallbackReturn::ERROR;
     }
-    if (state_interfaces_.size() != wheel_joints_.size())
+    if (state_interfaces_.size() != 1)
     {
-      RCLCPP_ERROR(get_node()->get_logger(), "Expected %zu state interfaces, got %zu", wheel_joints_.size(),
-                   state_interfaces_.size());
+      RCLCPP_ERROR(get_node()->get_logger(), "Expected yaw state interface, got %zu", state_interfaces_.size());
       return controller_interface::CallbackReturn::ERROR;
     }
 
     reset_references();
-    reset_pid_calculators();
-    if (!write_chassis_commands(ChassisCommand::Zero()))
-    {
-      return controller_interface::CallbackReturn::ERROR;
-    }
-    return controller_interface::CallbackReturn::SUCCESS;
+    reset_pid();
+    last_mode_ = Mode::kRaw;
+    return write_command({ 0.0, 0.0, 0.0 }) ? controller_interface::CallbackReturn::SUCCESS :
+                                              controller_interface::CallbackReturn::ERROR;
   }
 
   controller_interface::CallbackReturn on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override
   {
     reset_references();
-    reset_pid_calculators();
-    if (!write_chassis_commands(ChassisCommand::Zero()))
-    {
-      return controller_interface::CallbackReturn::ERROR;
-    }
-    return controller_interface::CallbackReturn::SUCCESS;
+    reset_pid();
+    last_mode_ = Mode::kRaw;
+    return write_command({ 0.0, 0.0, 0.0 }) ? controller_interface::CallbackReturn::SUCCESS :
+                                              controller_interface::CallbackReturn::ERROR;
   }
 
   controller_interface::return_type update_reference_from_subscribers(const rclcpp::Time& /*time*/,
@@ -188,7 +156,8 @@ public:
     if (!is_in_chained_mode())
     {
       reset_references();
-      reset_pid_calculators();
+      reset_pid();
+      last_mode_ = Mode::kRaw;
     }
     return controller_interface::return_type::OK;
   }
@@ -196,63 +165,67 @@ public:
   controller_interface::return_type update_and_write_commands(const rclcpp::Time& /*time*/,
                                                               const rclcpp::Duration& /*period*/) override
   {
-    const ChassisCommand desired_command{ chassis_reference_[0], chassis_reference_[1], chassis_reference_[2] };
-
-    const std::optional<ChassisCommand> measured_command = measure_chassis_command();
-    const ChassisCommand corrected_command =
-        measured_command.has_value() ? apply_pid(desired_command, *measured_command) : desired_command;
-
-    if (trace_commands_ && ++trace_counter_ % 100 == 0)
+    const RemoteCommand command{
+      remote_command_reference_[0],
+      remote_command_reference_[1],
+      remote_command_reference_[2],
+    };
+    const Mode mode = mode_from_value(remote_command_reference_[3]);
+    if (mode != last_mode_)
     {
-      const ChassisCommand measured = measured_command.value_or(ChassisCommand::Constant(std::nan("")));
-      RCLCPP_INFO(get_node()->get_logger(),
-                  "[trace] chassis in=(%.3f %.3f %.3f) measured=(%.3f %.3f %.3f) out->%s=(%.3f %.3f %.3f)",
-                  desired_command.x(), desired_command.y(), desired_command.z(), measured.x(), measured.y(),
-                  measured.z(), target_controller_name_.c_str(), corrected_command.x(), corrected_command.y(),
-                  corrected_command.z());
+      reset_pid();
+      last_mode_ = mode;
+      if (trace_commands_.load())
+      {
+        RCLCPP_INFO(get_node()->get_logger(), "[trace] chassis mode -> %s", mode_name(mode));
+      }
     }
 
-    if (!measured_command.has_value())
+    const auto values = calculate_command(mode, command);
+    if (trace_commands_.load() && ++update_trace_counter_ % 100 == 0)
     {
-      reset_pid_calculators();
+      RCLCPP_INFO(get_node()->get_logger(), "[trace] mode=%s out->%s: vx=%.3f vy=%.3f wz=%.3f", mode_name(mode),
+                  target_controller_name_.c_str(), values[0], values[1], values[2]);
     }
 
-    return write_chassis_commands(corrected_command) ? controller_interface::return_type::OK :
-                                                       controller_interface::return_type::ERROR;
+    return write_command(values) ? controller_interface::return_type::OK : controller_interface::return_type::ERROR;
   }
 
 private:
+  enum class Mode : std::uint8_t
+  {
+    kRaw = 0,
+    kFollow = 1,
+    kTwist = 2,
+  };
+
+  struct RemoteCommand
+  {
+    double vx = 0.0;
+    double vy = 0.0;
+    double wz = 0.0;
+  };
+
+  static constexpr std::array<const char*, 4> remote_command_suffixes = {
+    "linear/x/velocity",
+    "linear/y/velocity",
+    "angular/z/velocity",
+    "mode",
+  };
+
   static constexpr std::array<const char*, 3> chassis_command_suffixes = {
     "linear/x/velocity",
     "linear/y/velocity",
     "angular/z/velocity",
   };
 
-  ChassisToWheelMatrix make_chassis_to_wheel_matrix() const
+  template <typename T>
+  void declare_parameter_if_missing(const std::string& name, const T& default_value)
   {
-    const double lever_arm = chassis_radius_x_ + chassis_radius_y_;
-
-    ChassisToWheelMatrix matrix;
-    matrix << -1.0, 1.0, lever_arm, -1.0, -1.0, lever_arm, 1.0, -1.0, lever_arm, 1.0, 1.0, lever_arm;
-    matrix *= -1.0 / (std::numbers::sqrt2 * wheel_radius_);
-    return matrix;
-  }
-
-  static WheelToChassisMatrix make_wheel_to_chassis_matrix(const ChassisToWheelMatrix& chassis_to_wheel)
-  {
-    return (chassis_to_wheel.transpose() * chassis_to_wheel).inverse() * chassis_to_wheel.transpose();
-  }
-
-  void reset_references()
-  {
-    chassis_reference_.fill(0.0);
-  }
-
-  void reset_pid_calculators()
-  {
-    linear_x_pid_.reset();
-    linear_y_pid_.reset();
-    angular_z_pid_.reset();
+    if (!get_node()->has_parameter(name))
+    {
+      get_node()->declare_parameter<T>(name, default_value);
+    }
   }
 
   std::string get_target_controller_name() const
@@ -265,48 +238,175 @@ private:
         return parameter.as_string();
       }
     }
-
     return target_controller_name_;
   }
 
-  std::optional<ChassisCommand> measure_chassis_command() const
+  std::string get_yaw_state_interface_name() const
   {
-    if (state_interfaces_.size() != wheel_joints_.size())
+    std::string joint_name = yaw_joint_name_;
+    std::string interface_name = yaw_state_interface_name_;
+    if (const auto node = get_node())
     {
-      return std::nullopt;
-    }
-
-    WheelState wheel_state;
-    for (std::size_t index = 0; index < wheel_joints_.size(); ++index)
-    {
-      const double value = state_interfaces_[index].get_value();
-      if (!std::isfinite(value))
+      const auto joint_parameter = node->get_parameter("yaw_joint_name");
+      const auto interface_parameter = node->get_parameter("yaw_state_interface_name");
+      if (joint_parameter.get_type() == rclcpp::ParameterType::PARAMETER_STRING && !joint_parameter.as_string().empty())
       {
-        return std::nullopt;
+        joint_name = joint_parameter.as_string();
       }
-      wheel_state[static_cast<Eigen::Index>(index)] = value;
+      if (interface_parameter.get_type() == rclcpp::ParameterType::PARAMETER_STRING &&
+          !interface_parameter.as_string().empty())
+      {
+        interface_name = interface_parameter.as_string();
+      }
+    }
+    return joint_name + "/" + interface_name;
+  }
+
+  std::string get_string_parameter_or(const std::string& name, const std::string& fallback) const
+  {
+    const auto parameter = get_node()->get_parameter(name);
+    if (parameter.get_type() == rclcpp::ParameterType::PARAMETER_STRING && !parameter.as_string().empty())
+    {
+      return parameter.as_string();
+    }
+    return fallback;
+  }
+
+  static Mode mode_from_value(double value)
+  {
+    if (!std::isfinite(value))
+    {
+      return Mode::kRaw;
     }
 
-    return wheel_to_chassis_ * wheel_state;
-  }
-
-  ChassisCommand apply_pid(const ChassisCommand& desired_command, const ChassisCommand& measured_command)
-  {
-    // Keep the desired command as feedforward, and use PID as a correction term.
-    ChassisCommand corrected_command = desired_command;
-    corrected_command.x() += linear_x_pid_.update(desired_command.x() - measured_command.x());
-    corrected_command.y() += linear_y_pid_.update(desired_command.y() - measured_command.y());
-    corrected_command.z() += angular_z_pid_.update(desired_command.z() - measured_command.z());
-    return corrected_command;
-  }
-
-  bool write_chassis_commands(const ChassisCommand& commands)
-  {
-    for (std::size_t index = 0; index < chassis_command_suffixes.size(); ++index)
+    switch (static_cast<std::uint8_t>(std::llround(value)))
     {
-      if (!command_interfaces_[index].set_value(commands[static_cast<Eigen::Index>(index)]))
+      case static_cast<std::uint8_t>(Mode::kFollow):
+        return Mode::kFollow;
+      case static_cast<std::uint8_t>(Mode::kTwist):
+        return Mode::kTwist;
+      case static_cast<std::uint8_t>(Mode::kRaw):
+      default:
+        return Mode::kRaw;
+    }
+  }
+
+  static const char* mode_name(Mode mode)
+  {
+    switch (mode)
+    {
+      case Mode::kFollow:
+        return "FOLLOW";
+      case Mode::kTwist:
+        return "TWIST";
+      case Mode::kRaw:
+      default:
+        return "RAW";
+    }
+  }
+
+  std::array<double, 3> calculate_command(Mode mode, const RemoteCommand& command)
+  {
+    const double yaw = read_yaw_position();
+    std::array<double, 3> values = command_to_base_link(command, yaw);
+    switch (mode)
+    {
+      case Mode::kFollow:
+        values[2] = calculate_follow_angular_velocity(yaw, command.wz);
+        break;
+      case Mode::kTwist:
+        values[2] = calculate_twist_angular_velocity(yaw);
+        break;
+      case Mode::kRaw:
+      default:
+        break;
+    }
+    return values;
+  }
+
+  std::array<double, 3> command_to_base_link(const RemoteCommand& command, double yaw) const
+  {
+    if (command_source_frame_ == "base_link")
+    {
+      return { command.vx, command.vy, command.wz };
+    }
+
+    const double cos_yaw = std::cos(yaw);
+    const double sin_yaw = std::sin(yaw);
+    return {
+      cos_yaw * command.vx - sin_yaw * command.vy,
+      sin_yaw * command.vx + cos_yaw * command.vy,
+      command.wz,
+    };
+  }
+
+  double calculate_follow_angular_velocity(double yaw, double feedforward)
+  {
+    return follow_pid_.update(normalize_angle(yaw)) + feedforward + follow_velocity_feedforward_;
+  }
+
+  double calculate_twist_angular_velocity(double yaw)
+  {
+    constexpr std::array<double, 4> candidate_offsets{
+      -std::numbers::pi / 4.0,
+      std::numbers::pi / 4.0,
+      3.0 * std::numbers::pi / 4.0,
+      -3.0 * std::numbers::pi / 4.0,
+    };
+
+    double offset = 0.0;
+    for (const double candidate : candidate_offsets)
+    {
+      if (std::abs(shortest_angular_distance(yaw, candidate)) < 0.79)
       {
-        RCLCPP_ERROR(get_node()->get_logger(), "Failed to write chained command '%s/%s'",
+        offset = candidate;
+        break;
+      }
+    }
+
+    const double desired_yaw =
+        twist_angular_ * std::sin(2.0 * std::numbers::pi * steady_clock_.now().seconds()) + offset;
+    return follow_pid_.update(-shortest_angular_distance(yaw, desired_yaw));
+  }
+
+  double read_yaw_position() const
+  {
+    if (state_interfaces_.empty())
+    {
+      return 0.0;
+    }
+
+    const std::optional<double> yaw = state_interfaces_[0].get_optional();
+    return yaw.has_value() && std::isfinite(*yaw) ? *yaw : 0.0;
+  }
+
+  static double normalize_angle(double angle)
+  {
+    return std::atan2(std::sin(angle), std::cos(angle));
+  }
+
+  static double shortest_angular_distance(double from, double to)
+  {
+    return normalize_angle(to - from);
+  }
+
+  void reset_references()
+  {
+    remote_command_reference_.fill(0.0);
+  }
+
+  void reset_pid()
+  {
+    follow_pid_.reset();
+  }
+
+  bool write_command(const std::array<double, 3>& values)
+  {
+    for (std::size_t index = 0; index < values.size(); ++index)
+    {
+      if (!command_interfaces_[index].set_value(values[index]))
+      {
+        RCLCPP_ERROR(get_node()->get_logger(), "Failed to write reference command '%s/%s'",
                      target_controller_name_.c_str(), chassis_command_suffixes[index]);
         return false;
       }
@@ -315,19 +415,17 @@ private:
   }
 
   std::string target_controller_name_;
-  std::vector<std::string> wheel_joints_;
-  std::string wheel_state_interface_name_;
-  double wheel_radius_ = 0.07;
-  double chassis_radius_x_ = 0.15897;
-  double chassis_radius_y_ = 0.15897;
-  bool trace_commands_ = false;
-  std::size_t trace_counter_ = 0;
-  std::array<double, 3> chassis_reference_{ 0.0, 0.0, 0.0 };
-  ChassisToWheelMatrix chassis_to_wheel_ = ChassisToWheelMatrix::Zero();
-  WheelToChassisMatrix wheel_to_chassis_ = WheelToChassisMatrix::Zero();
-  rmgo_core::pid::PidCalculator linear_x_pid_;
-  rmgo_core::pid::PidCalculator linear_y_pid_;
-  rmgo_core::pid::PidCalculator angular_z_pid_;
+  std::string yaw_joint_name_;
+  std::string yaw_state_interface_name_;
+  std::string command_source_frame_ = "yaw";
+  double twist_angular_ = std::numbers::pi / 6.0;
+  double follow_velocity_feedforward_ = 0.0;
+  std::atomic_bool trace_commands_{ false };
+  std::size_t update_trace_counter_ = 0;
+  rclcpp::Clock steady_clock_{ RCL_STEADY_TIME };
+  std::array<double, 4> remote_command_reference_{ 0.0, 0.0, 0.0, 0.0 };
+  Mode last_mode_ = Mode::kRaw;
+  rmgo_core::pid::PidCalculator follow_pid_;
 };
 
 }  // namespace rmgo_core::controller::chassis

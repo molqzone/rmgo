@@ -1,5 +1,6 @@
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -13,6 +14,7 @@
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 #include <realtime_tools/realtime_buffer.hpp>
+#include <std_msgs/msg/u_int8.hpp>
 
 namespace rmgo_core
 {
@@ -24,6 +26,7 @@ public:
   {
     target_controller_name_ = auto_declare<std::string>("target_controller_name", "chassis_controller");
     command_buffer_.initRT(BufferedCommand{});
+    mode_buffer_.initRT(kRawMode);
     return controller_interface::CallbackReturn::SUCCESS;
   }
 
@@ -64,6 +67,10 @@ public:
     {
       node_->declare_parameter<std::string>("cmd_vel_topic", "/cmd_vel");
     }
+    if (!node_->has_parameter("mode_topic"))
+    {
+      node_->declare_parameter<std::string>("mode_topic", "/cmd_chassis_mode");
+    }
     if (!node_->has_parameter("command_timeout"))
     {
       node_->declare_parameter<double>("command_timeout", 0.25);
@@ -74,11 +81,12 @@ public:
     }
 
     const std::string cmd_vel_topic = node_->get_parameter("cmd_vel_topic").as_string();
+    const std::string mode_topic = node_->get_parameter("mode_topic").as_string();
     const double command_timeout = node_->get_parameter("command_timeout").as_double();
     trace_commands_.store(node_->get_parameter("trace_commands").as_bool());
-    if (cmd_vel_topic.empty())
+    if (cmd_vel_topic.empty() || mode_topic.empty())
     {
-      RCLCPP_ERROR(node_->get_logger(), "cmd_vel_topic must not be empty");
+      RCLCPP_ERROR(node_->get_logger(), "cmd_vel_topic and mode_topic must not be empty");
       return controller_interface::CallbackReturn::ERROR;
     }
 
@@ -86,11 +94,15 @@ public:
     {
       cmd_vel_subscriber_.reset();
     }
+    if (mode_subscriber_ && mode_topic_ != mode_topic)
+    {
+      mode_subscriber_.reset();
+    }
 
     cmd_vel_topic_ = cmd_vel_topic;
+    mode_topic_ = mode_topic;
     command_timeout_ = command_timeout;
 
-    // Subscribe cmd_vel for command buffering
     if (!cmd_vel_subscriber_)
     {
       cmd_vel_subscriber_ = node_->create_subscription<geometry_msgs::msg::Twist>(
@@ -109,6 +121,12 @@ public:
             }
           });
     }
+    if (!mode_subscriber_)
+    {
+      mode_subscriber_ = node_->create_subscription<std_msgs::msg::UInt8>(
+          mode_topic_, rclcpp::SystemDefaultsQoS(),
+          [this](const std_msgs::msg::UInt8::SharedPtr msg) { mode_buffer_.writeFromNonRT(msg->data); });
+    }
 
     return controller_interface::CallbackReturn::SUCCESS;
   }
@@ -123,15 +141,17 @@ public:
     }
 
     command_buffer_.writeFromNonRT(BufferedCommand{});
-    return write_command({ 0.0, 0.0, 0.0 }) ? controller_interface::CallbackReturn::SUCCESS :
-                                              controller_interface::CallbackReturn::ERROR;
+    mode_buffer_.writeFromNonRT(kRawMode);
+    return write_command({ 0.0, 0.0, 0.0, kRawMode }) ? controller_interface::CallbackReturn::SUCCESS :
+                                                        controller_interface::CallbackReturn::ERROR;
   }
 
   controller_interface::CallbackReturn on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override
   {
     command_buffer_.writeFromNonRT(BufferedCommand{});
-    return write_command({ 0.0, 0.0, 0.0 }) ? controller_interface::CallbackReturn::SUCCESS :
-                                              controller_interface::CallbackReturn::ERROR;
+    mode_buffer_.writeFromNonRT(kRawMode);
+    return write_command({ 0.0, 0.0, 0.0, kRawMode }) ? controller_interface::CallbackReturn::SUCCESS :
+                                                        controller_interface::CallbackReturn::ERROR;
   }
 
   controller_interface::return_type update(const rclcpp::Time& time, const rclcpp::Duration& /*period*/) override
@@ -141,14 +161,16 @@ public:
     const rclcpp::Time now = steady_clock_.now();
     const bool valid =
         command.valid && (command_timeout_ <= 0.0 || (now - command.stamp).seconds() <= command_timeout_);
-    const auto values =
-        valid ? std::array<double, 3>{ command.vx, command.vy, command.wz } : std::array<double, 3>{ 0.0, 0.0, 0.0 };
+    const double mode = static_cast<double>(*mode_buffer_.readFromRT());
+    const auto values = valid ? std::array<double, 4>{ command.vx, command.vy, command.wz, mode } :
+                                std::array<double, 4>{ 0.0, 0.0, 0.0, mode };
 
     if (trace_commands_.load() && ++update_trace_counter_ % 100 == 0)
     {
       RCLCPP_INFO(get_node()->get_logger(),
-                  "[trace] writing %s reference: vx=%.3f vy=%.3f wz=%.3f valid=%s age=%.3f timeout=%.3f",
-                  target_controller_name_.c_str(), values[0], values[1], values[2], valid ? "true" : "false",
+                  "[trace] writing %s remote command: vx=%.3f vy=%.3f wz=%.3f mode=%.0f valid=%s age=%.3f "
+                  "timeout=%.3f",
+                  target_controller_name_.c_str(), values[0], values[1], values[2], values[3], valid ? "true" : "false",
                   command.valid ? (now - command.stamp).seconds() : -1.0, command_timeout_);
     }
 
@@ -165,10 +187,13 @@ private:
     bool valid = false;
   };
 
-  static constexpr std::array<const char*, 3> command_interface_suffixes = {
+  static constexpr std::uint8_t kRawMode = 0;
+
+  static constexpr std::array<const char*, 4> command_interface_suffixes = {
     "linear/x/velocity",
     "linear/y/velocity",
     "angular/z/velocity",
+    "mode",
   };
 
   std::string get_target_controller_name() const
@@ -185,7 +210,7 @@ private:
     return target_controller_name_;
   }
 
-  bool write_command(const std::array<double, 3>& values)
+  bool write_command(const std::array<double, 4>& values)
   {
     for (std::size_t index = 0; index < values.size(); ++index)
     {
@@ -202,14 +227,17 @@ private:
 
   std::string target_controller_name_;
   std::string cmd_vel_topic_ = "/cmd_vel";
+  std::string mode_topic_ = "/cmd_chassis_mode";
   double command_timeout_ = 0.25;
   std::atomic_bool trace_commands_{ false };
   std::atomic_size_t received_trace_counter_{ 0 };
   std::size_t update_trace_counter_ = 0;
   rclcpp::Clock steady_clock_{ RCL_STEADY_TIME };
   realtime_tools::RealtimeBuffer<BufferedCommand> command_buffer_;
+  realtime_tools::RealtimeBuffer<std::uint8_t> mode_buffer_;
   std::shared_ptr<rclcpp_lifecycle::LifecycleNode> node_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_subscriber_;
+  rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr mode_subscriber_;
 };
 
 }  // namespace rmgo_core

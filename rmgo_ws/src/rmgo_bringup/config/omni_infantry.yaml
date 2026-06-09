@@ -23,24 +23,16 @@ controller_manager:
 chassis_controller:
   ros__parameters:
     target_controller_name: chassis_power_controller
-    wheel_joints:
-      - left_front_wheel_joint
-      - left_back_wheel_joint
-      - right_back_wheel_joint
-      - right_front_wheel_joint
-    wheel_state_interface_name: velocity
-    wheel_radius: 0.07
-    chassis_radius_x: 0.15897
-    chassis_radius_y: 0.15897
-    linear_x_kp: 0.0
-    linear_x_ki: 0.0
-    linear_x_kd: 0.0
-    linear_y_kp: 0.0
-    linear_y_ki: 0.0
-    linear_y_kd: 0.0
-    angular_z_kp: 0.0
-    angular_z_ki: 0.0
-    angular_z_kd: 0.0
+    yaw_joint_name: yaw_joint
+    yaw_state_interface_name: position
+    command_source_frame: yaw
+    twist_angular: 0.5235987755982988
+    follow_velocity_feedforward: 0.0
+    follow_kp: 7.0
+    follow_ki: 0.0
+    follow_kd: 0.0
+    follow_output_min: -16.0
+    follow_output_max: 16.0
     trace_commands: false
 
 chassis_power_controller:
@@ -56,16 +48,27 @@ omni_wheel_controller:
       - right_back_wheel_joint
       - right_front_wheel_joint
     command_interface_name: velocity
+    wheel_state_interface_name: velocity
     wheel_radius: 0.07
     chassis_radius_x: 0.15897
     chassis_radius_y: 0.15897
     max_wheel_velocity: 40.0
+    linear_x_kp: 0.0
+    linear_x_ki: 0.0
+    linear_x_kd: 0.0
+    linear_y_kp: 0.0
+    linear_y_ki: 0.0
+    linear_y_kd: 0.0
+    angular_z_kp: 0.0
+    angular_z_ki: 0.0
+    angular_z_kd: 0.0
     trace_commands: false
 
 teleop_remote_controller:
   ros__parameters:
     target_controller_name: chassis_controller
     cmd_vel_topic: /cmd_vel
+    mode_topic: /cmd_chassis_mode
     command_timeout: 2.0
     trace_commands: false
 
