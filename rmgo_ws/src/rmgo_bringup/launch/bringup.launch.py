@@ -49,6 +49,7 @@ def launch_setup(context: LaunchContext, *args, **kwargs):
     gazebo_resource_path = os.path.dirname(description_share)
     existing_gazebo_resource_path = os.environ.get("GZ_SIM_RESOURCE_PATH", "")
     controller_names = load_controller_names(config_file)
+    odometry_topic = f"/model/{robot_name}/odometry"
 
     robot_description = ParameterValue(
         Command(
@@ -92,7 +93,10 @@ def launch_setup(context: LaunchContext, *args, **kwargs):
         Node(
             package="ros_gz_bridge",
             executable="parameter_bridge",
-            arguments=["/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"],
+            arguments=[
+                "/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock",
+                odometry_topic + "@nav_msgs/msg/Odometry[gz.msgs.Odometry",
+            ],
             output="screen",
         ),
         Node(
