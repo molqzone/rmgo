@@ -2,13 +2,29 @@
 <robot name="omni_infantry" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:arg name="hardware_plugin" default="gz_ros2_control/GazeboSimSystem"/>
   <xacro:arg name="controllers_file" default="$(find rmgo_description)/config/omni_infantry_controllers.yaml"/>
+  <xacro:arg name="debug_visuals" default="false"/>
 
   <xacro:property name="wheel_distance_x" value="0.31794"/>
   <xacro:property name="wheel_distance_y" value="0.31794"/>
+  <xacro:property name="wheel_radius" value="0.07"/>
+  <xacro:property name="roller_radius" value="0.012"/>
+  <xacro:property name="roller_ring_radius" value="${wheel_radius - roller_radius}"/>
   <xacro:property name="gimbal_center_height" value="0.32059"/>
 
   <material name="white">
     <color rgba="1 1 1 1"/>
+  </material>
+
+  <material name="black">
+    <color rgba="0.02 0.02 0.02 1"/>
+  </material>
+
+  <material name="chassis_gray">
+    <color rgba="0.36 0.38 0.36 1"/>
+  </material>
+
+  <material name="gimbal_orange">
+    <color rgba="0.92 0.42 0.12 1"/>
   </material>
 
   <xacro:macro name="box_inertial" params="mass x y z">
@@ -37,6 +53,19 @@
     </inertial>
   </xacro:macro>
 
+  <xacro:macro name="sphere_inertial" params="mass radius">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia
+        ixx="${2.0 * mass * radius * radius / 5.0}"
+        ixy="0.0"
+        ixz="0.0"
+        iyy="${2.0 * mass * radius * radius / 5.0}"
+        iyz="0.0"
+        izz="${2.0 * mass * radius * radius / 5.0}"/>
+    </inertial>
+  </xacro:macro>
+
   <xacro:macro name="tiny_inertial" params="mass">
     <inertial>
       <mass value="${mass}"/>
@@ -52,6 +81,38 @@
     </collision>
   </xacro:macro>
 
+  <xacro:macro name="box_visual" params="name x y z material origin_xyz:='0 0 0'">
+    <visual name="${name}">
+      <origin xyz="${origin_xyz}"/>
+      <geometry>
+        <box size="${x} ${y} ${z}"/>
+      </geometry>
+      <material name="${material}"/>
+    </visual>
+  </xacro:macro>
+
+  <xacro:macro name="debug_box_visual" params="name x y z material origin_xyz:='0 0 0'">
+    <xacro:if value="$(arg debug_visuals)">
+      <xacro:box_visual name="${name}" x="${x}" y="${y}" z="${z}" material="${material}" origin_xyz="${origin_xyz}"/>
+    </xacro:if>
+  </xacro:macro>
+
+  <xacro:macro name="x_cylinder_visual" params="name radius length material">
+    <visual name="${name}">
+      <origin rpy="0 ${pi/2} 0"/>
+      <geometry>
+        <cylinder radius="${radius}" length="${length}"/>
+      </geometry>
+      <material name="${material}"/>
+    </visual>
+  </xacro:macro>
+
+  <xacro:macro name="debug_x_cylinder_visual" params="name radius length material">
+    <xacro:if value="$(arg debug_visuals)">
+      <xacro:x_cylinder_visual name="${name}" radius="${radius}" length="${length}" material="${material}"/>
+    </xacro:if>
+  </xacro:macro>
+
   <xacro:macro name="stl_visual" params="filename">
     <visual>
       <geometry>
@@ -64,42 +125,102 @@
   <link name="base_link">
     <xacro:box_inertial mass="10.0" x="0.45" y="0.45" z="0.12"/>
     <xacro:stl_visual filename="base_link.stl"/>
-    <xacro:box_collision x="0.45" y="0.45" z="0.12"/>
+    <xacro:debug_box_visual name="base_debug_visual" x="0.45" y="0.45" z="0.12" material="chassis_gray" origin_xyz="0 0 0.11"/>
+    <collision>
+      <origin xyz="0 0 0.11"/>
+      <geometry>
+        <box size="0.45 0.45 0.12"/>
+      </geometry>
+    </collision>
   </link>
 
-  <xacro:macro name="generate_wheel" params="name rpy xyz">
-    <link name="${name}_wheel_link">
-      <xacro:x_cylinder_inertial mass="0.5" radius="0.07" length="0.05"/>
-      <xacro:stl_visual filename="wheel_link.stl"/>
+  <gazebo reference="base_link">
+    <mu1 value="1.0"/>
+    <mu2 value="1.0"/>
+    <kp value="1000000.0"/>
+    <kd value="100.0"/>
+  </gazebo>
+
+  <xacro:macro name="generate_roller" params="wheel index theta">
+    <link name="${wheel}_roller_${index}_link">
+      <xacro:sphere_inertial mass="0.006" radius="${roller_radius}"/>
       <collision>
-        <origin rpy="0 ${pi/2} 0"/>
         <geometry>
-          <cylinder radius="0.07" length="0.05"/>
+          <sphere radius="${roller_radius}"/>
         </geometry>
       </collision>
+      <visual>
+        <geometry>
+          <sphere radius="${roller_radius}"/>
+        </geometry>
+        <material name="black"/>
+      </visual>
     </link>
+
+    <joint name="${wheel}_roller_${index}_joint" type="continuous">
+      <origin xyz="0 ${roller_ring_radius * cos(theta)} ${roller_ring_radius * sin(theta)}"/>
+      <axis xyz="0 ${-sin(theta)} ${cos(theta)}"/>
+      <dynamics damping="0.0" friction="0.001"/>
+      <parent link="${wheel}_wheel_link"/>
+      <child link="${wheel}_roller_${index}_link"/>
+    </joint>
+
+    <gazebo reference="${wheel}_roller_${index}_link">
+      <mu1 value="2000.0"/>
+      <mu2 value="2000.0"/>
+      <kp value="1000000.0"/>
+      <kd value="100.0"/>
+      <material>Gazebo/Black</material>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:macro name="generate_roller_ring" params="wheel">
+    <xacro:generate_roller wheel="${wheel}" index="0" theta="${0*pi/6}"/>
+    <xacro:generate_roller wheel="${wheel}" index="1" theta="${1*pi/6}"/>
+    <xacro:generate_roller wheel="${wheel}" index="2" theta="${2*pi/6}"/>
+    <xacro:generate_roller wheel="${wheel}" index="3" theta="${3*pi/6}"/>
+    <xacro:generate_roller wheel="${wheel}" index="4" theta="${4*pi/6}"/>
+    <xacro:generate_roller wheel="${wheel}" index="5" theta="${5*pi/6}"/>
+    <xacro:generate_roller wheel="${wheel}" index="6" theta="${6*pi/6}"/>
+    <xacro:generate_roller wheel="${wheel}" index="7" theta="${7*pi/6}"/>
+    <xacro:generate_roller wheel="${wheel}" index="8" theta="${8*pi/6}"/>
+    <xacro:generate_roller wheel="${wheel}" index="9" theta="${9*pi/6}"/>
+    <xacro:generate_roller wheel="${wheel}" index="10" theta="${10*pi/6}"/>
+    <xacro:generate_roller wheel="${wheel}" index="11" theta="${11*pi/6}"/>
+  </xacro:macro>
+
+  <xacro:macro name="generate_omni_wheel" params="name rpy xyz">
+    <link name="${name}_wheel_link">
+      <xacro:x_cylinder_inertial mass="0.45" radius="${wheel_radius}" length="0.05"/>
+      <xacro:stl_visual filename="wheel_link.stl"/>
+      <xacro:debug_x_cylinder_visual name="${name}_wheel_debug_visual" radius="${wheel_radius}" length="0.05" material="black"/>
+    </link>
+
     <joint name="${name}_wheel_joint" type="continuous">
       <axis xyz="1 0 0"/>
       <limit effort="20.0" velocity="40.0"/>
+      <dynamics damping="0.0" friction="0.02"/>
       <parent link="base_link"/>
       <child link="${name}_wheel_link"/>
       <origin rpy="${rpy}" xyz="${xyz}"/>
     </joint>
+
+    <xacro:generate_roller_ring wheel="${name}"/>
   </xacro:macro>
 
-  <xacro:generate_wheel
+  <xacro:generate_omni_wheel
     name="left_front"
     rpy="0 0 ${pi/4}"
     xyz="${wheel_distance_x/2} ${wheel_distance_y/2} 0"/>
-  <xacro:generate_wheel
+  <xacro:generate_omni_wheel
     name="left_back"
     rpy="0 0 ${3*pi/4}"
     xyz="-${wheel_distance_x/2} ${wheel_distance_y/2} 0"/>
-  <xacro:generate_wheel
+  <xacro:generate_omni_wheel
     name="right_back"
     rpy="0 0 -${3*pi/4}"
     xyz="-${wheel_distance_x/2} -${wheel_distance_y/2} 0"/>
-  <xacro:generate_wheel
+  <xacro:generate_omni_wheel
     name="right_front"
     rpy="0 0 -${pi/4}"
     xyz="${wheel_distance_x/2} -${wheel_distance_y/2} 0"/>
@@ -107,6 +228,7 @@
   <link name="yaw_link">
     <xacro:box_inertial mass="2.0" x="0.18" y="0.18" z="0.12"/>
     <xacro:stl_visual filename="yaw_link.stl"/>
+    <xacro:debug_box_visual name="yaw_debug_visual" x="0.18" y="0.18" z="0.12" material="gimbal_orange"/>
     <xacro:box_collision x="0.18" y="0.18" z="0.12"/>
   </link>
   <joint name="yaw_joint" type="continuous">
@@ -120,6 +242,7 @@
   <link name="pitch_link">
     <xacro:box_inertial mass="1.0" x="0.20" y="0.12" z="0.12"/>
     <xacro:stl_visual filename="pitch_link.stl"/>
+    <xacro:debug_box_visual name="pitch_debug_visual" x="0.20" y="0.12" z="0.12" material="gimbal_orange"/>
     <xacro:box_collision x="0.20" y="0.12" z="0.12"/>
   </link>
   <joint name="pitch_joint" type="continuous">

@@ -17,8 +17,7 @@ public:
     reset();
   }
 
-  PidCalculator(double kp_value, double ki_value, double kd_value)
-  : kp(kp_value), ki(ki_value), kd(kd_value)
+  PidCalculator(double kp_value, double ki_value, double kd_value) : kp(kp_value), ki(ki_value), kd(kd_value)
   {
     reset();
   }
@@ -82,28 +81,25 @@ private:
 };
 
 template <typename NodeT>
-PidCalculator make_pid_calculator(
-  NodeT & node,
-  const std::string & prefix,
-  std::optional<double> kp_default = std::nullopt,
-  std::optional<double> ki_default = std::nullopt,
-  std::optional<double> kd_default = std::nullopt)
+PidCalculator
+make_pid_calculator(NodeT& node, const std::string& prefix, std::optional<double> kp_default = std::nullopt,
+                    std::optional<double> ki_default = std::nullopt, std::optional<double> kd_default = std::nullopt)
 {
-  const auto declare_if_missing = [&node](const std::string & name, double default_value) {
+  const auto declare_if_missing = [&node](const std::string& name, double default_value) {
     if (!node.has_parameter(name))
     {
       node.template declare_parameter<double>(name, default_value);
     }
   };
 
-  const auto parameter_or_default =
-    [&node, &declare_if_missing](const std::string & name, std::optional<double> default_value) {
-      if (default_value.has_value())
-      {
-        declare_if_missing(name, *default_value);
-      }
-      return node.get_parameter(name).as_double();
-    };
+  const auto parameter_or_default = [&node, &declare_if_missing](const std::string& name,
+                                                                 std::optional<double> default_value) {
+    if (default_value.has_value())
+    {
+      declare_if_missing(name, *default_value);
+    }
+    return node.get_parameter(name).as_double();
+  };
 
   declare_if_missing(prefix + "integral_min", std::numeric_limits<double>::lowest());
   declare_if_missing(prefix + "integral_max", std::numeric_limits<double>::max());

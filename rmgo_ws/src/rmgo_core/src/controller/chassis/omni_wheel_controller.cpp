@@ -31,6 +31,7 @@ public:
     chassis_radius_x_ = auto_declare<double>("chassis_radius_x", 0.15897);
     chassis_radius_y_ = auto_declare<double>("chassis_radius_y", 0.15897);
     max_wheel_velocity_ = auto_declare<double>("max_wheel_velocity", 40.0);
+    trace_commands_ = auto_declare<bool>("trace_commands", false);
 
     return controller_interface::CallbackReturn::SUCCESS;
   }
@@ -57,21 +58,23 @@ public:
 
   std::vector<hardware_interface::CommandInterface::SharedPtr> on_export_reference_interfaces_list() override
   {
-    reference_interfaces_.assign(3, 0.0);
+    reset_references();
 
     const std::string controller_name = get_node()->get_name();
     return {
       std::make_shared<hardware_interface::CommandInterface>(controller_name, chassis_command_suffixes[0],
-                                                             &reference_interfaces_[0]),
+                                                             &chassis_reference_[0]),
       std::make_shared<hardware_interface::CommandInterface>(controller_name, chassis_command_suffixes[1],
-                                                             &reference_interfaces_[1]),
+                                                             &chassis_reference_[1]),
       std::make_shared<hardware_interface::CommandInterface>(controller_name, chassis_command_suffixes[2],
-                                                             &reference_interfaces_[2]),
+                                                             &chassis_reference_[2]),
     };
   }
 
   std::vector<hardware_interface::StateInterface::SharedPtr> on_export_state_interfaces_list() override
-  { return {}; }
+  {
+    return {};
+  }
 
   bool on_set_chained_mode(bool chained_mode) override
   {
@@ -87,6 +90,7 @@ public:
     chassis_radius_x_ = get_node()->get_parameter("chassis_radius_x").as_double();
     chassis_radius_y_ = get_node()->get_parameter("chassis_radius_y").as_double();
     max_wheel_velocity_ = get_node()->get_parameter("max_wheel_velocity").as_double();
+    trace_commands_ = get_node()->get_parameter("trace_commands").as_bool();
 
     if (wheel_joints_.size() != 4)
     {
@@ -143,9 +147,16 @@ public:
   controller_interface::return_type update_and_write_commands(const rclcpp::Time& /*time*/,
                                                               const rclcpp::Duration& /*period*/) override
   {
-    const ChassisCommand chassis_command{ reference_interfaces_[0], reference_interfaces_[1], reference_interfaces_[2] };
+    const ChassisCommand chassis_command{ chassis_reference_[0], chassis_reference_[1], chassis_reference_[2] };
     WheelCommand wheel_commands = inverse_kinematics(chassis_command);
     constrain_wheel_commands(wheel_commands);
+
+    if (trace_commands_ && ++trace_counter_ % 100 == 0)
+    {
+      RCLCPP_INFO(get_node()->get_logger(), "[trace] omni wheel in=(%.3f %.3f %.3f) wheel_cmd=(%.3f %.3f %.3f %.3f)",
+                  chassis_command.x(), chassis_command.y(), chassis_command.z(), wheel_commands.x(), wheel_commands.y(),
+                  wheel_commands.z(), wheel_commands.w());
+    }
 
     return write_wheel_commands(wheel_commands) ? controller_interface::return_type::OK :
                                                   controller_interface::return_type::ERROR;
@@ -169,7 +180,9 @@ private:
   }
 
   WheelCommand inverse_kinematics(const ChassisCommand& chassis_command) const
-  { return chassis_to_wheel_ * chassis_command; }
+  {
+    return chassis_to_wheel_ * chassis_command;
+  }
 
   void constrain_wheel_commands(WheelCommand& wheel_commands) const
   {
@@ -189,14 +202,7 @@ private:
 
   void reset_references()
   {
-    if (reference_interfaces_.size() < 3)
-    {
-      reference_interfaces_.assign(3, 0.0);
-      return;
-    }
-    reference_interfaces_[0] = 0.0;
-    reference_interfaces_[1] = 0.0;
-    reference_interfaces_[2] = 0.0;
+    chassis_reference_.fill(0.0);
   }
 
   bool write_wheel_commands(const WheelCommand& wheel_commands)
@@ -219,6 +225,9 @@ private:
   double chassis_radius_x_ = 0.15897;
   double chassis_radius_y_ = 0.15897;
   double max_wheel_velocity_ = 40.0;
+  bool trace_commands_ = false;
+  std::size_t trace_counter_ = 0;
+  std::array<double, 3> chassis_reference_{ 0.0, 0.0, 0.0 };
   ChassisToWheelMatrix chassis_to_wheel_ = ChassisToWheelMatrix::Zero();
 };
 

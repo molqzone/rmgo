@@ -31,17 +31,14 @@ public:
   {
     target_controller_name_ = auto_declare<std::string>("target_controller_name", "chassis_power_controller");
     wheel_joints_ = auto_declare<std::vector<std::string>>(
-      "wheel_joints",
-      std::vector<std::string>{
-        "left_front_wheel_joint",
-        "left_back_wheel_joint",
-        "right_back_wheel_joint",
-        "right_front_wheel_joint"});
+        "wheel_joints", std::vector<std::string>{ "left_front_wheel_joint", "left_back_wheel_joint",
+                                                  "right_back_wheel_joint", "right_front_wheel_joint" });
     wheel_state_interface_name_ =
-      auto_declare<std::string>("wheel_state_interface_name", hardware_interface::HW_IF_VELOCITY);
+        auto_declare<std::string>("wheel_state_interface_name", hardware_interface::HW_IF_VELOCITY);
     wheel_radius_ = auto_declare<double>("wheel_radius", 0.07);
     chassis_radius_x_ = auto_declare<double>("chassis_radius_x", 0.15897);
     chassis_radius_y_ = auto_declare<double>("chassis_radius_y", 0.15897);
+    trace_commands_ = auto_declare<bool>("trace_commands", false);
     return controller_interface::CallbackReturn::SUCCESS;
   }
 
@@ -63,7 +60,7 @@ public:
     controller_interface::InterfaceConfiguration config;
     config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
     config.names.reserve(wheel_joints_.size());
-    for (const auto & joint_name : wheel_joints_)
+    for (const auto& joint_name : wheel_joints_)
     {
       config.names.push_back(joint_name + "/" + wheel_state_interface_name_);
     }
@@ -72,21 +69,23 @@ public:
 
   std::vector<hardware_interface::CommandInterface::SharedPtr> on_export_reference_interfaces_list() override
   {
-    reference_interfaces_.assign(3, 0.0);
+    reset_references();
 
     const std::string controller_name = get_node()->get_name();
     return {
       std::make_shared<hardware_interface::CommandInterface>(controller_name, "linear/x/velocity",
-                                                             &reference_interfaces_[0]),
+                                                             &chassis_reference_[0]),
       std::make_shared<hardware_interface::CommandInterface>(controller_name, "linear/y/velocity",
-                                                             &reference_interfaces_[1]),
+                                                             &chassis_reference_[1]),
       std::make_shared<hardware_interface::CommandInterface>(controller_name, "angular/z/velocity",
-                                                             &reference_interfaces_[2]),
+                                                             &chassis_reference_[2]),
     };
   }
 
   std::vector<hardware_interface::StateInterface::SharedPtr> on_export_state_interfaces_list() override
-  { return {}; }
+  {
+    return {};
+  }
 
   bool on_set_chained_mode(bool chained_mode) override
   {
@@ -102,6 +101,7 @@ public:
     wheel_radius_ = get_node()->get_parameter("wheel_radius").as_double();
     chassis_radius_x_ = get_node()->get_parameter("chassis_radius_x").as_double();
     chassis_radius_y_ = get_node()->get_parameter("chassis_radius_y").as_double();
+    trace_commands_ = get_node()->get_parameter("trace_commands").as_bool();
 
     if (target_controller_name_.empty())
     {
@@ -137,7 +137,7 @@ public:
     chassis_to_wheel_ = make_chassis_to_wheel_matrix();
     wheel_to_chassis_ = make_wheel_to_chassis_matrix(chassis_to_wheel_);
 
-    auto & node = *get_node();
+    auto& node = *get_node();
     linear_x_pid_ = rmgo_core::pid::make_pid_calculator(node, "linear_x_", 0.0, 0.0, 0.0);
     linear_y_pid_ = rmgo_core::pid::make_pid_calculator(node, "linear_y_", 0.0, 0.0, 0.0);
     angular_z_pid_ = rmgo_core::pid::make_pid_calculator(node, "angular_z_", 0.0, 0.0, 0.0);
@@ -196,23 +196,29 @@ public:
   controller_interface::return_type update_and_write_commands(const rclcpp::Time& /*time*/,
                                                               const rclcpp::Duration& /*period*/) override
   {
-    const ChassisCommand desired_command{
-      reference_interfaces_[0],
-      reference_interfaces_[1],
-      reference_interfaces_[2]};
+    const ChassisCommand desired_command{ chassis_reference_[0], chassis_reference_[1], chassis_reference_[2] };
 
     const std::optional<ChassisCommand> measured_command = measure_chassis_command();
-    const ChassisCommand corrected_command = measured_command.has_value() ?
-                                            apply_pid(desired_command, *measured_command) :
-                                            desired_command;
+    const ChassisCommand corrected_command =
+        measured_command.has_value() ? apply_pid(desired_command, *measured_command) : desired_command;
+
+    if (trace_commands_ && ++trace_counter_ % 100 == 0)
+    {
+      const ChassisCommand measured = measured_command.value_or(ChassisCommand::Constant(std::nan("")));
+      RCLCPP_INFO(get_node()->get_logger(),
+                  "[trace] chassis in=(%.3f %.3f %.3f) measured=(%.3f %.3f %.3f) out->%s=(%.3f %.3f %.3f)",
+                  desired_command.x(), desired_command.y(), desired_command.z(), measured.x(), measured.y(),
+                  measured.z(), target_controller_name_.c_str(), corrected_command.x(), corrected_command.y(),
+                  corrected_command.z());
+    }
 
     if (!measured_command.has_value())
     {
       reset_pid_calculators();
     }
 
-    return write_chassis_commands(corrected_command) ? controller_interface::return_type::OK
-                                                     : controller_interface::return_type::ERROR;
+    return write_chassis_commands(corrected_command) ? controller_interface::return_type::OK :
+                                                       controller_interface::return_type::ERROR;
   }
 
 private:
@@ -227,29 +233,19 @@ private:
     const double lever_arm = chassis_radius_x_ + chassis_radius_y_;
 
     ChassisToWheelMatrix matrix;
-    matrix << -1.0, 1.0, lever_arm,
-      -1.0, -1.0, lever_arm,
-      1.0, -1.0, lever_arm,
-      1.0, 1.0, lever_arm;
+    matrix << -1.0, 1.0, lever_arm, -1.0, -1.0, lever_arm, 1.0, -1.0, lever_arm, 1.0, 1.0, lever_arm;
     matrix *= -1.0 / (std::numbers::sqrt2 * wheel_radius_);
     return matrix;
   }
 
-  static WheelToChassisMatrix make_wheel_to_chassis_matrix(const ChassisToWheelMatrix & chassis_to_wheel)
+  static WheelToChassisMatrix make_wheel_to_chassis_matrix(const ChassisToWheelMatrix& chassis_to_wheel)
   {
     return (chassis_to_wheel.transpose() * chassis_to_wheel).inverse() * chassis_to_wheel.transpose();
   }
 
   void reset_references()
   {
-    if (reference_interfaces_.size() < 3)
-    {
-      reference_interfaces_.assign(3, 0.0);
-      return;
-    }
-    reference_interfaces_[0] = 0.0;
-    reference_interfaces_[1] = 0.0;
-    reference_interfaces_[2] = 0.0;
+    chassis_reference_.fill(0.0);
   }
 
   void reset_pid_calculators()
@@ -294,7 +290,7 @@ private:
     return wheel_to_chassis_ * wheel_state;
   }
 
-  ChassisCommand apply_pid(const ChassisCommand & desired_command, const ChassisCommand & measured_command)
+  ChassisCommand apply_pid(const ChassisCommand& desired_command, const ChassisCommand& measured_command)
   {
     // Keep the desired command as feedforward, and use PID as a correction term.
     ChassisCommand corrected_command = desired_command;
@@ -304,7 +300,7 @@ private:
     return corrected_command;
   }
 
-  bool write_chassis_commands(const ChassisCommand & commands)
+  bool write_chassis_commands(const ChassisCommand& commands)
   {
     for (std::size_t index = 0; index < chassis_command_suffixes.size(); ++index)
     {
@@ -324,6 +320,9 @@ private:
   double wheel_radius_ = 0.07;
   double chassis_radius_x_ = 0.15897;
   double chassis_radius_y_ = 0.15897;
+  bool trace_commands_ = false;
+  std::size_t trace_counter_ = 0;
+  std::array<double, 3> chassis_reference_{ 0.0, 0.0, 0.0 };
   ChassisToWheelMatrix chassis_to_wheel_ = ChassisToWheelMatrix::Zero();
   WheelToChassisMatrix wheel_to_chassis_ = WheelToChassisMatrix::Zero();
   rmgo_core::pid::PidCalculator linear_x_pid_;
