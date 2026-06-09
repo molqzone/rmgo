@@ -1,4 +1,5 @@
 #include <array>
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -67,9 +68,14 @@ public:
     {
       node_->declare_parameter<double>("command_timeout", 0.25);
     }
+    if (!node_->has_parameter("trace_commands"))
+    {
+      node_->declare_parameter<bool>("trace_commands", false);
+    }
 
     const std::string cmd_vel_topic = node_->get_parameter("cmd_vel_topic").as_string();
     const double command_timeout = node_->get_parameter("command_timeout").as_double();
+    trace_commands_.store(node_->get_parameter("trace_commands").as_bool());
     if (cmd_vel_topic.empty())
     {
       RCLCPP_ERROR(node_->get_logger(), "cmd_vel_topic must not be empty");
@@ -84,18 +90,24 @@ public:
     cmd_vel_topic_ = cmd_vel_topic;
     command_timeout_ = command_timeout;
 
+    // Subscribe cmd_vel for command buffering
     if (!cmd_vel_subscriber_)
     {
       cmd_vel_subscriber_ = node_->create_subscription<geometry_msgs::msg::Twist>(
-        cmd_vel_topic_, rclcpp::SystemDefaultsQoS(), [this](const geometry_msgs::msg::Twist::SharedPtr msg) {
-          command_buffer_.writeFromNonRT(BufferedCommand{
-            msg->linear.x,
-            msg->linear.y,
-            msg->angular.z,
-            node_->now(),
-            true,
+          cmd_vel_topic_, rclcpp::SystemDefaultsQoS(), [this](const geometry_msgs::msg::Twist::SharedPtr msg) {
+            command_buffer_.writeFromNonRT(BufferedCommand{
+                msg->linear.x,
+                msg->linear.y,
+                msg->angular.z,
+                steady_clock_.now(),
+                true,
+            });
+            if (trace_commands_.load() && received_trace_counter_.fetch_add(1) % 20 == 0)
+            {
+              RCLCPP_INFO(node_->get_logger(), "[trace] received cmd_vel: vx=%.3f vy=%.3f wz=%.3f", msg->linear.x,
+                          msg->linear.y, msg->angular.z);
+            }
           });
-        });
     }
 
     return controller_interface::CallbackReturn::SUCCESS;
@@ -105,9 +117,8 @@ public:
   {
     if (command_interfaces_.size() != command_interface_suffixes.size())
     {
-      RCLCPP_ERROR(
-        get_node()->get_logger(), "Expected %zu command interfaces, got %zu", command_interface_suffixes.size(),
-        command_interfaces_.size());
+      RCLCPP_ERROR(get_node()->get_logger(), "Expected %zu command interfaces, got %zu",
+                   command_interface_suffixes.size(), command_interfaces_.size());
       return controller_interface::CallbackReturn::ERROR;
     }
 
@@ -125,11 +136,21 @@ public:
 
   controller_interface::return_type update(const rclcpp::Time& time, const rclcpp::Duration& /*period*/) override
   {
+    (void)time;
     const BufferedCommand command = *command_buffer_.readFromRT();
+    const rclcpp::Time now = steady_clock_.now();
     const bool valid =
-      command.valid && (command_timeout_ <= 0.0 || (time - command.stamp).seconds() <= command_timeout_);
+        command.valid && (command_timeout_ <= 0.0 || (now - command.stamp).seconds() <= command_timeout_);
     const auto values =
-      valid ? std::array<double, 3>{ command.vx, command.vy, command.wz } : std::array<double, 3>{ 0.0, 0.0, 0.0 };
+        valid ? std::array<double, 3>{ command.vx, command.vy, command.wz } : std::array<double, 3>{ 0.0, 0.0, 0.0 };
+
+    if (trace_commands_.load() && ++update_trace_counter_ % 100 == 0)
+    {
+      RCLCPP_INFO(get_node()->get_logger(),
+                  "[trace] writing %s reference: vx=%.3f vy=%.3f wz=%.3f valid=%s age=%.3f timeout=%.3f",
+                  target_controller_name_.c_str(), values[0], values[1], values[2], valid ? "true" : "false",
+                  command.valid ? (now - command.stamp).seconds() : -1.0, command_timeout_);
+    }
 
     return write_command(values) ? controller_interface::return_type::OK : controller_interface::return_type::ERROR;
   }
@@ -140,7 +161,7 @@ private:
     double vx = 0.0;
     double vy = 0.0;
     double wz = 0.0;
-    rclcpp::Time stamp{ 0, 0, RCL_ROS_TIME };
+    rclcpp::Time stamp{ 0, 0, RCL_STEADY_TIME };
     bool valid = false;
   };
 
@@ -170,9 +191,8 @@ private:
     {
       if (!command_interfaces_[index].set_value(values[index]))
       {
-        RCLCPP_ERROR(
-          get_node()->get_logger(), "Failed to write reference command '%s/%s'", target_controller_name_.c_str(),
-          command_interface_suffixes[index]);
+        RCLCPP_ERROR(get_node()->get_logger(), "Failed to write reference command '%s/%s'",
+                     target_controller_name_.c_str(), command_interface_suffixes[index]);
         return false;
       }
     }
@@ -183,6 +203,10 @@ private:
   std::string target_controller_name_;
   std::string cmd_vel_topic_ = "/cmd_vel";
   double command_timeout_ = 0.25;
+  std::atomic_bool trace_commands_{ false };
+  std::atomic_size_t received_trace_counter_{ 0 };
+  std::size_t update_trace_counter_ = 0;
+  rclcpp::Clock steady_clock_{ RCL_STEADY_TIME };
   realtime_tools::RealtimeBuffer<BufferedCommand> command_buffer_;
   std::shared_ptr<rclcpp_lifecycle::LifecycleNode> node_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_subscriber_;

@@ -23,13 +23,18 @@ if [ "$restore_nounset" -eq 1 ]; then
 fi
 
 if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
-    rosdep init
+    rosdep init || printf 'Warning: rosdep init failed, continuing with existing rosdep state.\n' >&2
 fi
 
-rosdep update
-rosdep install --from-paths "$src_path" --ignore-src -r -y
+if ! rosdep update --rosdistro "${ROS_DISTRO:-jazzy}"; then
+    printf 'Warning: rosdep update failed, likely due to network timeout. Continuing with cached rosdep data.\n' >&2
+fi
+
+if ! rosdep install --from-paths "$src_path" --ignore-src -r -y --rosdistro "${ROS_DISTRO:-jazzy}"; then
+    printf 'Warning: rosdep install did not resolve every dependency. Continuing because core dependencies are baked into the image.\n' >&2
+fi
 
 cd "$workspace_root"
-colcon build
+colcon build --symlink-install
 
 printf 'Workspace setup complete: %s\n' "$workspace_root"

@@ -15,6 +15,7 @@ public:
   controller_interface::CallbackReturn on_init() override
   {
     target_controller_name_ = auto_declare<std::string>("target_controller_name", "omni_wheel_controller");
+    trace_commands_ = auto_declare<bool>("trace_commands", false);
     return controller_interface::CallbackReturn::SUCCESS;
   }
 
@@ -43,21 +44,23 @@ public:
 
   std::vector<hardware_interface::CommandInterface::SharedPtr> on_export_reference_interfaces_list() override
   {
-    reference_interfaces_.assign(3, 0.0);
+    reset_references();
 
     const std::string controller_name = get_node()->get_name();
     return {
       std::make_shared<hardware_interface::CommandInterface>(controller_name, chassis_command_suffixes[0],
-                                                             &reference_interfaces_[0]),
+                                                             &chassis_reference_[0]),
       std::make_shared<hardware_interface::CommandInterface>(controller_name, chassis_command_suffixes[1],
-                                                             &reference_interfaces_[1]),
+                                                             &chassis_reference_[1]),
       std::make_shared<hardware_interface::CommandInterface>(controller_name, chassis_command_suffixes[2],
-                                                             &reference_interfaces_[2]),
+                                                             &chassis_reference_[2]),
     };
   }
 
   std::vector<hardware_interface::StateInterface::SharedPtr> on_export_state_interfaces_list() override
-  { return {}; }
+  {
+    return {};
+  }
 
   bool on_set_chained_mode(bool chained_mode) override
   {
@@ -68,6 +71,7 @@ public:
   controller_interface::CallbackReturn on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override
   {
     target_controller_name_ = get_target_controller_name();
+    trace_commands_ = get_node()->get_parameter("trace_commands").as_bool();
     if (target_controller_name_.empty())
     {
       RCLCPP_ERROR(get_node()->get_logger(), "target_controller_name must not be empty");
@@ -116,7 +120,14 @@ public:
     // This controller stays in the chain so rmgo matches that layering now, but it
     // intentionally forwards commands unchanged until referee, supercap and remote
     // inputs are wired into this controller instead of a temporary external source.
-    return write_chassis_commands({ reference_interfaces_[0], reference_interfaces_[1], reference_interfaces_[2] }) ?
+    if (trace_commands_ && ++trace_counter_ % 100 == 0)
+    {
+      RCLCPP_INFO(get_node()->get_logger(), "[trace] power passthrough in=(%.3f %.3f %.3f) out->%s=(%.3f %.3f %.3f)",
+                  chassis_reference_[0], chassis_reference_[1], chassis_reference_[2], target_controller_name_.c_str(),
+                  chassis_reference_[0], chassis_reference_[1], chassis_reference_[2]);
+    }
+
+    return write_chassis_commands({ chassis_reference_[0], chassis_reference_[1], chassis_reference_[2] }) ?
                controller_interface::return_type::OK :
                controller_interface::return_type::ERROR;
   }
@@ -130,14 +141,7 @@ private:
 
   void reset_references()
   {
-    if (reference_interfaces_.size() < 3)
-    {
-      reference_interfaces_.assign(3, 0.0);
-      return;
-    }
-    reference_interfaces_[0] = 0.0;
-    reference_interfaces_[1] = 0.0;
-    reference_interfaces_[2] = 0.0;
+    chassis_reference_.fill(0.0);
   }
 
   std::string get_target_controller_name() const
@@ -169,6 +173,9 @@ private:
   }
 
   std::string target_controller_name_;
+  bool trace_commands_ = false;
+  std::size_t trace_counter_ = 0;
+  std::array<double, 3> chassis_reference_{ 0.0, 0.0, 0.0 };
 };
 
 }  // namespace rmgo_core::controller::chassis
