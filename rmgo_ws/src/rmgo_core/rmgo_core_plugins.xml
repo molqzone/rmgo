@@ -4,7 +4,7 @@
     type="rmgo_core::controller::chassis::ChassisController"
     base_class_type="controller_interface::ChainableControllerInterface">
     <description>
-      High-level chassis chain controller for RMGO.
+      High-level chassis remote command chain controller for RMGO.
     </description>
   </class>
   <class
