@@ -20,13 +20,11 @@ find_package(realtime_tools REQUIRED)
 find_package(std_msgs REQUIRED)
 
 generate_parameter_library(
-  chassis_controller_config
-  src/controller/chassis/chassis_controller_config.yaml
+  chassis_controller_config src/controller/chassis/chassis_controller_config.yaml
 )
 
 generate_parameter_library(
-  omni_wheel_controller_config
-  src/controller/chassis/omni_wheel_controller_config.yaml
+  omni_wheel_controller_config src/controller/chassis/omni_wheel_controller_config.yaml
 )
 
 generate_parameter_library(
@@ -35,8 +33,7 @@ generate_parameter_library(
 )
 
 add_library(
-  rmgo_chassis_controller
-  SHARED
+  rmgo_chassis_controller SHARED
   src/controller/chassis/chassis_controller.cpp
   src/controller/chassis/chassis_power_controller.cpp
   src/controller/chassis/omni_wheel_controller.cpp
@@ -59,35 +56,22 @@ ament_target_dependencies(
 )
 
 target_link_libraries(
-  rmgo_chassis_controller
-  chassis_controller_config
-  omni_wheel_controller_config
+  rmgo_chassis_controller chassis_controller_config omni_wheel_controller_config
   teleop_remote_controller_config
 )
 
 target_include_directories(
-  rmgo_chassis_controller
-  PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
+  rmgo_chassis_controller PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+                                 $<INSTALL_INTERFACE:include>
 )
 
-install(
-  TARGETS rmgo_chassis_controller
-  DESTINATION lib/${PROJECT_NAME}
-)
+install(TARGETS rmgo_chassis_controller DESTINATION lib/${PROJECT_NAME})
 
 pluginlib_export_plugin_description_file(controller_interface rmgo_core_plugins.xml)
 
-install(
-  FILES rmgo_core_plugins.xml
-  DESTINATION share/${PROJECT_NAME}
-)
+install(FILES rmgo_core_plugins.xml DESTINATION share/${PROJECT_NAME})
 
-install(
-  DIRECTORY include/
-  DESTINATION include
-)
+install(DIRECTORY include/ DESTINATION include)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

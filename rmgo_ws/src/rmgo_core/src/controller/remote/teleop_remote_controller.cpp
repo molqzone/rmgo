@@ -16,170 +16,162 @@
 
 #include "rmgo_core/teleop_remote_controller_config.hpp"
 
-namespace rmgo_core
-{
+namespace rmgo_core {
 
-class TeleopRemoteController : public controller_interface::ControllerInterface
-{
+class TeleopRemoteController : public controller_interface::ControllerInterface {
 public:
-  controller_interface::CallbackReturn on_init() override
-  {
-    param_listener_ = std::make_shared<::teleop_remote_controller::ParamListener>(get_node());
-    params_ = param_listener_->get_params();
-    target_controller_name_ = params_.target_controller_name;
-    command_buffer_.initRT(BufferedCommand{});
-    mode_buffer_.initRT(raw_mode);
-    return controller_interface::CallbackReturn::SUCCESS;
-  }
-
-  controller_interface::InterfaceConfiguration command_interface_configuration() const override
-  {
-    controller_interface::InterfaceConfiguration config;
-    config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-
-    const std::string target_controller_name = params_.target_controller_name;
-    config.names.reserve(command_interface_suffixes.size());
-    for (const char* suffix : command_interface_suffixes)
-    {
-      config.names.push_back(target_controller_name + "/" + suffix);
+    controller_interface::CallbackReturn on_init() override {
+        param_listener_ = std::make_shared<::teleop_remote_controller::ParamListener>(get_node());
+        params_ = param_listener_->get_params();
+        target_controller_name_ = params_.target_controller_name;
+        command_buffer_.initRT(BufferedCommand{});
+        mode_buffer_.initRT(raw_mode);
+        return controller_interface::CallbackReturn::SUCCESS;
     }
 
-    return config;
-  }
+    controller_interface::InterfaceConfiguration command_interface_configuration() const override {
+        controller_interface::InterfaceConfiguration config;
+        config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-  controller_interface::InterfaceConfiguration state_interface_configuration() const override
-  {
-    return {
-      controller_interface::interface_configuration_type::NONE,
-      {},
-    };
-  }
+        const std::string target_controller_name = params_.target_controller_name;
+        config.names.reserve(command_interface_suffixes.size());
+        for (const char* suffix : command_interface_suffixes) {
+            config.names.push_back(target_controller_name + "/" + suffix);
+        }
 
-  controller_interface::CallbackReturn on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override
-  {
-    node_ = get_node();
-    params_ = param_listener_->get_params();
-    target_controller_name_ = params_.target_controller_name;
-    if (cmd_vel_subscriber_ && cmd_vel_topic_ != params_.cmd_vel_topic)
-    {
-      cmd_vel_subscriber_.reset();
-    }
-    if (mode_subscriber_ && mode_topic_ != params_.mode_topic)
-    {
-      mode_subscriber_.reset();
+        return config;
     }
 
-    cmd_vel_topic_ = params_.cmd_vel_topic;
-    mode_topic_ = params_.mode_topic;
-    command_timeout_ = params_.command_timeout;
-
-    if (!cmd_vel_subscriber_)
-    {
-      cmd_vel_subscriber_ = node_->create_subscription<geometry_msgs::msg::Twist>(
-          cmd_vel_topic_, rclcpp::SystemDefaultsQoS(), [this](const geometry_msgs::msg::Twist::SharedPtr msg) {
-            command_buffer_.writeFromNonRT(BufferedCommand{
-                msg->linear.x,
-                msg->linear.y,
-                msg->angular.z,
-                steady_clock_.now(),
-                true,
-            });
-          });
-    }
-    if (!mode_subscriber_)
-    {
-      mode_subscriber_ = node_->create_subscription<std_msgs::msg::UInt8>(
-          mode_topic_, rclcpp::SystemDefaultsQoS(),
-          [this](const std_msgs::msg::UInt8::SharedPtr msg) { mode_buffer_.writeFromNonRT(msg->data); });
+    controller_interface::InterfaceConfiguration state_interface_configuration() const override {
+        return {
+            controller_interface::interface_configuration_type::NONE,
+            {},
+        };
     }
 
-    return controller_interface::CallbackReturn::SUCCESS;
-  }
+    controller_interface::CallbackReturn
+        on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
+        node_ = get_node();
+        params_ = param_listener_->get_params();
+        target_controller_name_ = params_.target_controller_name;
+        if (cmd_vel_subscriber_ && cmd_vel_topic_ != params_.cmd_vel_topic) {
+            cmd_vel_subscriber_.reset();
+        }
+        if (mode_subscriber_ && mode_topic_ != params_.mode_topic) {
+            mode_subscriber_.reset();
+        }
 
-  controller_interface::CallbackReturn on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override
-  {
-    if (command_interfaces_.size() != command_interface_suffixes.size())
-    {
-      RCLCPP_ERROR(get_node()->get_logger(), "Expected %zu command interfaces, got %zu",
-                   command_interface_suffixes.size(), command_interfaces_.size());
-      return controller_interface::CallbackReturn::ERROR;
+        cmd_vel_topic_ = params_.cmd_vel_topic;
+        mode_topic_ = params_.mode_topic;
+        command_timeout_ = params_.command_timeout;
+
+        if (!cmd_vel_subscriber_) {
+            cmd_vel_subscriber_ = node_->create_subscription<geometry_msgs::msg::Twist>(
+                cmd_vel_topic_, rclcpp::SystemDefaultsQoS(),
+                [this](const geometry_msgs::msg::Twist& msg) {
+                    command_buffer_.writeFromNonRT(BufferedCommand{
+                        msg.linear.x,
+                        msg.linear.y,
+                        msg.angular.z,
+                        steady_clock_.now(),
+                        true,
+                    });
+                });
+        }
+        if (!mode_subscriber_) {
+            mode_subscriber_ = node_->create_subscription<std_msgs::msg::UInt8>(
+                mode_topic_, rclcpp::SystemDefaultsQoS(),
+                [this](const std_msgs::msg::UInt8& msg) { mode_buffer_.writeFromNonRT(msg.data); });
+        }
+
+        return controller_interface::CallbackReturn::SUCCESS;
     }
 
-    command_buffer_.writeFromNonRT(BufferedCommand{});
-    mode_buffer_.writeFromNonRT(raw_mode);
-    return write_command({ 0.0, 0.0, 0.0, raw_mode }) ? controller_interface::CallbackReturn::SUCCESS :
-                                                        controller_interface::CallbackReturn::ERROR;
-  }
+    controller_interface::CallbackReturn
+        on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override {
+        if (command_interfaces_.size() != command_interface_suffixes.size()) {
+            RCLCPP_ERROR(
+                get_node()->get_logger(), "Expected %zu command interfaces, got %zu",
+                command_interface_suffixes.size(), command_interfaces_.size());
+            return controller_interface::CallbackReturn::ERROR;
+        }
 
-  controller_interface::CallbackReturn on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override
-  {
-    command_buffer_.writeFromNonRT(BufferedCommand{});
-    mode_buffer_.writeFromNonRT(raw_mode);
-    return write_command({ 0.0, 0.0, 0.0, raw_mode }) ? controller_interface::CallbackReturn::SUCCESS :
-                                                        controller_interface::CallbackReturn::ERROR;
-  }
+        command_buffer_.writeFromNonRT(BufferedCommand{});
+        mode_buffer_.writeFromNonRT(raw_mode);
+        return write_command({0.0, 0.0, 0.0, raw_mode})
+                 ? controller_interface::CallbackReturn::SUCCESS
+                 : controller_interface::CallbackReturn::ERROR;
+    }
 
-  controller_interface::return_type update(const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override
-  {
-    const BufferedCommand command = *command_buffer_.readFromRT();
-    const rclcpp::Time now = steady_clock_.now();
-    const bool valid =
-        command.valid && (command_timeout_ <= 0.0 || (now - command.stamp).seconds() <= command_timeout_);
-    const double mode = static_cast<double>(*mode_buffer_.readFromRT());
-    const auto values = valid ? std::array<double, 4>{ command.vx, command.vy, command.wz, mode } :
-                                std::array<double, 4>{ 0.0, 0.0, 0.0, mode };
+    controller_interface::CallbackReturn
+        on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
+        command_buffer_.writeFromNonRT(BufferedCommand{});
+        mode_buffer_.writeFromNonRT(raw_mode);
+        return write_command({0.0, 0.0, 0.0, raw_mode})
+                 ? controller_interface::CallbackReturn::SUCCESS
+                 : controller_interface::CallbackReturn::ERROR;
+    }
 
-    return write_command(values) ? controller_interface::return_type::OK : controller_interface::return_type::ERROR;
-  }
+    controller_interface::return_type
+        update(const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
+        const BufferedCommand command = *command_buffer_.readFromRT();
+        const rclcpp::Time now = steady_clock_.now();
+        const bool valid =
+            command.valid
+            && (command_timeout_ <= 0.0 || (now - command.stamp).seconds() <= command_timeout_);
+        const double mode = static_cast<double>(*mode_buffer_.readFromRT());
+        const auto values = valid ? std::array<double, 4>{command.vx, command.vy, command.wz, mode}
+                                  : std::array<double, 4>{0.0, 0.0, 0.0, mode};
+
+        return write_command(values) ? controller_interface::return_type::OK
+                                     : controller_interface::return_type::ERROR;
+    }
 
 private:
-  struct BufferedCommand
-  {
-    double vx = 0.0;
-    double vy = 0.0;
-    double wz = 0.0;
-    rclcpp::Time stamp{ 0, 0, RCL_STEADY_TIME };
-    bool valid = false;
-  };
+    struct BufferedCommand {
+        double vx = 0.0;
+        double vy = 0.0;
+        double wz = 0.0;
+        rclcpp::Time stamp{0, 0, RCL_STEADY_TIME};
+        bool valid = false;
+    };
 
-  static constexpr std::uint8_t raw_mode = 0;
+    static constexpr std::uint8_t raw_mode = 0;
 
-  static constexpr std::array<const char*, 4> command_interface_suffixes = {
-    "linear/x/velocity",
-    "linear/y/velocity",
-    "angular/z/velocity",
-    "mode",
-  };
+    static constexpr std::array<const char*, 4> command_interface_suffixes = {
+        "linear/x/velocity",
+        "linear/y/velocity",
+        "angular/z/velocity",
+        "mode",
+    };
 
-  bool write_command(const std::array<double, 4>& values)
-  {
-    for (std::size_t index = 0; index < values.size(); ++index)
-    {
-      if (!command_interfaces_[index].set_value(values[index]))
-      {
-        RCLCPP_ERROR(get_node()->get_logger(), "Failed to write reference command '%s/%s'",
-                     target_controller_name_.c_str(), command_interface_suffixes[index]);
-        return false;
-      }
+    bool write_command(const std::array<double, 4>& values) {
+        for (std::size_t index = 0; index < values.size(); ++index) {
+            if (!command_interfaces_[index].set_value(values[index])) {
+                RCLCPP_ERROR(
+                    get_node()->get_logger(), "Failed to write reference command '%s/%s'",
+                    target_controller_name_.c_str(), command_interface_suffixes[index]);
+                return false;
+            }
+        }
+
+        return true;
     }
 
-    return true;
-  }
-
-  std::string target_controller_name_;
-  std::string cmd_vel_topic_ = "/cmd_vel";
-  std::string mode_topic_ = "/cmd_chassis_mode";
-  double command_timeout_ = 0.25;
-  rclcpp::Clock steady_clock_{ RCL_STEADY_TIME };
-  realtime_tools::RealtimeBuffer<BufferedCommand> command_buffer_;
-  realtime_tools::RealtimeBuffer<std::uint8_t> mode_buffer_;
-  std::shared_ptr<::teleop_remote_controller::ParamListener> param_listener_;
-  ::teleop_remote_controller::Params params_;
-  std::shared_ptr<rclcpp_lifecycle::LifecycleNode> node_;
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_subscriber_;
-  rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr mode_subscriber_;
+    std::string target_controller_name_;
+    std::string cmd_vel_topic_ = "/cmd_vel";
+    std::string mode_topic_ = "/cmd_chassis_mode";
+    double command_timeout_ = 0.25;
+    rclcpp::Clock steady_clock_{RCL_STEADY_TIME};
+    realtime_tools::RealtimeBuffer<BufferedCommand> command_buffer_;
+    realtime_tools::RealtimeBuffer<std::uint8_t> mode_buffer_;
+    std::shared_ptr<::teleop_remote_controller::ParamListener> param_listener_;
+    ::teleop_remote_controller::Params params_;
+    std::shared_ptr<rclcpp_lifecycle::LifecycleNode> node_;
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_subscriber_;
+    rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr mode_subscriber_;
 };
 
-}  // namespace rmgo_core
+} // namespace rmgo_core
 
 PLUGINLIB_EXPORT_CLASS(rmgo_core::TeleopRemoteController, controller_interface::ControllerInterface)

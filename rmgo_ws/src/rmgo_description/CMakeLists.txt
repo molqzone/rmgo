@@ -20,12 +20,7 @@ install(
 )
 
 install(
-  DIRECTORY
-    config
-    launch
-    meshes
-    rviz
-    urdf
+  DIRECTORY config launch meshes rviz urdf
   DESTINATION share/${PROJECT_NAME}
   PATTERN ".gitkeep" EXCLUDE
 )
