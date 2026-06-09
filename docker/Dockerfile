@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     clang-format \
     clang-tidy \
     clangd \
+    cmake-format \
     gdb \
     curl \
     git \

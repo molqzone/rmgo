@@ -5,10 +5,24 @@
         ],
         "cSpell.words": [
                 "bringup",
+                "cwise",
+                "Eigen",
+                "feedforward",
                 "initializable",
                 "rclcpp",
+                "RMCS",
                 "rmgo",
                 "rviz",
+                "supercap",
+                "tabchars",
                 "Teleop"
-        ]
+        ],
+        "cSpell.customDictionaries": {
+                "custom-dictionary-workspace": {
+                        "name": "custom-dictionary-workspace",
+                        "path": "${workspaceFolder:rmgo}/.cspell/custom-dictionary-workspace.txt",
+                        "addWords": true,
+                        "scope": "workspace"
+                }
+        }
 }

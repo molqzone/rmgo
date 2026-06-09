@@ -1,74 +1,55 @@
----
-BasedOnStyle:  Google
-ColumnLimit:    120
-MaxEmptyLinesToKeep: 1
-SortIncludes: false
+BasedOnStyle: LLVM
 
-Standard:        Auto
-IndentWidth:     2
-TabWidth:        2
-UseTab:          Never
-AccessModifierOffset: -2
-ConstructorInitializerIndentWidth: 2
-NamespaceIndentation: None
+ColumnLimit: 100
+
+IndentWidth: 4
 ContinuationIndentWidth: 4
-IndentCaseLabels: true
-IndentFunctionDeclarationAfterType: false
+ConstructorInitializerIndentWidth: 4
+AccessModifierOffset: -4
 
-AlignEscapedNewlinesLeft: false
-AlignTrailingComments: true
+Standard: c++20
 
-AllowAllParametersOfDeclarationOnNextLine: false
-ExperimentalAutoDetectBinPacking: false
-ObjCSpaceBeforeProtocolList: true
-Cpp11BracedListStyle: false
+MaxEmptyLinesToKeep: 1
 
-AllowShortBlocksOnASingleLine: true
-AllowShortIfStatementsOnASingleLine: false
-AllowShortLoopsOnASingleLine: false
-AllowShortFunctionsOnASingleLine: None
-AllowShortCaseLabelsOnASingleLine: false
+AlignAfterOpenBracket: AlwaysBreak
 
-AlwaysBreakTemplateDeclarations: true
-AlwaysBreakBeforeMultilineStrings: false
-BreakBeforeBinaryOperators: false
-BreakBeforeTernaryOperators: false
-BreakConstructorInitializersBeforeComma: true
+AlignConsecutiveAssignments:
+  Enabled: false
+AlignConsecutiveBitFields:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
+AlignConsecutiveDeclarations:
+  Enabled: false
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
+# AlignConsecutiveShortCaseStatements:
+#     Enabled: false
+AlignEscapedNewlines: Left
+AlignOperands: AlignAfterOperator
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 64
+PointerAlignment: Left
 
-BinPackParameters: true
-ConstructorInitializerAllOnOneLineOrOnePerLine: true
-DerivePointerBinding: false
-PointerBindsToType: true
+AllowAllArgumentsOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowShortBlocksOnASingleLine: Empty
+AllowShortCaseLabelsOnASingleLine: true
 
-PenaltyExcessCharacter: 50
-PenaltyBreakBeforeFirstCallParameter: 30
-PenaltyBreakComment: 1000
-PenaltyBreakFirstLessLess: 10
-PenaltyBreakString: 100
-PenaltyReturnTypeOnItsOwnLine: 50
+IndentPPDirectives: AfterHash
+PPIndentWidth: 1
 
-SpacesBeforeTrailingComments: 2
-SpacesInParentheses: false
-SpacesInAngles:  false
-SpaceInEmptyParentheses: false
-SpacesInCStyleCastParentheses: false
-SpaceAfterCStyleCast: false
-SpaceAfterControlStatementKeyword: true
-SpaceBeforeAssignmentOperators: true
+BreakBeforeBinaryOperators: NonAssignment
+BreakBeforeConceptDeclarations: Always
+BreakConstructorInitializers: BeforeComma
+BreakInheritanceList: BeforeComma
+FixNamespaceComments: true
+IncludeBlocks: Preserve
+IndentWrappedFunctionNames: true
 
-# Configure each individual brace in BraceWrapping
-BreakBeforeBraces: Custom
-
-# Control of individual brace wrapping cases
-BraceWrapping:
-    AfterCaseLabel: true
-    AfterClass: true
-    AfterControlStatement: true
-    AfterEnum: true
-    AfterFunction: true
-    AfterNamespace: true
-    AfterStruct: true
-    AfterUnion: true
-    BeforeCatch: true
-    BeforeElse: true
-    IndentBraces: false
+AlwaysBreakTemplateDeclarations: Yes
+IndentRequiresClause: false
+RequiresClausePosition: SingleLine
