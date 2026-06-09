@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-yaml \
     ripgrep \
     vim \
+    ros-${ROS_DISTRO}-angles \
     ros-${ROS_DISTRO}-controller-manager \
     ros-${ROS_DISTRO}-gz-ros2-control \
     ros-${ROS_DISTRO}-joint-state-publisher \

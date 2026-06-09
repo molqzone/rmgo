@@ -8,14 +8,31 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(angles REQUIRED)
 find_package(controller_interface REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(generate_parameter_library REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(realtime_tools REQUIRED)
 find_package(std_msgs REQUIRED)
+
+generate_parameter_library(
+  chassis_controller_config
+  src/controller/chassis/chassis_controller_config.yaml
+)
+
+generate_parameter_library(
+  omni_wheel_controller_config
+  src/controller/chassis/omni_wheel_controller_config.yaml
+)
+
+generate_parameter_library(
+  teleop_remote_controller_config
+  src/controller/remote/teleop_remote_controller_config.yaml
+)
 
 add_library(
   rmgo_chassis_controller
@@ -31,6 +48,7 @@ target_compile_features(rmgo_chassis_controller PUBLIC cxx_std_20)
 ament_target_dependencies(
   rmgo_chassis_controller
   controller_interface
+  angles
   geometry_msgs
   hardware_interface
   pluginlib
@@ -38,6 +56,13 @@ ament_target_dependencies(
   rclcpp_lifecycle
   realtime_tools
   std_msgs
+)
+
+target_link_libraries(
+  rmgo_chassis_controller
+  chassis_controller_config
+  omni_wheel_controller_config
+  teleop_remote_controller_config
 )
 
 target_include_directories(

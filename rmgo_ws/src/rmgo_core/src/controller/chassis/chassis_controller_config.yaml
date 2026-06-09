@@ -1,0 +1,33 @@
+chassis_controller:
+  target_controller_name:
+    type: string
+    default_value: "chassis_power_controller"
+    description: "Downstream chain controller that receives chassis velocity commands."
+    validation:
+      not_empty<>: []
+  yaw_joint_name:
+    type: string
+    default_value: "yaw_joint"
+    description: "Joint used as the gimbal yaw angle source."
+    validation:
+      not_empty<>: []
+  yaw_state_interface_name:
+    type: string
+    default_value: "position"
+    description: "State interface used to read yaw_joint_name."
+    validation:
+      not_empty<>: []
+  command_source_frame:
+    type: string
+    default_value: "yaw"
+    description: "Frame of the incoming remote translational command."
+    validation:
+      one_of<>: [["yaw", "base_link"]]
+  twist_angular:
+    type: double
+    default_value: 0.5235987755982988
+    description: "Maximum twist-mode angular yaw offset."
+  follow_velocity_feedforward:
+    type: double
+    default_value: 0.0
+    description: "Additional angular velocity feedforward in follow mode."
