@@ -34,7 +34,7 @@
   <class
     name="rmgo_core/SimpleGimbalController"
     type="rmgo_core::controller::gimbal::SimpleGimbalController"
-    base_class_type="controller_interface::ControllerInterface">
+    base_class_type="controller_interface::ChainableControllerInterface">
     <description>
       RMCS-style simple gimbal controller that keeps yaw/pitch actively commanded.
     </description>

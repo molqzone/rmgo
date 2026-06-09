@@ -3,7 +3,6 @@
 #include <cmath>
 #include <memory>
 #include <optional>
-#include <string>
 
 #include <angles/angles.h>
 #include <controller_interface/controller_interface.hpp>
@@ -59,12 +58,11 @@ public:
         base_odometry_subscriber_ = node->create_subscription<nav_msgs::msg::Odometry>(
             params_.base_odometry_topic, rclcpp::SystemDefaultsQoS(),
             [this](const nav_msgs::msg::Odometry& msg) {
-                base_odometry_buffer_.writeFromNonRT(
-                    BufferedBaseOdometry{
-                        yaw_from_odometry(msg),
-                        steady_clock_.now(),
-                        true,
-                    });
+                base_odometry_buffer_.writeFromNonRT(BufferedBaseOdometry{
+                    yaw_from_odometry(msg),
+                    steady_clock_.now(),
+                    true,
+                });
             });
 
         return controller_interface::CallbackReturn::SUCCESS;

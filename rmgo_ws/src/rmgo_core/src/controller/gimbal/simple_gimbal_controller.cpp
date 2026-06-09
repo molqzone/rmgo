@@ -1,27 +1,30 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <optional>
-#include <string>
+#include <vector>
 
 #include <angles/angles.h>
-#include <controller_interface/controller_interface.hpp>
+#include <controller_interface/chainable_controller_interface.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/logging.hpp>
 #include <rclcpp/time.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
+#include "rmgo_core/gimbal/two_axis_gimbal_solver.hpp"
 #include "rmgo_core/simple_gimbal_controller_config.hpp"
 
 namespace rmgo_core::controller::gimbal {
 
-class SimpleGimbalController : public controller_interface::ControllerInterface {
+class SimpleGimbalController : public controller_interface::ChainableControllerInterface {
 public:
     controller_interface::CallbackReturn on_init() override {
         param_listener_ = std::make_shared<::simple_gimbal_controller::ParamListener>(get_node());
         params_ = param_listener_->get_params();
+        reset_references();
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
@@ -45,9 +48,39 @@ public:
         return config;
     }
 
+    std::vector<hardware_interface::CommandInterface::SharedPtr>
+        on_export_reference_interfaces_list() override {
+        reset_references();
+
+        const std::string controller_name = get_node()->get_name();
+        return {
+            std::make_shared<hardware_interface::CommandInterface>(
+                controller_name, remote_command_suffixes[0], &remote_command_reference_[0]),
+            std::make_shared<hardware_interface::CommandInterface>(
+                controller_name, remote_command_suffixes[1], &remote_command_reference_[1]),
+            std::make_shared<hardware_interface::CommandInterface>(
+                controller_name, remote_command_suffixes[2], &remote_command_reference_[2]),
+        };
+    }
+
+    std::vector<hardware_interface::StateInterface::SharedPtr>
+        on_export_state_interfaces_list() override {
+        return {};
+    }
+
+    bool on_set_chained_mode(bool chained_mode) override {
+        (void)chained_mode;
+        return true;
+    }
+
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
         params_ = param_listener_->get_params();
+        solver_ = rmgo_core::gimbal::TwoAxisGimbalSolver{
+            params_.pitch_upper_limit,
+            params_.pitch_lower_limit,
+        };
+        reset_references();
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
@@ -70,6 +103,7 @@ public:
         const double pitch = read_state(pitch_index);
         target_yaw_ = angles::normalize_angle(yaw);
         target_pitch_ = std::clamp(pitch, params_.pitch_lower_limit, params_.pitch_upper_limit);
+        reset_references();
 
         return write_commands(yaw, target_pitch_) ? controller_interface::CallbackReturn::SUCCESS
                                                   : controller_interface::CallbackReturn::ERROR;
@@ -77,13 +111,23 @@ public:
 
     controller_interface::CallbackReturn
         on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
+        reset_references();
         return write_commands(read_state(yaw_index), read_state(pitch_index))
                  ? controller_interface::CallbackReturn::SUCCESS
                  : controller_interface::CallbackReturn::ERROR;
     }
 
-    controller_interface::return_type
-        update(const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
+    controller_interface::return_type update_reference_from_subscribers(
+        const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
+        if (!is_in_chained_mode()) {
+            reset_references();
+        }
+        return controller_interface::return_type::OK;
+    }
+
+    controller_interface::return_type update_and_write_commands(
+        const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
+        update_targets(period.seconds());
         return write_commands(target_yaw_, target_pitch_)
                  ? controller_interface::return_type::OK
                  : controller_interface::return_type::ERROR;
@@ -97,6 +141,11 @@ private:
         "yaw",
         "pitch",
     };
+    static constexpr std::array<const char*, 3> remote_command_suffixes = {
+        "yaw/velocity",
+        "pitch/velocity",
+        "enabled",
+    };
 
     double read_state(std::size_t index) const {
         if (index >= state_interfaces_.size()) {
@@ -106,6 +155,46 @@ private:
         const std::optional<double> value = state_interfaces_[index].get_optional();
         return value.has_value() && std::isfinite(*value) ? *value : 0.0;
     }
+
+    void update_targets(double dt) {
+        const double yaw = read_state(yaw_index);
+        const double pitch = read_state(pitch_index);
+        if (!is_enabled_reference()) {
+            solver_.update(yaw, pitch, rmgo_core::gimbal::TwoAxisGimbalSolver::SetDisabled{});
+            target_yaw_ = angles::normalize_angle(yaw);
+            target_pitch_ = std::clamp(pitch, params_.pitch_lower_limit, params_.pitch_upper_limit);
+            return;
+        }
+
+        const double yaw_velocity = finite_or_zero(remote_command_reference_[0]);
+        const double pitch_velocity = finite_or_zero(remote_command_reference_[1]);
+        const auto error =
+            solver_.enabled()
+                ? solver_.update(
+                      yaw, pitch,
+                      rmgo_core::gimbal::TwoAxisGimbalSolver::SetControlShift{
+                          yaw_velocity * dt,
+                          pitch_velocity * dt,
+                      })
+                : solver_.update(yaw, pitch, rmgo_core::gimbal::TwoAxisGimbalSolver::SetToLevel{});
+
+        if (std::isfinite(error.yaw) && std::isfinite(error.pitch)) {
+            target_yaw_ = angles::normalize_angle(yaw + error.yaw);
+            target_pitch_ = std::clamp(
+                pitch + error.pitch, params_.pitch_lower_limit, params_.pitch_upper_limit);
+        } else {
+            target_yaw_ = angles::normalize_angle(yaw);
+            target_pitch_ = std::clamp(pitch, params_.pitch_lower_limit, params_.pitch_upper_limit);
+        }
+    }
+
+    bool is_enabled_reference() const {
+        return std::isfinite(remote_command_reference_[2]) && remote_command_reference_[2] > 0.5;
+    }
+
+    static double finite_or_zero(double value) { return std::isfinite(value) ? value : 0.0; }
+
+    void reset_references() { remote_command_reference_.fill(0.0); }
 
     bool write_commands(double yaw, double pitch) {
         const std::array<double, 2> values = {
@@ -125,6 +214,11 @@ private:
 
     double target_yaw_ = 0.0;
     double target_pitch_ = 0.0;
+    std::array<double, 3> remote_command_reference_{0.0, 0.0, 0.0};
+    rmgo_core::gimbal::TwoAxisGimbalSolver solver_{
+        std::numeric_limits<double>::infinity(),
+        -std::numeric_limits<double>::infinity(),
+    };
     std::shared_ptr<::simple_gimbal_controller::ParamListener> param_listener_;
     ::simple_gimbal_controller::Params params_;
 };
@@ -133,4 +227,4 @@ private:
 
 PLUGINLIB_EXPORT_CLASS(
     rmgo_core::controller::gimbal::SimpleGimbalController,
-    controller_interface::ControllerInterface)
+    controller_interface::ChainableControllerInterface)
