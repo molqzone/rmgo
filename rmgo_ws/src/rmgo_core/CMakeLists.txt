@@ -38,11 +38,17 @@ generate_parameter_library(
   src/controller/gimbal/simple_gimbal_controller_config.yaml
 )
 
+generate_parameter_library(
+  gimbal_simulation_controller_config
+  src/controller/gimbal/gimbal_simulation_controller_config.yaml
+)
+
 add_library(
   rmgo_chassis_controller SHARED
   src/controller/chassis/chassis_controller.cpp
   src/controller/chassis/chassis_power_controller.cpp
   src/controller/chassis/omni_wheel_controller.cpp
+  src/controller/gimbal/gimbal_simulation_controller.cpp
   src/controller/gimbal/simple_gimbal_controller.cpp
   src/controller/remote/teleop_remote_controller.cpp
 )
@@ -66,6 +72,7 @@ ament_target_dependencies(
 target_link_libraries(
   rmgo_chassis_controller chassis_controller_config omni_wheel_controller_config
   teleop_remote_controller_config simple_gimbal_controller_config
+  gimbal_simulation_controller_config
 )
 
 target_include_directories(

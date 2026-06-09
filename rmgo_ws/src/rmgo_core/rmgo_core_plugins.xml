@@ -39,4 +39,12 @@
       RMCS-style simple gimbal controller that keeps yaw/pitch actively commanded.
     </description>
   </class>
+  <class
+    name="rmgo_core/GimbalSimulationController"
+    type="rmgo_core::controller::gimbal::GimbalSimulationController"
+    base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Gazebo-only gimbal adapter that compensates the simulated base yaw motion.
+    </description>
+  </class>
 </library>
