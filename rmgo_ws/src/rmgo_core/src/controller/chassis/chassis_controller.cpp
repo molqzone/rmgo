@@ -1,5 +1,4 @@
 #include <array>
-#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -8,12 +7,14 @@
 #include <string>
 #include <vector>
 
+#include <angles/angles.h>
 #include <controller_interface/chainable_controller_interface.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/logging.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
+#include "rmgo_core/chassis_controller_config.hpp"
 #include "rmgo_core/pid/pid_calculator.hpp"
 
 namespace rmgo_core::controller::chassis
@@ -24,12 +25,11 @@ class ChassisController : public controller_interface::ChainableControllerInterf
 public:
   controller_interface::CallbackReturn on_init() override
   {
-    target_controller_name_ = auto_declare<std::string>("target_controller_name", "chassis_power_controller");
-    yaw_joint_name_ = auto_declare<std::string>("yaw_joint_name", "yaw_joint");
-    yaw_state_interface_name_ =
-        auto_declare<std::string>("yaw_state_interface_name", hardware_interface::HW_IF_POSITION);
-    command_source_frame_ = auto_declare<std::string>("command_source_frame", "yaw");
-    trace_commands_ = auto_declare<bool>("trace_commands", false);
+    param_listener_ = std::make_shared<::chassis_controller::ParamListener>(get_node());
+    params_ = param_listener_->get_params();
+    target_controller_name_ = params_.target_controller_name;
+    yaw_joint_name_ = params_.yaw_joint_name;
+    yaw_state_interface_name_ = params_.yaw_state_interface_name;
     return controller_interface::CallbackReturn::SUCCESS;
   }
 
@@ -85,33 +85,10 @@ public:
 
   controller_interface::CallbackReturn on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override
   {
-    target_controller_name_ = get_target_controller_name();
-    yaw_joint_name_ = get_string_parameter_or("yaw_joint_name", yaw_joint_name_);
-    yaw_state_interface_name_ = get_string_parameter_or("yaw_state_interface_name", yaw_state_interface_name_);
-    command_source_frame_ = get_string_parameter_or("command_source_frame", command_source_frame_);
-    trace_commands_.store(get_node()->get_parameter("trace_commands").as_bool());
-
-    if (target_controller_name_.empty())
-    {
-      RCLCPP_ERROR(get_node()->get_logger(), "target_controller_name must not be empty");
-      return controller_interface::CallbackReturn::ERROR;
-    }
-    if (yaw_joint_name_.empty() || yaw_state_interface_name_.empty())
-    {
-      RCLCPP_ERROR(get_node()->get_logger(), "yaw joint state interface must not be empty");
-      return controller_interface::CallbackReturn::ERROR;
-    }
-    if (command_source_frame_ != "yaw" && command_source_frame_ != "base_link")
-    {
-      RCLCPP_ERROR(get_node()->get_logger(), "command_source_frame must be 'yaw' or 'base_link'");
-      return controller_interface::CallbackReturn::ERROR;
-    }
-
-    declare_parameter_if_missing<double>("twist_angular", std::numbers::pi / 6.0);
-    declare_parameter_if_missing<double>("follow_velocity_feedforward", 0.0);
-    twist_angular_ = get_node()->get_parameter("twist_angular").as_double();
-    follow_velocity_feedforward_ = get_node()->get_parameter("follow_velocity_feedforward").as_double();
-
+    params_ = param_listener_->get_params();
+    target_controller_name_ = params_.target_controller_name;
+    yaw_joint_name_ = params_.yaw_joint_name;
+    yaw_state_interface_name_ = params_.yaw_state_interface_name;
     auto& node = *get_node();
     follow_pid_ = rmgo_core::pid::make_pid_calculator(node, "follow_", 0.0, 0.0, 0.0);
 
@@ -136,7 +113,7 @@ public:
 
     reset_references();
     reset_pid();
-    last_mode_ = Mode::kRaw;
+    last_mode_ = Mode::raw;
     return write_command({ 0.0, 0.0, 0.0 }) ? controller_interface::CallbackReturn::SUCCESS :
                                               controller_interface::CallbackReturn::ERROR;
   }
@@ -145,7 +122,7 @@ public:
   {
     reset_references();
     reset_pid();
-    last_mode_ = Mode::kRaw;
+    last_mode_ = Mode::raw;
     return write_command({ 0.0, 0.0, 0.0 }) ? controller_interface::CallbackReturn::SUCCESS :
                                               controller_interface::CallbackReturn::ERROR;
   }
@@ -157,7 +134,7 @@ public:
     {
       reset_references();
       reset_pid();
-      last_mode_ = Mode::kRaw;
+      last_mode_ = Mode::raw;
     }
     return controller_interface::return_type::OK;
   }
@@ -175,18 +152,9 @@ public:
     {
       reset_pid();
       last_mode_ = mode;
-      if (trace_commands_.load())
-      {
-        RCLCPP_INFO(get_node()->get_logger(), "[trace] chassis mode -> %s", mode_name(mode));
-      }
     }
 
     const auto values = calculate_command(mode, command);
-    if (trace_commands_.load() && ++update_trace_counter_ % 100 == 0)
-    {
-      RCLCPP_INFO(get_node()->get_logger(), "[trace] mode=%s out->%s: vx=%.3f vy=%.3f wz=%.3f", mode_name(mode),
-                  target_controller_name_.c_str(), values[0], values[1], values[2]);
-    }
 
     return write_command(values) ? controller_interface::return_type::OK : controller_interface::return_type::ERROR;
   }
@@ -194,9 +162,9 @@ public:
 private:
   enum class Mode : std::uint8_t
   {
-    kRaw = 0,
-    kFollow = 1,
-    kTwist = 2,
+    raw = 0,
+    follow = 1,
+    twist = 2,
   };
 
   struct RemoteCommand
@@ -219,89 +187,32 @@ private:
     "angular/z/velocity",
   };
 
-  template <typename T>
-  void declare_parameter_if_missing(const std::string& name, const T& default_value)
-  {
-    if (!get_node()->has_parameter(name))
-    {
-      get_node()->declare_parameter<T>(name, default_value);
-    }
-  }
-
   std::string get_target_controller_name() const
   {
-    if (const auto node = get_node())
-    {
-      const auto parameter = node->get_parameter("target_controller_name");
-      if (parameter.get_type() == rclcpp::ParameterType::PARAMETER_STRING && !parameter.as_string().empty())
-      {
-        return parameter.as_string();
-      }
-    }
-    return target_controller_name_;
+    return params_.target_controller_name;
   }
 
   std::string get_yaw_state_interface_name() const
   {
-    std::string joint_name = yaw_joint_name_;
-    std::string interface_name = yaw_state_interface_name_;
-    if (const auto node = get_node())
-    {
-      const auto joint_parameter = node->get_parameter("yaw_joint_name");
-      const auto interface_parameter = node->get_parameter("yaw_state_interface_name");
-      if (joint_parameter.get_type() == rclcpp::ParameterType::PARAMETER_STRING && !joint_parameter.as_string().empty())
-      {
-        joint_name = joint_parameter.as_string();
-      }
-      if (interface_parameter.get_type() == rclcpp::ParameterType::PARAMETER_STRING &&
-          !interface_parameter.as_string().empty())
-      {
-        interface_name = interface_parameter.as_string();
-      }
-    }
-    return joint_name + "/" + interface_name;
-  }
-
-  std::string get_string_parameter_or(const std::string& name, const std::string& fallback) const
-  {
-    const auto parameter = get_node()->get_parameter(name);
-    if (parameter.get_type() == rclcpp::ParameterType::PARAMETER_STRING && !parameter.as_string().empty())
-    {
-      return parameter.as_string();
-    }
-    return fallback;
+    return params_.yaw_joint_name + "/" + params_.yaw_state_interface_name;
   }
 
   static Mode mode_from_value(double value)
   {
     if (!std::isfinite(value))
     {
-      return Mode::kRaw;
+      return Mode::raw;
     }
 
     switch (static_cast<std::uint8_t>(std::llround(value)))
     {
-      case static_cast<std::uint8_t>(Mode::kFollow):
-        return Mode::kFollow;
-      case static_cast<std::uint8_t>(Mode::kTwist):
-        return Mode::kTwist;
-      case static_cast<std::uint8_t>(Mode::kRaw):
+      case static_cast<std::uint8_t>(Mode::follow):
+        return Mode::follow;
+      case static_cast<std::uint8_t>(Mode::twist):
+        return Mode::twist;
+      case static_cast<std::uint8_t>(Mode::raw):
       default:
-        return Mode::kRaw;
-    }
-  }
-
-  static const char* mode_name(Mode mode)
-  {
-    switch (mode)
-    {
-      case Mode::kFollow:
-        return "FOLLOW";
-      case Mode::kTwist:
-        return "TWIST";
-      case Mode::kRaw:
-      default:
-        return "RAW";
+        return Mode::raw;
     }
   }
 
@@ -311,13 +222,13 @@ private:
     std::array<double, 3> values = command_to_base_link(command, yaw);
     switch (mode)
     {
-      case Mode::kFollow:
+      case Mode::follow:
         values[2] = calculate_follow_angular_velocity(yaw, command.wz);
         break;
-      case Mode::kTwist:
+      case Mode::twist:
         values[2] = calculate_twist_angular_velocity(yaw);
         break;
-      case Mode::kRaw:
+      case Mode::raw:
       default:
         break;
     }
@@ -326,7 +237,7 @@ private:
 
   std::array<double, 3> command_to_base_link(const RemoteCommand& command, double yaw) const
   {
-    if (command_source_frame_ == "base_link")
+    if (params_.command_source_frame == "base_link")
     {
       return { command.vx, command.vy, command.wz };
     }
@@ -342,7 +253,7 @@ private:
 
   double calculate_follow_angular_velocity(double yaw, double feedforward)
   {
-    return follow_pid_.update(normalize_angle(yaw)) + feedforward + follow_velocity_feedforward_;
+    return follow_pid_.update(angles::normalize_angle(yaw)) + feedforward + params_.follow_velocity_feedforward;
   }
 
   double calculate_twist_angular_velocity(double yaw)
@@ -357,7 +268,7 @@ private:
     double offset = 0.0;
     for (const double candidate : candidate_offsets)
     {
-      if (std::abs(shortest_angular_distance(yaw, candidate)) < 0.79)
+      if (std::abs(angles::shortest_angular_distance(yaw, candidate)) < 0.79)
       {
         offset = candidate;
         break;
@@ -365,8 +276,8 @@ private:
     }
 
     const double desired_yaw =
-        twist_angular_ * std::sin(2.0 * std::numbers::pi * steady_clock_.now().seconds()) + offset;
-    return follow_pid_.update(-shortest_angular_distance(yaw, desired_yaw));
+        params_.twist_angular * std::sin(2.0 * std::numbers::pi * steady_clock_.now().seconds()) + offset;
+    return follow_pid_.update(-angles::shortest_angular_distance(yaw, desired_yaw));
   }
 
   double read_yaw_position() const
@@ -378,16 +289,6 @@ private:
 
     const std::optional<double> yaw = state_interfaces_[0].get_optional();
     return yaw.has_value() && std::isfinite(*yaw) ? *yaw : 0.0;
-  }
-
-  static double normalize_angle(double angle)
-  {
-    return std::atan2(std::sin(angle), std::cos(angle));
-  }
-
-  static double shortest_angular_distance(double from, double to)
-  {
-    return normalize_angle(to - from);
   }
 
   void reset_references()
@@ -417,15 +318,12 @@ private:
   std::string target_controller_name_;
   std::string yaw_joint_name_;
   std::string yaw_state_interface_name_;
-  std::string command_source_frame_ = "yaw";
-  double twist_angular_ = std::numbers::pi / 6.0;
-  double follow_velocity_feedforward_ = 0.0;
-  std::atomic_bool trace_commands_{ false };
-  std::size_t update_trace_counter_ = 0;
   rclcpp::Clock steady_clock_{ RCL_STEADY_TIME };
   std::array<double, 4> remote_command_reference_{ 0.0, 0.0, 0.0, 0.0 };
-  Mode last_mode_ = Mode::kRaw;
+  Mode last_mode_ = Mode::raw;
   rmgo_core::pid::PidCalculator follow_pid_;
+  std::shared_ptr<::chassis_controller::ParamListener> param_listener_;
+  ::chassis_controller::Params params_;
 };
 
 }  // namespace rmgo_core::controller::chassis

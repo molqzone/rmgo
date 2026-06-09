@@ -33,12 +33,10 @@ chassis_controller:
     follow_kd: 0.0
     follow_output_min: -16.0
     follow_output_max: 16.0
-    trace_commands: false
 
 chassis_power_controller:
   ros__parameters:
     target_controller_name: omni_wheel_controller
-    trace_commands: false
 
 omni_wheel_controller:
   ros__parameters:
@@ -62,7 +60,6 @@ omni_wheel_controller:
     angular_z_kp: 0.0
     angular_z_ki: 0.0
     angular_z_kd: 0.0
-    trace_commands: false
 
 teleop_remote_controller:
   ros__parameters:
@@ -70,7 +67,6 @@ teleop_remote_controller:
     cmd_vel_topic: /cmd_vel
     mode_topic: /cmd_chassis_mode
     command_timeout: 2.0
-    trace_commands: false
 
 gimbal_position_controller:
   ros__parameters:

@@ -15,7 +15,6 @@ public:
   controller_interface::CallbackReturn on_init() override
   {
     target_controller_name_ = auto_declare<std::string>("target_controller_name", "omni_wheel_controller");
-    trace_commands_ = auto_declare<bool>("trace_commands", false);
     return controller_interface::CallbackReturn::SUCCESS;
   }
 
@@ -71,7 +70,6 @@ public:
   controller_interface::CallbackReturn on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override
   {
     target_controller_name_ = get_target_controller_name();
-    trace_commands_ = get_node()->get_parameter("trace_commands").as_bool();
     if (target_controller_name_.empty())
     {
       RCLCPP_ERROR(get_node()->get_logger(), "target_controller_name must not be empty");
@@ -120,13 +118,6 @@ public:
     // This controller stays in the chain so rmgo matches that layering now, but it
     // intentionally forwards commands unchanged until referee, supercap and remote
     // inputs are wired into this controller instead of a temporary external source.
-    if (trace_commands_ && ++trace_counter_ % 100 == 0)
-    {
-      RCLCPP_INFO(get_node()->get_logger(), "[trace] power passthrough in=(%.3f %.3f %.3f) out->%s=(%.3f %.3f %.3f)",
-                  chassis_reference_[0], chassis_reference_[1], chassis_reference_[2], target_controller_name_.c_str(),
-                  chassis_reference_[0], chassis_reference_[1], chassis_reference_[2]);
-    }
-
     return write_chassis_commands({ chassis_reference_[0], chassis_reference_[1], chassis_reference_[2] }) ?
                controller_interface::return_type::OK :
                controller_interface::return_type::ERROR;
@@ -173,8 +164,6 @@ private:
   }
 
   std::string target_controller_name_;
-  bool trace_commands_ = false;
-  std::size_t trace_counter_ = 0;
   std::array<double, 3> chassis_reference_{ 0.0, 0.0, 0.0 };
 };
 

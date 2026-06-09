@@ -13,6 +13,7 @@
 #include <rclcpp/logging.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
+#include "rmgo_core/omni_wheel_controller_config.hpp"
 #include "rmgo_core/pid/pid_calculator.hpp"
 
 namespace rmgo_core::controller::chassis
@@ -29,18 +30,8 @@ public:
 
   controller_interface::CallbackReturn on_init() override
   {
-    wheel_joints_ = auto_declare<std::vector<std::string>>(
-        "wheel_joints", std::vector<std::string>{ "left_front_wheel_joint", "left_back_wheel_joint",
-                                                  "right_back_wheel_joint", "right_front_wheel_joint" });
-    command_interface_name_ = auto_declare<std::string>("command_interface_name", hardware_interface::HW_IF_VELOCITY);
-    wheel_state_interface_name_ =
-        auto_declare<std::string>("wheel_state_interface_name", hardware_interface::HW_IF_VELOCITY);
-    wheel_radius_ = auto_declare<double>("wheel_radius", 0.07);
-    chassis_radius_x_ = auto_declare<double>("chassis_radius_x", 0.15897);
-    chassis_radius_y_ = auto_declare<double>("chassis_radius_y", 0.15897);
-    max_wheel_velocity_ = auto_declare<double>("max_wheel_velocity", 40.0);
-    trace_commands_ = auto_declare<bool>("trace_commands", false);
-
+    param_listener_ = std::make_shared<::omni_wheel_controller::ParamListener>(get_node());
+    params_ = param_listener_->get_params();
     return controller_interface::CallbackReturn::SUCCESS;
   }
 
@@ -48,10 +39,10 @@ public:
   {
     controller_interface::InterfaceConfiguration config;
     config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-    config.names.reserve(wheel_joints_.size());
-    for (const auto& joint_name : wheel_joints_)
+    config.names.reserve(params_.wheel_joints.size());
+    for (const auto& joint_name : params_.wheel_joints)
     {
-      config.names.push_back(joint_name + "/" + command_interface_name_);
+      config.names.push_back(joint_name + "/" + params_.command_interface_name);
     }
     return config;
   }
@@ -60,10 +51,10 @@ public:
   {
     controller_interface::InterfaceConfiguration config;
     config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-    config.names.reserve(wheel_joints_.size());
-    for (const auto& joint_name : wheel_joints_)
+    config.names.reserve(params_.wheel_joints.size());
+    for (const auto& joint_name : params_.wheel_joints)
     {
-      config.names.push_back(joint_name + "/" + wheel_state_interface_name_);
+      config.names.push_back(joint_name + "/" + params_.wheel_state_interface_name);
     }
     return config;
   }
@@ -96,35 +87,7 @@ public:
 
   controller_interface::CallbackReturn on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override
   {
-    wheel_joints_ = get_node()->get_parameter("wheel_joints").as_string_array();
-    command_interface_name_ = get_node()->get_parameter("command_interface_name").as_string();
-    wheel_state_interface_name_ = get_node()->get_parameter("wheel_state_interface_name").as_string();
-    wheel_radius_ = get_node()->get_parameter("wheel_radius").as_double();
-    chassis_radius_x_ = get_node()->get_parameter("chassis_radius_x").as_double();
-    chassis_radius_y_ = get_node()->get_parameter("chassis_radius_y").as_double();
-    max_wheel_velocity_ = get_node()->get_parameter("max_wheel_velocity").as_double();
-    trace_commands_ = get_node()->get_parameter("trace_commands").as_bool();
-
-    if (wheel_joints_.size() != 4)
-    {
-      RCLCPP_ERROR(get_node()->get_logger(), "wheel_joints must contain exactly 4 joints");
-      return controller_interface::CallbackReturn::ERROR;
-    }
-    if (wheel_state_interface_name_.empty())
-    {
-      RCLCPP_ERROR(get_node()->get_logger(), "wheel_state_interface_name must not be empty");
-      return controller_interface::CallbackReturn::ERROR;
-    }
-    if (wheel_radius_ <= 0.0)
-    {
-      RCLCPP_ERROR(get_node()->get_logger(), "wheel_radius must be positive");
-      return controller_interface::CallbackReturn::ERROR;
-    }
-    if (chassis_radius_x_ < 0.0 || chassis_radius_y_ < 0.0)
-    {
-      RCLCPP_ERROR(get_node()->get_logger(), "chassis radii must be non-negative");
-      return controller_interface::CallbackReturn::ERROR;
-    }
+    params_ = param_listener_->get_params();
 
     base_link_to_wheel_ = make_base_link_to_wheel_matrix();
     wheel_to_base_link_ = make_wheel_to_base_link_matrix(base_link_to_wheel_);
@@ -140,15 +103,15 @@ public:
 
   controller_interface::CallbackReturn on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override
   {
-    if (command_interfaces_.size() != wheel_joints_.size())
+    if (command_interfaces_.size() != params_.wheel_joints.size())
     {
-      RCLCPP_ERROR(get_node()->get_logger(), "Expected %zu command interfaces, got %zu", wheel_joints_.size(),
+      RCLCPP_ERROR(get_node()->get_logger(), "Expected %zu command interfaces, got %zu", params_.wheel_joints.size(),
                    command_interfaces_.size());
       return controller_interface::CallbackReturn::ERROR;
     }
-    if (state_interfaces_.size() != wheel_joints_.size())
+    if (state_interfaces_.size() != params_.wheel_joints.size())
     {
-      RCLCPP_ERROR(get_node()->get_logger(), "Expected %zu state interfaces, got %zu", wheel_joints_.size(),
+      RCLCPP_ERROR(get_node()->get_logger(), "Expected %zu state interfaces, got %zu", params_.wheel_joints.size(),
                    state_interfaces_.size());
       return controller_interface::CallbackReturn::ERROR;
     }
@@ -197,18 +160,6 @@ public:
     WheelCommand wheel_commands = inverse_kinematics(control_velocity);
     constrain_wheel_commands(wheel_commands);
 
-    if (trace_commands_ && ++trace_counter_ % 100 == 0)
-    {
-      const BaseLinkVelocityCommand measured =
-          measured_velocity.value_or(BaseLinkVelocityCommand::Constant(std::nan("")));
-      RCLCPP_INFO(get_node()->get_logger(),
-                  "[trace] omni wheel base_link_velocity=(%.3f %.3f %.3f) measured=(%.3f %.3f %.3f) "
-                  "control=(%.3f %.3f %.3f) wheel_cmd=(%.3f %.3f %.3f %.3f)",
-                  base_link_velocity_command.x(), base_link_velocity_command.y(), base_link_velocity_command.z(),
-                  measured.x(), measured.y(), measured.z(), control_velocity.x(), control_velocity.y(),
-                  control_velocity.z(), wheel_commands.x(), wheel_commands.y(), wheel_commands.z(), wheel_commands.w());
-    }
-
     return write_wheel_commands(wheel_commands) ? controller_interface::return_type::OK :
                                                   controller_interface::return_type::ERROR;
   }
@@ -225,11 +176,11 @@ private:
 
   BaseLinkToWheelMatrix make_base_link_to_wheel_matrix() const
   {
-    const double lever_arm = chassis_radius_x_ + chassis_radius_y_;
+    const double lever_arm = params_.chassis_radius_x + params_.chassis_radius_y;
 
     BaseLinkToWheelMatrix matrix;
     matrix << -1.0, 1.0, lever_arm, -1.0, -1.0, lever_arm, 1.0, -1.0, lever_arm, 1.0, 1.0, lever_arm;
-    matrix *= -1.0 / (std::numbers::sqrt2 * wheel_radius_);
+    matrix *= -1.0 / (std::numbers::sqrt2 * params_.wheel_radius);
     return matrix;
   }
 
@@ -245,13 +196,13 @@ private:
 
   std::optional<BaseLinkVelocityCommand> measure_base_link_velocity() const
   {
-    if (state_interfaces_.size() != wheel_joints_.size())
+    if (state_interfaces_.size() != params_.wheel_joints.size())
     {
       return std::nullopt;
     }
 
     WheelState wheel_state;
-    for (std::size_t index = 0; index < wheel_joints_.size(); ++index)
+    for (std::size_t index = 0; index < params_.wheel_joints.size(); ++index)
     {
       const std::optional<double> value = state_interfaces_[index].get_optional();
       if (!value.has_value() || !std::isfinite(*value))
@@ -276,18 +227,18 @@ private:
 
   void constrain_wheel_commands(WheelCommand& wheel_commands) const
   {
-    if (max_wheel_velocity_ <= 0.0)
+    if (params_.max_wheel_velocity <= 0.0)
     {
       return;
     }
 
     const double max_command = wheel_commands.cwiseAbs().maxCoeff();
-    if (max_command <= max_wheel_velocity_)
+    if (max_command <= params_.max_wheel_velocity)
     {
       return;
     }
 
-    wheel_commands *= max_wheel_velocity_ / max_command;
+    wheel_commands *= params_.max_wheel_velocity / max_command;
   }
 
   void reset_references()
@@ -304,33 +255,26 @@ private:
 
   bool write_wheel_commands(const WheelCommand& wheel_commands)
   {
-    for (std::size_t index = 0; index < wheel_joints_.size(); ++index)
+    for (std::size_t index = 0; index < params_.wheel_joints.size(); ++index)
     {
       if (!command_interfaces_[index].set_value(wheel_commands[static_cast<Eigen::Index>(index)]))
       {
         RCLCPP_ERROR(get_node()->get_logger(), "Failed to write %s command for joint %s",
-                     command_interface_name_.c_str(), wheel_joints_[index].c_str());
+                     params_.command_interface_name.c_str(), params_.wheel_joints[index].c_str());
         return false;
       }
     }
     return true;
   }
 
-  std::vector<std::string> wheel_joints_;
-  std::string command_interface_name_;
-  std::string wheel_state_interface_name_;
-  double wheel_radius_ = 0.07;
-  double chassis_radius_x_ = 0.15897;
-  double chassis_radius_y_ = 0.15897;
-  double max_wheel_velocity_ = 40.0;
-  bool trace_commands_ = false;
-  std::size_t trace_counter_ = 0;
   std::array<double, 3> base_link_velocity_reference_{ 0.0, 0.0, 0.0 };
   BaseLinkToWheelMatrix base_link_to_wheel_ = BaseLinkToWheelMatrix::Zero();
   WheelToBaseLinkMatrix wheel_to_base_link_ = WheelToBaseLinkMatrix::Zero();
   rmgo_core::pid::PidCalculator linear_x_pid_;
   rmgo_core::pid::PidCalculator linear_y_pid_;
   rmgo_core::pid::PidCalculator angular_z_pid_;
+  std::shared_ptr<::omni_wheel_controller::ParamListener> param_listener_;
+  ::omni_wheel_controller::Params params_;
 };
 
 }  // namespace rmgo_core::controller::chassis
