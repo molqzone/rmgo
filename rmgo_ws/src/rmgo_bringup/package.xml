@@ -2,7 +2,7 @@
 <package format="3">
   <name>rmgo_bringup</name>
   <version>0.0.0</version>
-  <description>Bringup package for the RMGO robot stack.</description>
+  <description>Bringup package for the rmgo robot stack.</description>
   <maintainer email="todo@rmgo.local">rmgo</maintainer>
   <license>Apache-2.0</license>
 

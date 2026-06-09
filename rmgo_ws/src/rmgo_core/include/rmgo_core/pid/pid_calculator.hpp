@@ -6,9 +6,11 @@
 #include <optional>
 #include <string>
 
-namespace rmgo_core::pid
+namespace rmgo_core
 {
+namespace pid
 
+{
 class PidCalculator
 {
 public:
@@ -123,4 +125,5 @@ make_pid_calculator(NodeT& node, const std::string& prefix, std::optional<double
   return calculator;
 }
 
-}  // namespace rmgo_core::pid
+}  // namespace pid
+}  // namespace rmgo_core

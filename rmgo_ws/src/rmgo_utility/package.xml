@@ -2,7 +2,7 @@
 <package format="3">
   <name>rmgo_utility</name>
   <version>0.0.0</version>
-  <description>Shared utility code and configuration helpers for RMGO.</description>
+  <description>Shared utility code and configuration helpers for rmgo.</description>
   <maintainer email="todo@rmgo.local">rmgo</maintainer>
   <license>Apache-2.0</license>
 
