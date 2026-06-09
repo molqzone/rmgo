@@ -5,10 +5,20 @@ teleop_remote_controller:
     description: "Downstream chain controller that receives remote commands."
     validation:
       not_empty<>: []
+  target_gimbal_controller_name:
+    type: string
+    default_value: ""
+    description: "Optional downstream gimbal chain controller that receives remote commands."
   cmd_vel_topic:
     type: string
     default_value: "/cmd_vel"
     description: "Teleop velocity command topic."
+    validation:
+      not_empty<>: []
+  cmd_gimbal_topic:
+    type: string
+    default_value: "/cmd_gimbal"
+    description: "Teleop gimbal angular velocity command topic."
     validation:
       not_empty<>: []
   mode_topic:

@@ -14,11 +14,11 @@ controller_manager:
     chassis_controller:
       type: rmgo_core/ChassisController
 
-    teleop_remote_controller:
-      type: rmgo_core/TeleopRemoteController
-
     simple_gimbal_controller:
       type: rmgo_core/SimpleGimbalController
+
+    teleop_remote_controller:
+      type: rmgo_core/TeleopRemoteController
 
 chassis_controller:
   ros__parameters:
@@ -64,7 +64,9 @@ omni_wheel_controller:
 teleop_remote_controller:
   ros__parameters:
     target_controller_name: chassis_controller
+    target_gimbal_controller_name: simple_gimbal_controller
     cmd_vel_topic: /cmd_vel
+    cmd_gimbal_topic: /cmd_gimbal
     mode_topic: /cmd_chassis_mode
     command_timeout: 2.0
 
