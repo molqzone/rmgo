@@ -317,6 +317,10 @@
   </ros2_control>
 
   <gazebo>
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <dimensions>2</dimensions>
+      <odom_publish_frequency>100</odom_publish_frequency>
+    </plugin>
     <plugin filename="libgz_ros2_control-system.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
       <parameters>$(arg controllers_file)</parameters>
     </plugin>

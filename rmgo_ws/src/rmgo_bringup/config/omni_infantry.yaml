@@ -17,8 +17,8 @@ controller_manager:
     teleop_remote_controller:
       type: rmgo_core/TeleopRemoteController
 
-    gimbal_position_controller:
-      type: position_controllers/JointGroupPositionController
+    simple_gimbal_controller:
+      type: rmgo_core/SimpleGimbalController
 
 chassis_controller:
   ros__parameters:
@@ -68,8 +68,17 @@ teleop_remote_controller:
     mode_topic: /cmd_chassis_mode
     command_timeout: 2.0
 
-gimbal_position_controller:
+simple_gimbal_controller:
   ros__parameters:
-    joints:
-      - yaw_joint
-      - pitch_joint
+    yaw_joint_name: yaw_joint
+    pitch_joint_name: pitch_joint
+    command_interface_name: position
+    state_interface_name: position
+    base_odometry_topic: /model/omni_infantry/odometry
+    command_topic: /cmd_gimbal
+    command_timeout: 0.25
+    base_odometry_timeout: 0.5
+    yaw_velocity_scale: 1.0
+    pitch_velocity_scale: 1.0
+    pitch_lower_limit: -0.5098
+    pitch_upper_limit: 0.2262

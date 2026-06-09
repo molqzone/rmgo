@@ -13,6 +13,7 @@ find_package(controller_interface REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(generate_parameter_library REQUIRED)
 find_package(hardware_interface REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
@@ -32,11 +33,17 @@ generate_parameter_library(
   src/controller/remote/teleop_remote_controller_config.yaml
 )
 
+generate_parameter_library(
+  simple_gimbal_controller_config
+  src/controller/gimbal/simple_gimbal_controller_config.yaml
+)
+
 add_library(
   rmgo_chassis_controller SHARED
   src/controller/chassis/chassis_controller.cpp
   src/controller/chassis/chassis_power_controller.cpp
   src/controller/chassis/omni_wheel_controller.cpp
+  src/controller/gimbal/simple_gimbal_controller.cpp
   src/controller/remote/teleop_remote_controller.cpp
 )
 
@@ -48,6 +55,7 @@ ament_target_dependencies(
   angles
   geometry_msgs
   hardware_interface
+  nav_msgs
   pluginlib
   rclcpp
   rclcpp_lifecycle
@@ -57,7 +65,7 @@ ament_target_dependencies(
 
 target_link_libraries(
   rmgo_chassis_controller chassis_controller_config omni_wheel_controller_config
-  teleop_remote_controller_config
+  teleop_remote_controller_config simple_gimbal_controller_config
 )
 
 target_include_directories(
