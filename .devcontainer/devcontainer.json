@@ -13,7 +13,11 @@
   "customizations": {
     "vscode": {
       "settings": {
-        "remote.autoForwardPorts": false
+        "remote.autoForwardPorts": false,
+        "clangd.arguments": [
+          "--compile-commands-dir=/workspaces/rmgo/rmgo_ws/build/rmgo_core",
+          "--query-driver=/usr/bin/clang++,/usr/bin/g++,/opt/ros/jazzy/bin/*"
+        ]
       },
       "extensions": [
         "llvm-vs-code-extensions.vscode-clangd",
