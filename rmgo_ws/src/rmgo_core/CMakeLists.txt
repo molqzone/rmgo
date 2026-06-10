@@ -12,6 +12,9 @@ find_package(angles REQUIRED)
 find_package(controller_interface REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(generate_parameter_library REQUIRED)
+find_package(gz_sim_vendor REQUIRED)
+find_package(gz-sim8 REQUIRED)
+find_package(gz_ros2_control REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(pluginlib REQUIRED)
@@ -23,6 +26,11 @@ find_package(std_msgs REQUIRED)
 
 generate_parameter_library(
   chassis_controller_config src/controller/chassis/chassis_controller_config.yaml
+)
+
+generate_parameter_library(
+  chassis_power_controller_config
+  src/controller/chassis/chassis_power_controller_config.yaml
 )
 
 generate_parameter_library(
@@ -52,7 +60,7 @@ add_library(
   src/controller/gimbal/gimbal_simulation_controller.cpp
   src/controller/gimbal/simple_gimbal_controller.cpp
   src/controller/remote/teleop_remote_controller.cpp
-  src/interface/mock_io_system_interface.cpp
+  src/interface/omni_infantry_gz_interface.cpp
 )
 
 target_compile_features(rmgo_chassis_controller PUBLIC cxx_std_20)
@@ -62,6 +70,8 @@ ament_target_dependencies(
   controller_interface
   angles
   geometry_msgs
+  gz_sim_vendor
+  gz_ros2_control
   hardware_interface
   nav_msgs
   pluginlib
@@ -73,8 +83,13 @@ ament_target_dependencies(
 )
 
 target_link_libraries(
-  rmgo_chassis_controller chassis_controller_config omni_wheel_controller_config
-  teleop_remote_controller_config simple_gimbal_controller_config
+  rmgo_chassis_controller
+  chassis_controller_config
+  chassis_power_controller_config
+  gz-sim8::gz-sim8
+  omni_wheel_controller_config
+  teleop_remote_controller_config
+  simple_gimbal_controller_config
   gimbal_simulation_controller_config
 )
 
@@ -86,9 +101,11 @@ target_include_directories(
 install(TARGETS rmgo_chassis_controller DESTINATION lib/${PROJECT_NAME})
 
 pluginlib_export_plugin_description_file(controller_interface rmgo_core_plugins.xml)
-pluginlib_export_plugin_description_file(hardware_interface rmgo_hardware_plugins.xml)
+pluginlib_export_plugin_description_file(gz_ros2_control rmgo_hardware_plugins.xml)
 
-install(FILES rmgo_core_plugins.xml rmgo_hardware_plugins.xml DESTINATION share/${PROJECT_NAME})
+install(FILES rmgo_core_plugins.xml rmgo_hardware_plugins.xml
+        DESTINATION share/${PROJECT_NAME}
+)
 
 install(DIRECTORY include/ DESTINATION include)
 

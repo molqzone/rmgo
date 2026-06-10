@@ -1,0 +1,31 @@
+chassis_power_controller:
+  target_controller_name:
+    type: string
+    default_value: "omni_wheel_controller"
+    description: "Downstream chain controller that receives power-limited chassis velocity commands."
+    validation:
+      not_empty<>: []
+  fallback_power_limit:
+    type: double
+    default_value: 80.0
+    description: "Fallback chassis power limit in watts when the referee state is unavailable."
+    validation:
+      gt<>: [0.0]
+  excess_power_limit:
+    type: double
+    default_value: 15.0
+    description: "Extra chassis control power allowed when the virtual buffer is full."
+    validation:
+      gt_eq<>: [0.0]
+  virtual_buffer_energy_limit:
+    type: double
+    default_value: 30.0
+    description: "RMCS-style virtual buffer energy cap used to smooth referee power limiting."
+    validation:
+      gt<>: [0.0]
+  min_scale:
+    type: double
+    default_value: 0.0
+    description: "Minimum chassis command scale after power limiting."
+    validation:
+      bounds<>: [0.0, 1.0]

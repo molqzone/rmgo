@@ -1,10 +1,10 @@
 <library path="rmgo_chassis_controller">
   <class
-    name="rmgo_core/MockIoSystemInterface"
-    type="rmgo_core::interface::MockIoSystemInterface"
-    base_class_type="hardware_interface::SystemInterface">
+    name="rmgo_core/OmniInfantryGzInterface"
+    type="rmgo_core::interface::OmniInfantryGzInterface"
+    base_class_type="gz_ros2_control::GazeboSimSystemInterface">
     <description>
-      Mock whole-robot I/O system interface for controller-chain development.
+      Gazebo whole-robot I/O interface for OmniInfantry controller-chain development.
     </description>
   </class>
 </library>

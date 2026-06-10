@@ -65,6 +65,8 @@ def launch_setup(context: LaunchContext, *args, **kwargs):
                 config_file,
                 " hardware_plugin:=",
                 LaunchConfiguration("hardware_plugin"),
+                " io_plugin:=",
+                LaunchConfiguration("io_plugin"),
                 " debug_visuals:=",
                 LaunchConfiguration("debug_visuals"),
             ]
@@ -162,6 +164,7 @@ def generate_launch_description():
             DeclareLaunchArgument("controller_spawn_delay", default_value="5.0"),
             DeclareLaunchArgument("controller_manager_timeout", default_value="60.0"),
             DeclareLaunchArgument("hardware_plugin", default_value="gz_ros2_control/GazeboSimSystem"),
+            DeclareLaunchArgument("io_plugin", default_value="rmgo_core/OmniInfantryGzInterface"),
             DeclareLaunchArgument("debug_visuals", default_value="false"),
             OpaqueFunction(function=launch_setup),
         ]
