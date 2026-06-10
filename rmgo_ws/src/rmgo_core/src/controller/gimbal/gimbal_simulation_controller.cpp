@@ -86,9 +86,13 @@ public:
         const double yaw = read_state(yaw_index);
         const double pitch = read_state(pitch_index);
         const auto base_odometry = read_base_odometry();
-        target_world_yaw_ = base_odometry.has_value()
-                              ? angles::normalize_angle(base_odometry->yaw + yaw)
-                              : angles::normalize_angle(yaw);
+        if (base_odometry.has_value()) {
+            initialize_base_yaw_tracking(base_odometry->yaw);
+            target_world_yaw_ = unwrapped_base_yaw_ + yaw;
+        } else {
+            reset_base_yaw_tracking();
+            target_world_yaw_ = yaw;
+        }
         target_pitch_ = std::clamp(pitch, params_.pitch_lower_limit, params_.pitch_upper_limit);
         world_yaw_initialized_from_odometry_ = base_odometry.has_value();
 
@@ -99,6 +103,7 @@ public:
     controller_interface::CallbackReturn
         on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
         world_yaw_initialized_from_odometry_ = false;
+        reset_base_yaw_tracking();
         return write_commands(read_state(yaw_index), read_state(pitch_index))
                  ? controller_interface::CallbackReturn::SUCCESS
                  : controller_interface::CallbackReturn::ERROR;
@@ -113,12 +118,13 @@ public:
                      : controller_interface::return_type::ERROR;
         }
 
+        update_base_yaw_tracking(base_odometry->yaw);
         if (!world_yaw_initialized_from_odometry_) {
-            target_world_yaw_ = angles::normalize_angle(base_odometry->yaw + read_state(yaw_index));
+            target_world_yaw_ = unwrapped_base_yaw_ + read_state(yaw_index);
             world_yaw_initialized_from_odometry_ = true;
         }
 
-        const double yaw_command = angles::normalize_angle(target_world_yaw_ - base_odometry->yaw);
+        const double yaw_command = target_world_yaw_ - unwrapped_base_yaw_;
         return write_commands(yaw_command, target_pitch_)
                  ? controller_interface::return_type::OK
                  : controller_interface::return_type::ERROR;
@@ -139,6 +145,28 @@ private:
     static double yaw_from_odometry(const nav_msgs::msg::Odometry& odometry) {
         const auto& q = odometry.pose.pose.orientation;
         return std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+    }
+
+    void initialize_base_yaw_tracking(double normalized_yaw) {
+        last_base_yaw_ = normalized_yaw;
+        unwrapped_base_yaw_ = normalized_yaw;
+        base_yaw_tracking_initialized_ = true;
+    }
+
+    void reset_base_yaw_tracking() {
+        last_base_yaw_ = 0.0;
+        unwrapped_base_yaw_ = 0.0;
+        base_yaw_tracking_initialized_ = false;
+    }
+
+    void update_base_yaw_tracking(double normalized_yaw) {
+        if (!base_yaw_tracking_initialized_) {
+            initialize_base_yaw_tracking(normalized_yaw);
+            return;
+        }
+
+        unwrapped_base_yaw_ += angles::shortest_angular_distance(last_base_yaw_, normalized_yaw);
+        last_base_yaw_ = normalized_yaw;
     }
 
     std::optional<BufferedBaseOdometry> read_base_odometry() {
@@ -165,7 +193,7 @@ private:
 
     bool write_commands(double yaw, double pitch) {
         const std::array<double, 2> values = {
-            angles::normalize_angle(yaw),
+            std::isfinite(yaw) ? yaw : read_state(yaw_index),
             std::clamp(pitch, params_.pitch_lower_limit, params_.pitch_upper_limit),
         };
         for (std::size_t index = 0; index < values.size(); ++index) {
@@ -181,6 +209,9 @@ private:
 
     double target_world_yaw_ = 0.0;
     double target_pitch_ = 0.0;
+    double last_base_yaw_ = 0.0;
+    double unwrapped_base_yaw_ = 0.0;
+    bool base_yaw_tracking_initialized_ = false;
     bool world_yaw_initialized_from_odometry_ = false;
     rclcpp::Clock steady_clock_{RCL_STEADY_TIME};
     realtime_tools::RealtimeBuffer<BufferedBaseOdometry> base_odometry_buffer_;
