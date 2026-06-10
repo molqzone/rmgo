@@ -5,20 +5,20 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include <angles/angles.h>
 #include <controller_interface/chainable_controller_interface.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
-#include <rclcpp/logging.hpp>
 #include <rclcpp/time.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "gimbal_tf_builder.hpp"
 #include "rmgo_core/interface/io_state_interfaces.hpp"
 #include "rmgo_core/simple_gimbal_controller_config.hpp"
+#include "rmgo_utility/controller_interface_mixin.hpp"
+#include "rmgo_utility/node_mixin.hpp"
 #include "two_axis_gimbal_solver.hpp"
 
 namespace rmgo_core::controller::gimbal {
@@ -27,7 +27,10 @@ using GimbalTfState = rmgo_core::gimbal::GimbalTfState;
 using TwoAxisGimbalSolver = rmgo_core::gimbal::TwoAxisGimbalSolver;
 using rmgo_core::gimbal::update_gimbal_tf;
 
-class SimpleGimbalController : public controller_interface::ChainableControllerInterface {
+class SimpleGimbalController
+    : public controller_interface::ChainableControllerInterface
+    , public rmgo_utility::ControllerInterfaceMixin
+    , public rmgo_utility::NodeMixin {
 public:
     controller_interface::CallbackReturn on_init() override {
         param_listener_ = std::make_shared<::simple_gimbal_controller::ParamListener>(get_node());
@@ -63,16 +66,7 @@ public:
     std::vector<hardware_interface::CommandInterface::SharedPtr>
         on_export_reference_interfaces_list() override {
         reset_references();
-
-        const std::string controller_name = get_node()->get_name();
-        return {
-            std::make_shared<hardware_interface::CommandInterface>(
-                controller_name, remote_command_suffixes[0], &remote_command_reference_[0]),
-            std::make_shared<hardware_interface::CommandInterface>(
-                controller_name, remote_command_suffixes[1], &remote_command_reference_[1]),
-            std::make_shared<hardware_interface::CommandInterface>(
-                controller_name, remote_command_suffixes[2], &remote_command_reference_[2]),
-        };
+        return make_reference_interfaces(remote_command_suffixes, remote_command_reference_);
     }
 
     std::vector<hardware_interface::StateInterface::SharedPtr>
@@ -80,9 +74,7 @@ public:
         return {};
     }
 
-    bool on_set_chained_mode(bool /*chained_mode*/) override {
-        return true;
-    }
+    bool on_set_chained_mode(bool /*chained_mode*/) override { return true; }
 
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
@@ -97,17 +89,12 @@ public:
 
     controller_interface::CallbackReturn
         on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        if (command_interfaces_.size() != command_interface_names.size()) {
-            RCLCPP_ERROR(
-                get_node()->get_logger(), "Expected %zu command interfaces, got %zu",
-                command_interface_names.size(), command_interfaces_.size());
+        if (!expect_interface_count(
+                command_interfaces_, command_interface_names.size(), "command")) {
             return controller_interface::CallbackReturn::ERROR;
         }
         const std::size_t expected_state_interface_count = state_interface_count();
-        if (state_interfaces_.size() != expected_state_interface_count) {
-            RCLCPP_ERROR(
-                get_node()->get_logger(), "Expected %zu state interfaces, got %zu",
-                expected_state_interface_count, state_interfaces_.size());
+        if (!expect_interface_count(state_interfaces_, expected_state_interface_count, "state")) {
             return controller_interface::CallbackReturn::ERROR;
         }
 
@@ -178,37 +165,13 @@ private:
     };
 
     double read_state(std::size_t index) const {
-        if (index >= state_interfaces_.size()) {
-            return 0.0;
-        }
-
-        const std::optional<double> value = state_interfaces_[index].get_optional();
-        return value.has_value() && std::isfinite(*value) ? *value : 0.0;
-    }
-
-    std::optional<std::size_t> find_command_interface_index(std::string_view name) const {
-        for (std::size_t index = 0; index < command_interfaces_.size(); ++index) {
-            if (command_interfaces_[index].get_name() == name) {
-                return index;
-            }
-        }
-        return std::nullopt;
-    }
-
-    std::optional<std::size_t> find_state_interface_index(std::string_view name) const {
-        for (std::size_t index = 0; index < state_interfaces_.size(); ++index) {
-            if (state_interfaces_[index].get_name() == name) {
-                return index;
-            }
-        }
-        return std::nullopt;
+        return read_finite_interface_or(state_interfaces_, index, 0.0);
     }
 
     bool bind_command_interface(std::size_t& index, const std::string& name) {
-        const auto found = find_command_interface_index(name);
+        const auto found = find_interface_index(command_interfaces_, name);
         if (!found.has_value()) {
-            RCLCPP_ERROR(
-                get_node()->get_logger(), "Missing gimbal command interface '%s'", name.c_str());
+            logging::error("Missing gimbal command interface '{}'", name);
             return false;
         }
         index = *found;
@@ -216,10 +179,9 @@ private:
     }
 
     bool bind_state_interface(std::size_t& index, const std::string& name) {
-        const auto found = find_state_interface_index(name);
+        const auto found = find_interface_index(state_interfaces_, name);
         if (!found.has_value()) {
-            RCLCPP_ERROR(
-                get_node()->get_logger(), "Missing gimbal state interface '%s'", name.c_str());
+            logging::error("Missing gimbal state interface '{}'", name);
             return false;
         }
         index = *found;
@@ -229,7 +191,8 @@ private:
     bool bind_command_interfaces() {
         command_indexes_ = {};
         return bind_command_interface(
-                   command_indexes_.yaw, params_.yaw_joint_name + "/" + params_.command_interface_name)
+                   command_indexes_.yaw,
+                   params_.yaw_joint_name + "/" + params_.command_interface_name)
             && bind_command_interface(
                    command_indexes_.pitch,
                    params_.pitch_joint_name + "/" + params_.command_interface_name);
@@ -328,9 +291,7 @@ private:
         const std::array command_indexes = {command_indexes_.yaw, command_indexes_.pitch};
         for (std::size_t index = 0; index < values.size(); ++index) {
             if (!command_interfaces_[command_indexes[index]].set_value(values[index])) {
-                RCLCPP_ERROR(
-                    get_node()->get_logger(), "Failed to write %s gimbal command",
-                    command_interface_names[index]);
+                logging::error("Failed to write {} gimbal command", command_interface_names[index]);
                 return false;
             }
         }

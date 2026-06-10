@@ -21,6 +21,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(realtime_tools REQUIRED)
 find_package(rmgo_description REQUIRED)
+find_package(rmgo_utility REQUIRED)
 find_package(std_msgs REQUIRED)
 
 generate_parameter_library(
@@ -56,7 +57,7 @@ add_library(
   src/interface/omni_infantry_gz_interface.cpp
 )
 
-target_compile_features(rmgo_chassis_controller PUBLIC cxx_std_20)
+target_compile_features(rmgo_chassis_controller PUBLIC cxx_std_23)
 
 ament_target_dependencies(
   rmgo_chassis_controller
@@ -71,6 +72,7 @@ ament_target_dependencies(
   rclcpp_lifecycle
   realtime_tools
   rmgo_description
+  rmgo_utility
   std_msgs
 )
 

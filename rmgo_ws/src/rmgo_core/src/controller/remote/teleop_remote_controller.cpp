@@ -6,7 +6,6 @@
 #include <controller_interface/controller_interface.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <pluginlib/class_list_macros.hpp>
-#include <rclcpp/logging.hpp>
 #include <rclcpp/qos.hpp>
 #include <rclcpp/subscription.hpp>
 #include <rclcpp/time.hpp>
@@ -15,10 +14,15 @@
 #include <std_msgs/msg/u_int8.hpp>
 
 #include "rmgo_core/teleop_remote_controller_config.hpp"
+#include "rmgo_utility/controller_interface_mixin.hpp"
+#include "rmgo_utility/node_mixin.hpp"
 
 namespace rmgo_core {
 
-class TeleopRemoteController : public controller_interface::ControllerInterface {
+class TeleopRemoteController
+    : public controller_interface::ControllerInterface
+    , public rmgo_utility::ControllerInterfaceMixin
+    , public rmgo_utility::NodeMixin {
 public:
     controller_interface::CallbackReturn on_init() override {
         param_listener_ = std::make_shared<::teleop_remote_controller::ParamListener>(get_node());
@@ -85,27 +89,25 @@ public:
             cmd_vel_subscriber_ = node_->create_subscription<geometry_msgs::msg::Twist>(
                 cmd_vel_topic_, rclcpp::SystemDefaultsQoS(),
                 [this](const geometry_msgs::msg::Twist& msg) {
-                    command_buffer_.writeFromNonRT(
-                        BufferedCommand{
-                            msg.linear.x,
-                            msg.linear.y,
-                            msg.angular.z,
-                            steady_clock_.now(),
-                            true,
-                        });
+                    command_buffer_.writeFromNonRT(BufferedCommand{
+                        msg.linear.x,
+                        msg.linear.y,
+                        msg.angular.z,
+                        steady_clock_.now(),
+                        true,
+                    });
                 });
         }
         if (!target_gimbal_controller_name_.empty() && !cmd_gimbal_subscriber_) {
             cmd_gimbal_subscriber_ = node_->create_subscription<geometry_msgs::msg::Twist>(
                 cmd_gimbal_topic_, rclcpp::SystemDefaultsQoS(),
                 [this](const geometry_msgs::msg::Twist& msg) {
-                    gimbal_command_buffer_.writeFromNonRT(
-                        BufferedGimbalCommand{
-                            msg.angular.z,
-                            msg.angular.y,
-                            steady_clock_.now(),
-                            true,
-                        });
+                    gimbal_command_buffer_.writeFromNonRT(BufferedGimbalCommand{
+                        msg.angular.z,
+                        msg.angular.y,
+                        steady_clock_.now(),
+                        true,
+                    });
                 });
         }
         if (!mode_subscriber_) {
@@ -123,10 +125,7 @@ public:
             command_interface_suffixes.size()
             + (target_gimbal_controller_name_.empty() ? 0
                                                       : gimbal_command_interface_suffixes.size());
-        if (command_interfaces_.size() != expected_interfaces) {
-            RCLCPP_ERROR(
-                get_node()->get_logger(), "Expected %zu command interfaces, got %zu",
-                expected_interfaces, command_interfaces_.size());
+        if (!expect_interface_count(command_interfaces_, expected_interfaces, "command")) {
             return controller_interface::CallbackReturn::ERROR;
         }
 
@@ -211,9 +210,9 @@ private:
     bool write_command(const std::array<double, 4>& values) {
         for (std::size_t index = 0; index < values.size(); ++index) {
             if (!command_interfaces_[index].set_value(values[index])) {
-                RCLCPP_ERROR(
-                    get_node()->get_logger(), "Failed to write reference command '%s/%s'",
-                    target_controller_name_.c_str(), command_interface_suffixes[index]);
+                logging::error(
+                    "Failed to write reference command '{}/{}'", target_controller_name_,
+                    command_interface_suffixes[index]);
                 return false;
             }
         }
@@ -229,9 +228,8 @@ private:
         const std::size_t offset = command_interface_suffixes.size();
         for (std::size_t index = 0; index < values.size(); ++index) {
             if (!command_interfaces_[offset + index].set_value(values[index])) {
-                RCLCPP_ERROR(
-                    get_node()->get_logger(), "Failed to write reference command '%s/%s'",
-                    target_gimbal_controller_name_.c_str(),
+                logging::error(
+                    "Failed to write reference command '{}/{}'", target_gimbal_controller_name_,
                     gimbal_command_interface_suffixes[index]);
                 return false;
             }
