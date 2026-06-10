@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     clang-tidy \
     clangd \
     cmake-format \
+    gcc-14 \
+    g++-14 \
     gdb \
     curl \
     git \
@@ -33,6 +35,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-velocity-controllers \
     ros-${ROS_DISTRO}-xacro \
     ros-dev-tools \
+ && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 50 \
+ && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 50 \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspaces/rmgo_ws

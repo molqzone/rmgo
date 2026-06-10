@@ -8,6 +8,13 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(hardware_interface REQUIRED)
+find_package(rclcpp REQUIRED)
+
+install(DIRECTORY include/ DESTINATION include)
+
+ament_export_include_directories(include)
+ament_export_dependencies(hardware_interface rclcpp)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

@@ -9,15 +9,19 @@
 #include <eigen3/Eigen/Dense>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
-#include <rclcpp/logging.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "../pid/pid_calculator.hpp"
 #include "rmgo_core/omni_wheel_controller_config.hpp"
+#include "rmgo_utility/controller_interface_mixin.hpp"
+#include "rmgo_utility/node_mixin.hpp"
 
 namespace rmgo_core::controller::chassis {
 
-class OmniWheelController : public controller_interface::ChainableControllerInterface {
+class OmniWheelController
+    : public controller_interface::ChainableControllerInterface
+    , public rmgo_utility::ControllerInterfaceMixin
+    , public rmgo_utility::NodeMixin {
 public:
     using BaseLinkVelocityCommand = Eigen::Vector3d;
     using WheelState = Eigen::Vector4d;
@@ -54,16 +58,8 @@ public:
     std::vector<hardware_interface::CommandInterface::SharedPtr>
         on_export_reference_interfaces_list() override {
         reset_references();
-
-        const std::string controller_name = get_node()->get_name();
-        return {
-            std::make_shared<hardware_interface::CommandInterface>(
-                controller_name, base_link_velocity_suffixes[0], &base_link_velocity_reference_[0]),
-            std::make_shared<hardware_interface::CommandInterface>(
-                controller_name, base_link_velocity_suffixes[1], &base_link_velocity_reference_[1]),
-            std::make_shared<hardware_interface::CommandInterface>(
-                controller_name, base_link_velocity_suffixes[2], &base_link_velocity_reference_[2]),
-        };
+        return make_reference_interfaces(
+            base_link_velocity_suffixes, base_link_velocity_reference_);
     }
 
     std::vector<hardware_interface::StateInterface::SharedPtr>
@@ -71,9 +67,7 @@ public:
         return {};
     }
 
-    bool on_set_chained_mode(bool /*chained_mode*/) override {
-        return true;
-    }
+    bool on_set_chained_mode(bool /*chained_mode*/) override { return true; }
 
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
@@ -93,16 +87,10 @@ public:
 
     controller_interface::CallbackReturn
         on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        if (command_interfaces_.size() != params_.wheel_joints.size()) {
-            RCLCPP_ERROR(
-                get_node()->get_logger(), "Expected %zu command interfaces, got %zu",
-                params_.wheel_joints.size(), command_interfaces_.size());
+        if (!expect_interface_count(command_interfaces_, params_.wheel_joints.size(), "command")) {
             return controller_interface::CallbackReturn::ERROR;
         }
-        if (state_interfaces_.size() != params_.wheel_joints.size()) {
-            RCLCPP_ERROR(
-                get_node()->get_logger(), "Expected %zu state interfaces, got %zu",
-                params_.wheel_joints.size(), state_interfaces_.size());
+        if (!expect_interface_count(state_interfaces_, params_.wheel_joints.size(), "state")) {
             return controller_interface::CallbackReturn::ERROR;
         }
 
@@ -192,7 +180,7 @@ private:
 
         WheelState wheel_state;
         for (std::size_t index = 0; index < params_.wheel_joints.size(); ++index) {
-            const std::optional<double> value = state_interfaces_[index].get_optional();
+            const std::optional<double> value = read_finite_interface(state_interfaces_, index);
             if (!value.has_value() || !std::isfinite(*value)) {
                 return std::nullopt;
             }
@@ -237,9 +225,9 @@ private:
         for (std::size_t index = 0; index < params_.wheel_joints.size(); ++index) {
             if (!command_interfaces_[index].set_value(
                     wheel_commands[static_cast<Eigen::Index>(index)])) {
-                RCLCPP_ERROR(
-                    get_node()->get_logger(), "Failed to write %s command for joint %s",
-                    params_.command_interface_name.c_str(), params_.wheel_joints[index].c_str());
+                logging::error(
+                    "Failed to write {} command for joint {}", params_.command_interface_name,
+                    params_.wheel_joints[index]);
                 return false;
             }
         }
