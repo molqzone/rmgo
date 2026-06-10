@@ -233,7 +233,8 @@
   </link>
   <joint name="yaw_joint" type="continuous">
     <axis xyz="0 0 1"/>
-    <limit effort="10.0" velocity="6.0"/>
+    <limit effort="25.0" velocity="12.0"/>
+    <dynamics damping="0.08" friction="0.02"/>
     <parent link="base_link"/>
     <child link="yaw_link"/>
     <origin xyz="0 0 ${gimbal_center_height}"/>
@@ -247,7 +248,8 @@
   </link>
   <joint name="pitch_joint" type="continuous">
     <axis xyz="0 1 0"/>
-    <limit effort="10.0" velocity="6.0"/>
+    <limit effort="6.0" velocity="4.0"/>
+    <dynamics damping="0.2" friction="0.04"/>
     <parent link="yaw_link"/>
     <child link="pitch_link"/>
   </joint>
@@ -305,12 +307,26 @@
       <state_interface name="velocity"/>
     </joint>
     <joint name="yaw_joint">
-      <command_interface name="position"/>
+      <command_interface name="position">
+        <param name="sim_servo_kp">36.0</param>
+        <param name="sim_servo_kd">5.0</param>
+        <param name="sim_servo_max_effort">25.0</param>
+        <param name="sim_servo_max_velocity">16.0</param>
+        <param name="sim_servo_deadband">0.0001</param>
+        <param name="sim_servo_velocity_feedforward">1.0</param>
+      </command_interface>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
     <joint name="pitch_joint">
-      <command_interface name="position"/>
+      <command_interface name="position">
+        <param name="sim_servo_kp">6.0</param>
+        <param name="sim_servo_kd">0.8</param>
+        <param name="sim_servo_max_effort">2.0</param>
+        <param name="sim_servo_max_velocity">2.0</param>
+        <param name="sim_servo_deadband">0.0005</param>
+        <param name="sim_servo_velocity_feedforward">0.2</param>
+      </command_interface>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
