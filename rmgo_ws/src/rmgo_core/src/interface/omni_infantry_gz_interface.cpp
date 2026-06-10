@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <map>
 #include <optional>
 #include <string>
@@ -11,11 +12,10 @@
 #include <gz/sim/Joint.hh>
 #include <gz/sim/Link.hh>
 #include <gz/sim/components/Joint.hh>
+#include <gz/sim/components/JointForceCmd.hh>
 #include <gz/sim/components/JointPosition.hh>
-#include <gz/sim/components/JointPositionReset.hh>
 #include <gz/sim/components/JointVelocity.hh>
 #include <gz/sim/components/JointVelocityCmd.hh>
-#include <gz/sim/components/JointVelocityReset.hh>
 #include <gz/sim/components/Link.hh>
 #include <gz/sim/components/Name.hh>
 #include <gz/sim/components/Pose.hh>
@@ -61,6 +61,20 @@ public:
             auto joint_interface = JointInterface{};
             joint_interface.name = joint.name;
             for (const auto& command_interface : joint.command_interfaces) {
+                if (command_interface.name == hardware_interface::HW_IF_POSITION) {
+                    joint_interface.position_servo_kp =
+                        interface_parameter(command_interface, "sim_servo_kp", 24.0);
+                    joint_interface.position_servo_kd =
+                        interface_parameter(command_interface, "sim_servo_kd", 3.0);
+                    joint_interface.position_servo_max_effort =
+                        interface_parameter(command_interface, "sim_servo_max_effort", 10.0);
+                    joint_interface.position_servo_max_velocity =
+                        interface_parameter(command_interface, "sim_servo_max_velocity", 12.0);
+                    joint_interface.position_servo_deadband =
+                        interface_parameter(command_interface, "sim_servo_deadband", 1e-4);
+                    joint_interface.position_servo_velocity_feedforward = interface_parameter(
+                        command_interface, "sim_servo_velocity_feedforward", 1.0);
+                }
                 joint_interface.command_interfaces.push_back(JointCommandInterface{
                     .name = command_interface.name,
                     .value = 0.0,
@@ -185,6 +199,12 @@ private:
         gz::sim::Entity entity = gz::sim::kNullEntity;
         gz_ros2_control::GazeboSimSystemInterface::ControlMethod control_method;
         std::optional<double> previous_position_command;
+        double position_servo_kp = 0.0;
+        double position_servo_kd = 0.0;
+        double position_servo_max_effort = 0.0;
+        double position_servo_max_velocity = 0.0;
+        double position_servo_deadband = 0.0;
+        double position_servo_velocity_feedforward = 0.0;
         std::vector<JointCommandInterface> command_interfaces;
         std::vector<JointStateInterface> state_interfaces;
     };
@@ -208,6 +228,21 @@ private:
             return std::stod(interface.initial_value);
         } catch (const std::exception&) {
             return 0.0;
+        }
+    }
+
+    static double interface_parameter(
+        const hardware_interface::InterfaceInfo& interface, std::string_view name,
+        double fallback) {
+        const auto parameter = interface.parameters.find(std::string{name});
+        if (parameter == interface.parameters.end()) {
+            return fallback;
+        }
+
+        try {
+            return std::stod(parameter->second);
+        } catch (const std::exception&) {
+            return fallback;
         }
     }
 
@@ -370,17 +405,13 @@ private:
         }
     }
 
-    void reset_gazebo_joint_position(gz::sim::Entity entity, double position, double velocity) {
+    void set_gazebo_joint_force_command(gz::sim::Entity entity, double value) {
         if (ecm_ == nullptr || entity == gz::sim::kNullEntity) {
             return;
         }
-        if (!ecm_->SetComponentData<gz::sim::components::JointPositionReset>(entity, {position})) {
-            ecm_->CreateComponent(entity, gz::sim::components::JointPositionReset({position}));
+        if (!ecm_->SetComponentData<gz::sim::components::JointForceCmd>(entity, {value})) {
+            ecm_->CreateComponent(entity, gz::sim::components::JointForceCmd({value}));
         }
-        if (!ecm_->SetComponentData<gz::sim::components::JointVelocityReset>(entity, {velocity})) {
-            ecm_->CreateComponent(entity, gz::sim::components::JointVelocityReset({velocity}));
-        }
-        set_gazebo_joint_velocity_command(entity, 0.0);
     }
 
     void write_joint_commands(double dt) {
@@ -406,6 +437,8 @@ private:
                     command != nullptr) {
                     const double position =
                         joint_state_value(joint, hardware_interface::HW_IF_POSITION);
+                    const double velocity =
+                        joint_state_value(joint, hardware_interface::HW_IF_VELOCITY);
                     const double position_error =
                         angles::shortest_angular_distance(position, command->value);
                     double target_velocity = 0.0;
@@ -415,8 +448,21 @@ private:
                                         / dt;
                     }
                     joint.previous_position_command = command->value;
-                    reset_gazebo_joint_position(
-                        joint.entity, position + position_error, target_velocity);
+
+                    if (std::abs(position_error) < joint.position_servo_deadband
+                        && std::abs(velocity) < joint.position_servo_deadband) {
+                        set_gazebo_joint_force_command(joint.entity, 0.0);
+                        continue;
+                    }
+
+                    const double desired_velocity = std::clamp(
+                        joint.position_servo_velocity_feedforward * target_velocity
+                            + joint.position_servo_kp * position_error,
+                        -joint.position_servo_max_velocity, joint.position_servo_max_velocity);
+                    const double effort = std::clamp(
+                        joint.position_servo_kd * (desired_velocity - velocity),
+                        -joint.position_servo_max_effort, joint.position_servo_max_effort);
+                    set_gazebo_joint_force_command(joint.entity, effort);
                 }
             }
         }
