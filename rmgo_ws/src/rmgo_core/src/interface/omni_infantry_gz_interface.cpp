@@ -36,11 +36,9 @@ namespace rmgo_core::interface {
 class OmniInfantryGzInterface final : public gz_ros2_control::GazeboSimSystemInterface {
 public:
     bool initSim(
-        rclcpp::Node::SharedPtr& model_nh, std::map<std::string, gz::sim::Entity>& joints,
+        rclcpp::Node::SharedPtr& /*model_nh*/, std::map<std::string, gz::sim::Entity>& joints,
         const hardware_interface::HardwareInfo& hardware_info, gz::sim::EntityComponentManager& ecm,
-        unsigned int update_rate) override {
-        (void)model_nh;
-        (void)update_rate;
+        unsigned int /*update_rate*/) override {
         ecm_ = &ecm;
         gazebo_joints_ = joints;
 

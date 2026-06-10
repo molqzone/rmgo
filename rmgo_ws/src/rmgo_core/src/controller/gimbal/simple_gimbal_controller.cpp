@@ -80,8 +80,7 @@ public:
         return {};
     }
 
-    bool on_set_chained_mode(bool chained_mode) override {
-        (void)chained_mode;
+    bool on_set_chained_mode(bool /*chained_mode*/) override {
         return true;
     }
 
