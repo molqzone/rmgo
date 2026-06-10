@@ -134,7 +134,7 @@ public:
         gimbal_command_buffer_.writeFromNonRT(BufferedGimbalCommand{});
         mode_buffer_.writeFromNonRT(raw_mode);
         return write_command({0.0, 0.0, 0.0, raw_mode})
-                    && write_gimbal_command({0.0, 0.0, disabled_gimbal})
+                    && write_gimbal_command({0.0, 0.0, enabled_gimbal})
                  ? controller_interface::CallbackReturn::SUCCESS
                  : controller_interface::CallbackReturn::ERROR;
     }
@@ -168,7 +168,7 @@ public:
         const auto gimbal_values =
             gimbal_valid
                 ? std::array<double, 3>{gimbal_command.yaw, gimbal_command.pitch, enabled_gimbal}
-                : std::array<double, 3>{0.0, 0.0, disabled_gimbal};
+                : std::array<double, 3>{0.0, 0.0, enabled_gimbal};
 
         return write_command(values) && write_gimbal_command(gimbal_values)
                  ? controller_interface::return_type::OK

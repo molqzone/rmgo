@@ -87,8 +87,8 @@ public:
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
         params_ = param_listener_->get_params();
         solver_ = rmgo_core::gimbal::TwoAxisGimbalSolver{
-            params_.pitch_upper_limit,
             params_.pitch_lower_limit,
+            params_.pitch_upper_limit,
         };
         reset_references();
         return controller_interface::CallbackReturn::SUCCESS;
@@ -237,8 +237,9 @@ private:
     void reset_references() { remote_command_reference_.fill(0.0); }
 
     bool write_commands(double yaw, double pitch) {
+        const double current_yaw = read_state(yaw_index);
         const std::array<double, 2> values = {
-            angles::normalize_angle(yaw),
+            current_yaw + angles::shortest_angular_distance(current_yaw, yaw),
             std::clamp(pitch, params_.pitch_lower_limit, params_.pitch_upper_limit),
         };
         for (std::size_t index = 0; index < values.size(); ++index) {
