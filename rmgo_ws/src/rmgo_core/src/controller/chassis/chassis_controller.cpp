@@ -15,7 +15,7 @@
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "rmgo_core/chassis_controller_config.hpp"
-#include "rmgo_core/pid/pid_calculator.hpp"
+#include "../pid/pid_calculator.hpp"
 
 namespace rmgo_core::controller::chassis {
 
