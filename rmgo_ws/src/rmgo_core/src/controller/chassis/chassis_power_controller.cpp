@@ -80,7 +80,6 @@ public:
             return controller_interface::CallbackReturn::ERROR;
         }
         reset_references();
-        reset_power_state();
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
@@ -102,7 +101,6 @@ public:
         }
 
         reset_references();
-        reset_power_state();
         return write_chassis_commands({0.0, 0.0, 0.0})
                  ? controller_interface::CallbackReturn::SUCCESS
                  : controller_interface::CallbackReturn::ERROR;
@@ -111,7 +109,6 @@ public:
     controller_interface::CallbackReturn
         on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
         reset_references();
-        reset_power_state();
         return write_chassis_commands({0.0, 0.0, 0.0})
                  ? controller_interface::CallbackReturn::SUCCESS
                  : controller_interface::CallbackReturn::ERROR;
@@ -126,13 +123,9 @@ public:
     }
 
     controller_interface::return_type update_and_write_commands(
-        const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
-        const double scale = calculate_power_scale(period);
-        return write_chassis_commands({
-                   scale * chassis_reference_[0],
-                   scale * chassis_reference_[1],
-                   scale * chassis_reference_[2],
-               })
+        const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
+        const double control_power_limit = calculate_control_power_limit();
+        return write_chassis_commands(limit_chassis_command(control_power_limit))
                  ? controller_interface::return_type::OK
                  : controller_interface::return_type::ERROR;
     }
@@ -143,52 +136,43 @@ private:
         "linear/y/velocity",
         "angular/z/velocity",
     };
-    static constexpr std::size_t power_index = 0;
     static constexpr std::size_t power_buffer_index = 1;
     static constexpr std::size_t power_limit_index = 2;
-    static constexpr double full_scale = 1.0;
 
     void reset_references() { chassis_reference_.fill(0.0); }
 
-    void reset_power_state() {
-        virtual_buffer_energy_ = params_.virtual_buffer_energy_limit;
-        chassis_power_limit_expected_ = params_.fallback_power_limit;
-    }
+    double calculate_control_power_limit() {
+        const std::optional<double> referee_power_limit = read_state(power_limit_index);
+        if (!referee_power_limit.has_value()) {
+            return params_.safety_power;
+        }
 
-    double calculate_power_scale(const rclcpp::Duration& period) {
-        const double referee_power_limit =
-            read_state(power_limit_index).value_or(params_.fallback_power_limit);
-        const double measured_power = read_state(power_index).value_or(0.0);
         const double referee_buffer_energy =
-            read_state(power_buffer_index).value_or(params_.virtual_buffer_energy_limit);
-
-        update_virtual_buffer_energy(period, referee_buffer_energy, measured_power);
-
-        chassis_power_limit_expected_ = referee_power_limit;
-        const double control_power_limit =
-            (referee_power_limit + params_.excess_power_limit) * virtual_buffer_ratio();
-
-        double scale = control_power_limit / referee_power_limit;
-        if (measured_power > control_power_limit && control_power_limit > 0.0) {
-            scale = std::min(scale, control_power_limit / measured_power);
-        }
-        return std::clamp(scale, params_.min_scale, full_scale);
+            read_state(power_buffer_index).value_or(params_.buffer_threshold);
+        const double extra_power =
+            (referee_buffer_energy - params_.buffer_threshold) * params_.power_gain;
+        return std::clamp(*referee_power_limit + extra_power, 0.0, params_.max_power_limit);
     }
 
-    void update_virtual_buffer_energy(
-        const rclcpp::Duration& period, double referee_buffer_energy, double measured_power) {
-        const double dt = std::max(0.0, period.seconds());
-        virtual_buffer_energy_ += dt * (chassis_power_limit_expected_ - measured_power);
-        const double upper_bound =
-            std::clamp(referee_buffer_energy, 0.0, params_.virtual_buffer_energy_limit);
-        virtual_buffer_energy_ = std::clamp(virtual_buffer_energy_, 0.0, upper_bound);
+    std::array<double, 3> limit_chassis_command(double control_power_limit) const {
+        if (!std::isfinite(control_power_limit) || control_power_limit <= 0.0) {
+            return {0.0, 0.0, 0.0};
+        }
+
+        const double power_ratio =
+            std::clamp(control_power_limit / params_.full_speed_power_limit, 0.0, 1.0);
+        return {
+            clamp_abs(chassis_reference_[0], params_.max_linear_x_velocity * power_ratio),
+            clamp_abs(chassis_reference_[1], params_.max_linear_y_velocity * power_ratio),
+            clamp_abs(chassis_reference_[2], params_.max_angular_z_velocity * power_ratio),
+        };
     }
 
-    double virtual_buffer_ratio() const {
-        if (params_.virtual_buffer_energy_limit <= 0.0) {
-            return full_scale;
+    static double clamp_abs(double value, double limit) {
+        if (!std::isfinite(value) || limit <= 0.0) {
+            return 0.0;
         }
-        return std::clamp(virtual_buffer_energy_ / params_.virtual_buffer_energy_limit, 0.0, 1.0);
+        return std::clamp(value, -limit, limit);
     }
 
     std::optional<double> read_state(std::size_t index) const {
@@ -214,8 +198,6 @@ private:
 
     std::string target_controller_name_;
     std::array<double, 3> chassis_reference_{0.0, 0.0, 0.0};
-    double virtual_buffer_energy_ = 0.0;
-    double chassis_power_limit_expected_ = 0.0;
     std::shared_ptr<::chassis_power_controller::ParamListener> param_listener_;
     ::chassis_power_controller::Params params_;
 };
