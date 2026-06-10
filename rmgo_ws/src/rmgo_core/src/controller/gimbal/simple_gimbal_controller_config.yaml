@@ -23,6 +23,10 @@ simple_gimbal_controller:
     description: "State interface used for yaw and pitch joints."
     validation:
       not_empty<>: []
+  use_imu_tf:
+    type: bool
+    default_value: false
+    description: "Use gimbal IMU scalar states to rebuild a fast_tf tree for RMCS-style aiming."
   pitch_lower_limit:
     type: double
     default_value: -0.5098

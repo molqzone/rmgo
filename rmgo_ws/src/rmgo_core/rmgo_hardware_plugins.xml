@@ -1,0 +1,10 @@
+<library path="rmgo_chassis_controller">
+  <class
+    name="rmgo_core/MockIoSystemInterface"
+    type="rmgo_core::interface::MockIoSystemInterface"
+    base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Mock whole-robot I/O system interface for controller-chain development.
+    </description>
+  </class>
+</library>

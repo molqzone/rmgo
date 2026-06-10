@@ -23,6 +23,10 @@ struct PitchLink : fast_tf::Link<PitchLink> {
     static constexpr char name[] = "pitch_link";
 };
 
+struct OdomImu : fast_tf::Link<OdomImu> {
+    static constexpr char name[] = "odom_imu";
+};
+
 struct ImuLink : fast_tf::Link<ImuLink> {
     static constexpr char name[] = "imu_link";
 };
@@ -74,7 +78,8 @@ struct fast_tf::Joint<rmgo_description::YawLink> : fast_tf::ModificationTrackabl
 
     auto get_transform() const {
         Eigen::Isometry3d transform = Eigen::Isometry3d::Identity();
-        transform.translation() = Eigen::Vector3d{0.0, 0.0, rmgo_description::gimbal_center_height};
+        transform.translation() =
+            Eigen::Vector3d{0.0, 0.0, rmgo_description::gimbal_center_height};
         transform.linear() = Eigen::AngleAxisd{angle_, Eigen::Vector3d::UnitZ()}.matrix();
         return transform;
     }
@@ -92,6 +97,13 @@ struct fast_tf::Joint<rmgo_description::PitchLink> : fast_tf::ModificationTracka
 
 private:
     double angle_ = 0.0;
+};
+
+template <>
+struct fast_tf::Joint<rmgo_description::OdomImu> : fast_tf::ModificationTrackable {
+    using Parent = rmgo_description::PitchLink;
+
+    Eigen::Quaterniond transform = Eigen::Quaterniond::Identity();
 };
 
 template <>
@@ -179,7 +191,7 @@ struct fast_tf::Joint<rmgo_description::RightFrontWheelLink> : fast_tf::Modifica
 namespace rmgo_description {
 
 using Tf = fast_tf::JointCollection<
-    YawLink, PitchLink, ImuLink, MuzzleLink, CameraLink, LeftFrontWheelLink, LeftBackWheelLink,
-    RightBackWheelLink, RightFrontWheelLink>;
+    YawLink, PitchLink, OdomImu, ImuLink, MuzzleLink, CameraLink, LeftFrontWheelLink,
+    LeftBackWheelLink, RightBackWheelLink, RightFrontWheelLink>;
 
 } // namespace rmgo_description
