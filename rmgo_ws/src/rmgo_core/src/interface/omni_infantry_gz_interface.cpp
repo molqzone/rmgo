@@ -6,8 +6,10 @@
 #include <string_view>
 #include <vector>
 
+#include <angles/angles.h>
 #include <gz/sim/EntityComponentManager.hh>
 #include <gz/sim/Joint.hh>
+#include <gz/sim/Link.hh>
 #include <gz/sim/components/Joint.hh>
 #include <gz/sim/components/JointPosition.hh>
 #include <gz/sim/components/JointVelocity.hh>
@@ -387,11 +389,14 @@ private:
                 if (const auto* command =
                         find_joint_command_interface(joint, hardware_interface::HW_IF_POSITION);
                     command != nullptr) {
-                    const auto position_error =
-                        command->value
-                        - joint_state_value(joint, hardware_interface::HW_IF_POSITION);
-                    set_gazebo_joint_velocity_command(
-                        joint.entity, position_error * position_command_gain_);
+                    const double position =
+                        joint_state_value(joint, hardware_interface::HW_IF_POSITION);
+                    const double position_error =
+                        angles::shortest_angular_distance(position, command->value);
+                    const double velocity_command = std::clamp(
+                        position_error * position_command_gain_,
+                        -position_command_velocity_limit_, position_command_velocity_limit_);
+                    set_gazebo_joint_velocity_command(joint.entity, velocity_command);
                 }
             }
         }
@@ -432,11 +437,11 @@ private:
 
     void update_mock_gimbal_imu_states() {
         using namespace rmgo_core::io_state_interfaces;
-        const auto pitch_link_orientation = read_pitch_link_orientation();
-        set_mock_state(gimbal_imu_orientation_w, pitch_link_orientation.W());
-        set_mock_state(gimbal_imu_orientation_x, pitch_link_orientation.X());
-        set_mock_state(gimbal_imu_orientation_y, pitch_link_orientation.Y());
-        set_mock_state(gimbal_imu_orientation_z, pitch_link_orientation.Z());
+        const auto odom_imu_to_pitch_link = read_odom_imu_to_pitch_link();
+        set_mock_state(gimbal_imu_orientation_w, odom_imu_to_pitch_link.W());
+        set_mock_state(gimbal_imu_orientation_x, odom_imu_to_pitch_link.X());
+        set_mock_state(gimbal_imu_orientation_y, odom_imu_to_pitch_link.Y());
+        set_mock_state(gimbal_imu_orientation_z, odom_imu_to_pitch_link.Z());
         set_mock_state(gimbal_imu_angular_velocity_x, 0.0);
         set_mock_state(gimbal_imu_angular_velocity_y, 0.0);
         set_mock_state(gimbal_imu_angular_velocity_z, 0.0);
@@ -447,7 +452,7 @@ private:
         set_mock_state(gimbal_pitch_velocity_imu, 0.0);
     }
 
-    gz::math::Quaterniond read_pitch_link_orientation() {
+    gz::math::Quaterniond read_odom_imu_to_pitch_link() {
         if (ecm_ == nullptr) {
             return gz::math::Quaterniond::Identity;
         }
@@ -458,14 +463,9 @@ private:
             return gz::math::Quaterniond::Identity;
         }
 
-        const auto world_pose =
-            ecm_->ComponentData<gz::sim::components::WorldPose>(pitch_link_entity_);
-        if (world_pose.has_value()) {
-            return world_pose->Rot();
-        }
-
-        const auto pose = ecm_->ComponentData<gz::sim::components::Pose>(pitch_link_entity_);
-        return pose.has_value() ? pose->Rot() : gz::math::Quaterniond::Identity;
+        const auto world_pose = gz::sim::Link{pitch_link_entity_}.WorldPose(*ecm_);
+        return world_pose.has_value() ? world_pose->Rot().Inverse()
+                                      : gz::math::Quaterniond::Identity;
     }
 
     void update_mock_referee_states() {
@@ -488,7 +488,8 @@ private:
     std::vector<JointInterface> joint_interfaces_;
     std::array<double, mock_state_count> mock_states_{};
     std::vector<MockStateInterface> mock_state_interfaces_ = make_mock_state_interfaces();
-    double position_command_gain_ = 10.0;
+    double position_command_gain_ = 8.0;
+    double position_command_velocity_limit_ = 6.0;
 };
 
 } // namespace rmgo_core::interface
