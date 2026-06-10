@@ -5,27 +5,49 @@ chassis_power_controller:
     description: "Downstream chain controller that receives power-limited chassis velocity commands."
     validation:
       not_empty<>: []
-  fallback_power_limit:
+  safety_power:
     type: double
     default_value: 80.0
-    description: "Fallback chassis power limit in watts when the referee state is unavailable."
-    validation:
-      gt<>: [0.0]
-  excess_power_limit:
-    type: double
-    default_value: 15.0
-    description: "Extra chassis control power allowed when the virtual buffer is full."
+    description: "Fallback chassis power limit in watts when referee state is unavailable."
     validation:
       gt_eq<>: [0.0]
-  virtual_buffer_energy_limit:
+  buffer_threshold:
     type: double
     default_value: 30.0
-    description: "RMCS-style virtual buffer energy cap used to smooth referee power limiting."
+    description: "Referee buffer threshold above which rm_control-style extra power is allowed."
+    validation:
+      gt_eq<>: [0.0]
+  power_gain:
+    type: double
+    default_value: 0.5
+    description: "Additional power per joule of referee buffer energy above buffer_threshold."
+  max_power_limit:
+    type: double
+    default_value: 95.0
+    description: "Upper bound for the computed chassis control power limit."
+    validation:
+      gt_eq<>: [0.0]
+  full_speed_power_limit:
+    type: double
+    default_value: 95.0
+    description: "Power limit at which chassis velocity limits are fully available."
     validation:
       gt<>: [0.0]
-  min_scale:
+  max_linear_x_velocity:
     type: double
-    default_value: 0.0
-    description: "Minimum chassis command scale after power limiting."
+    default_value: 4.0
+    description: "Maximum absolute base-link x velocity when full power is available."
     validation:
-      bounds<>: [0.0, 1.0]
+      gt_eq<>: [0.0]
+  max_linear_y_velocity:
+    type: double
+    default_value: 4.0
+    description: "Maximum absolute base-link y velocity when full power is available."
+    validation:
+      gt_eq<>: [0.0]
+  max_angular_z_velocity:
+    type: double
+    default_value: 10.0
+    description: "Maximum absolute base-link yaw velocity when full power is available."
+    validation:
+      gt_eq<>: [0.0]
