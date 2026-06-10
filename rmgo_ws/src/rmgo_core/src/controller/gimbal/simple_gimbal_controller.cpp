@@ -14,10 +14,17 @@
 #include <rclcpp/time.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
+#include "rmgo_core/gimbal/gimbal_tf_builder.hpp"
 #include "rmgo_core/gimbal/two_axis_gimbal_solver.hpp"
+#include "rmgo_core/interface/io_state_interfaces.hpp"
 #include "rmgo_core/simple_gimbal_controller_config.hpp"
 
 namespace rmgo_core::controller::gimbal {
+
+using GimbalTfState = rmgo_core::gimbal::GimbalTfState;
+using TwoAxisGimbalSolver = rmgo_core::gimbal::TwoAxisGimbalSolver;
+using rmgo_core::gimbal::update_encoder_gimbal_tf;
+using rmgo_core::gimbal::update_gimbal_tf;
 
 class SimpleGimbalController : public controller_interface::ChainableControllerInterface {
 public:
@@ -45,6 +52,12 @@ public:
             params_.yaw_joint_name + "/" + params_.state_interface_name,
             params_.pitch_joint_name + "/" + params_.state_interface_name,
         };
+        if (params_.use_imu_tf) {
+            for (const char* name :
+                 rmgo_core::io_state_interfaces::gimbal_imu_orientation_state_interfaces) {
+                config.names.emplace_back(name);
+            }
+        }
         return config;
     }
 
@@ -92,15 +105,17 @@ public:
                 command_interface_names.size(), command_interfaces_.size());
             return controller_interface::CallbackReturn::ERROR;
         }
-        if (state_interfaces_.size() != state_interface_names.size()) {
+        const std::size_t expected_state_interface_count = state_interface_count();
+        if (state_interfaces_.size() != expected_state_interface_count) {
             RCLCPP_ERROR(
                 get_node()->get_logger(), "Expected %zu state interfaces, got %zu",
-                state_interface_names.size(), state_interfaces_.size());
+                expected_state_interface_count, state_interfaces_.size());
             return controller_interface::CallbackReturn::ERROR;
         }
 
         const double yaw = read_state(yaw_index);
         const double pitch = read_state(pitch_index);
+        update_tf(yaw, pitch);
         target_yaw_ = angles::normalize_angle(yaw);
         target_pitch_ = std::clamp(pitch, params_.pitch_lower_limit, params_.pitch_upper_limit);
         reset_references();
@@ -136,6 +151,10 @@ public:
 private:
     static constexpr std::size_t yaw_index = 0;
     static constexpr std::size_t pitch_index = 1;
+    static constexpr std::size_t imu_orientation_w_index = 2;
+    static constexpr std::size_t imu_orientation_x_index = 3;
+    static constexpr std::size_t imu_orientation_y_index = 4;
+    static constexpr std::size_t imu_orientation_z_index = 5;
     static constexpr std::array<const char*, 2> command_interface_names = {"yaw", "pitch"};
     static constexpr std::array<const char*, 2> state_interface_names = {
         "yaw",
@@ -159,8 +178,9 @@ private:
     void update_targets(double dt) {
         const double yaw = read_state(yaw_index);
         const double pitch = read_state(pitch_index);
+        update_tf(yaw, pitch);
         if (!is_enabled_reference()) {
-            solver_.update(yaw, pitch, rmgo_core::gimbal::TwoAxisGimbalSolver::SetDisabled{});
+            solver_.update(tf_, pitch, TwoAxisGimbalSolver::SetDisabled{});
             target_yaw_ = angles::normalize_angle(yaw);
             target_pitch_ = std::clamp(pitch, params_.pitch_lower_limit, params_.pitch_upper_limit);
             return;
@@ -171,12 +191,11 @@ private:
         const auto error =
             solver_.enabled()
                 ? solver_.update(
-                      yaw, pitch,
-                      rmgo_core::gimbal::TwoAxisGimbalSolver::SetControlShift{
-                          yaw_velocity * dt,
-                          pitch_velocity * dt,
-                      })
-                : solver_.update(yaw, pitch, rmgo_core::gimbal::TwoAxisGimbalSolver::SetToLevel{});
+                      tf_, pitch, TwoAxisGimbalSolver::SetControlShift{
+                                      yaw_velocity * dt,
+                                      pitch_velocity * dt,
+                                  })
+                : solver_.update(tf_, pitch, TwoAxisGimbalSolver::SetToLevel{});
 
         if (std::isfinite(error.yaw) && std::isfinite(error.pitch)) {
             target_yaw_ = angles::normalize_angle(yaw + error.yaw);
@@ -193,6 +212,37 @@ private:
     }
 
     static double finite_or_zero(double value) { return std::isfinite(value) ? value : 0.0; }
+
+    std::size_t state_interface_count() const {
+        return state_interface_names.size()
+             + (params_.use_imu_tf
+                    ? rmgo_core::io_state_interfaces::gimbal_imu_orientation_state_interfaces.size()
+                    : 0);
+    }
+
+    void update_tf(double yaw, double pitch) {
+        if (!params_.use_imu_tf) {
+            update_encoder_gimbal_tf(tf_, yaw, pitch);
+            return;
+        }
+
+        Eigen::Quaterniond orientation{
+            read_state(imu_orientation_w_index),
+            read_state(imu_orientation_x_index),
+            read_state(imu_orientation_y_index),
+            read_state(imu_orientation_z_index),
+        };
+        if (orientation.norm() <= 1e-6 || !orientation.coeffs().allFinite()) {
+            orientation = Eigen::Quaterniond::Identity();
+        }
+
+        update_gimbal_tf(
+            tf_, GimbalTfState{
+                     .yaw = yaw,
+                     .pitch = pitch,
+                     .pitch_link_to_odom_imu = orientation,
+                 });
+    }
 
     void reset_references() { remote_command_reference_.fill(0.0); }
 
@@ -215,7 +265,8 @@ private:
     double target_yaw_ = 0.0;
     double target_pitch_ = 0.0;
     std::array<double, 3> remote_command_reference_{0.0, 0.0, 0.0};
-    rmgo_core::gimbal::TwoAxisGimbalSolver solver_{
+    rmgo_description::Tf tf_;
+    TwoAxisGimbalSolver solver_{
         std::numeric_limits<double>::infinity(),
         -std::numeric_limits<double>::infinity(),
     };

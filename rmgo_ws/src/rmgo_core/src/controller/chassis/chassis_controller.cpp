@@ -71,10 +71,7 @@ public:
         return {};
     }
 
-    bool on_set_chained_mode(bool chained_mode) override {
-        (void)chained_mode;
-        return true;
-    }
+    bool on_set_chained_mode(bool /*chained_mode*/) override { return true; }
 
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
