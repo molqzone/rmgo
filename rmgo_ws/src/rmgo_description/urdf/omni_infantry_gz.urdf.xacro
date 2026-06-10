@@ -308,10 +308,10 @@
     </joint>
     <joint name="yaw_joint">
       <command_interface name="position">
-        <param name="sim_servo_kp">36.0</param>
-        <param name="sim_servo_kd">5.0</param>
+        <param name="sim_servo_kp">14.0</param>
+        <param name="sim_servo_kd">2.4</param>
         <param name="sim_servo_max_effort">25.0</param>
-        <param name="sim_servo_max_velocity">16.0</param>
+        <param name="sim_servo_max_velocity">8.0</param>
         <param name="sim_servo_deadband">0.0001</param>
         <param name="sim_servo_velocity_feedforward">1.0</param>
       </command_interface>

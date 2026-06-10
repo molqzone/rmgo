@@ -455,12 +455,12 @@ private:
                         continue;
                     }
 
-                    const double desired_velocity = std::clamp(
-                        joint.position_servo_velocity_feedforward * target_velocity
-                            + joint.position_servo_kp * position_error,
+                    const double velocity_error = std::clamp(
+                        joint.position_servo_velocity_feedforward * target_velocity - velocity,
                         -joint.position_servo_max_velocity, joint.position_servo_max_velocity);
                     const double effort = std::clamp(
-                        joint.position_servo_kd * (desired_velocity - velocity),
+                        joint.position_servo_kp * position_error
+                            + joint.position_servo_kd * velocity_error,
                         -joint.position_servo_max_effort, joint.position_servo_max_effort);
                     set_gazebo_joint_force_command(joint.entity, effort);
                 }
