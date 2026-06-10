@@ -12,8 +12,10 @@
 #include <gz/sim/Link.hh>
 #include <gz/sim/components/Joint.hh>
 #include <gz/sim/components/JointPosition.hh>
+#include <gz/sim/components/JointPositionReset.hh>
 #include <gz/sim/components/JointVelocity.hh>
 #include <gz/sim/components/JointVelocityCmd.hh>
+#include <gz/sim/components/JointVelocityReset.hh>
 #include <gz/sim/components/Link.hh>
 #include <gz/sim/components/Name.hh>
 #include <gz/sim/components/Pose.hh>
@@ -59,18 +61,16 @@ public:
             auto joint_interface = JointInterface{};
             joint_interface.name = joint.name;
             for (const auto& command_interface : joint.command_interfaces) {
-                joint_interface.command_interfaces.push_back(
-                    JointCommandInterface{
-                        .name = command_interface.name,
-                        .value = 0.0,
-                    });
+                joint_interface.command_interfaces.push_back(JointCommandInterface{
+                    .name = command_interface.name,
+                    .value = 0.0,
+                });
             }
             for (const auto& state_interface : joint.state_interfaces) {
-                joint_interface.state_interfaces.push_back(
-                    JointStateInterface{
-                        .name = state_interface.name,
-                        .value = initial_state_value(state_interface),
-                    });
+                joint_interface.state_interfaces.push_back(JointStateInterface{
+                    .name = state_interface.name,
+                    .value = initial_state_value(state_interface),
+                });
             }
             joint_interfaces_.push_back(std::move(joint_interface));
         }
@@ -133,6 +133,7 @@ public:
             }
             if (auto* joint = find_joint(split->prefix); joint != nullptr) {
                 joint->control_method = gz_ros2_control::GazeboSimSystemInterface::ControlMethod{};
+                joint->previous_position_command.reset();
             }
         }
 
@@ -143,6 +144,7 @@ public:
             }
             if (auto* joint = find_joint(split->prefix); joint != nullptr) {
                 joint->control_method = control_method_from_interface(split->name);
+                joint->previous_position_command.reset();
             }
         }
 
@@ -157,8 +159,8 @@ public:
     }
 
     hardware_interface::return_type
-        write(const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
-        write_joint_commands();
+        write(const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
+        write_joint_commands(period.seconds());
         return hardware_interface::return_type::OK;
     }
 
@@ -182,6 +184,7 @@ private:
         std::string name;
         gz::sim::Entity entity = gz::sim::kNullEntity;
         gz_ros2_control::GazeboSimSystemInterface::ControlMethod control_method;
+        std::optional<double> previous_position_command;
         std::vector<JointCommandInterface> command_interfaces;
         std::vector<JointStateInterface> state_interfaces;
     };
@@ -255,12 +258,11 @@ private:
                 if (!split_name.has_value()) {
                     continue;
                 }
-                interfaces.push_back(
-                    MockStateInterface{
-                        .prefix = split_name->prefix,
-                        .name = split_name->name,
-                        .index = interfaces.size(),
-                    });
+                interfaces.push_back(MockStateInterface{
+                    .prefix = split_name->prefix,
+                    .name = split_name->name,
+                    .index = interfaces.size(),
+                });
             }
         };
         append(rmgo_core::io_state_interfaces::remote_state_interfaces);
@@ -368,12 +370,25 @@ private:
         }
     }
 
-    void write_joint_commands() {
+    void reset_gazebo_joint_position(gz::sim::Entity entity, double position, double velocity) {
+        if (ecm_ == nullptr || entity == gz::sim::kNullEntity) {
+            return;
+        }
+        if (!ecm_->SetComponentData<gz::sim::components::JointPositionReset>(entity, {position})) {
+            ecm_->CreateComponent(entity, gz::sim::components::JointPositionReset({position}));
+        }
+        if (!ecm_->SetComponentData<gz::sim::components::JointVelocityReset>(entity, {velocity})) {
+            ecm_->CreateComponent(entity, gz::sim::components::JointVelocityReset({velocity}));
+        }
+        set_gazebo_joint_velocity_command(entity, 0.0);
+    }
+
+    void write_joint_commands(double dt) {
         if (ecm_ == nullptr) {
             return;
         }
 
-        for (const auto& joint : joint_interfaces_) {
+        for (auto& joint : joint_interfaces_) {
             if (joint.entity == gz::sim::kNullEntity) {
                 continue;
             }
@@ -393,10 +408,15 @@ private:
                         joint_state_value(joint, hardware_interface::HW_IF_POSITION);
                     const double position_error =
                         angles::shortest_angular_distance(position, command->value);
-                    const double velocity_command = std::clamp(
-                        position_error * position_command_gain_,
-                        -position_command_velocity_limit_, position_command_velocity_limit_);
-                    set_gazebo_joint_velocity_command(joint.entity, velocity_command);
+                    double target_velocity = 0.0;
+                    if (dt > 0.0 && joint.previous_position_command.has_value()) {
+                        target_velocity = angles::shortest_angular_distance(
+                                              *joint.previous_position_command, command->value)
+                                        / dt;
+                    }
+                    joint.previous_position_command = command->value;
+                    reset_gazebo_joint_position(
+                        joint.entity, position + position_error, target_velocity);
                 }
             }
         }
@@ -488,8 +508,6 @@ private:
     std::vector<JointInterface> joint_interfaces_;
     std::array<double, mock_state_count> mock_states_{};
     std::vector<MockStateInterface> mock_state_interfaces_ = make_mock_state_interfaces();
-    double position_command_gain_ = 8.0;
-    double position_command_velocity_limit_ = 6.0;
 };
 
 } // namespace rmgo_core::interface
