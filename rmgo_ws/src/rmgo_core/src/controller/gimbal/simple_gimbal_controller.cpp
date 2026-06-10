@@ -15,15 +15,14 @@
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "gimbal_tf_builder.hpp"
-#include "two_axis_gimbal_solver.hpp"
 #include "rmgo_core/interface/io_state_interfaces.hpp"
 #include "rmgo_core/simple_gimbal_controller_config.hpp"
+#include "two_axis_gimbal_solver.hpp"
 
 namespace rmgo_core::controller::gimbal {
 
 using GimbalTfState = rmgo_core::gimbal::GimbalTfState;
 using TwoAxisGimbalSolver = rmgo_core::gimbal::TwoAxisGimbalSolver;
-using rmgo_core::gimbal::update_encoder_gimbal_tf;
 using rmgo_core::gimbal::update_gimbal_tf;
 
 class SimpleGimbalController : public controller_interface::ChainableControllerInterface {
@@ -52,11 +51,9 @@ public:
             params_.yaw_joint_name + "/" + params_.state_interface_name,
             params_.pitch_joint_name + "/" + params_.state_interface_name,
         };
-        if (params_.use_imu_tf) {
-            for (const char* name :
-                 rmgo_core::io_state_interfaces::gimbal_imu_orientation_state_interfaces) {
-                config.names.emplace_back(name);
-            }
+        for (const char* name :
+             rmgo_core::io_state_interfaces::gimbal_imu_orientation_state_interfaces) {
+            config.names.emplace_back(name);
         }
         return config;
     }
@@ -188,14 +185,14 @@ private:
 
         const double yaw_velocity = finite_or_zero(remote_command_reference_[0]);
         const double pitch_velocity = finite_or_zero(remote_command_reference_[1]);
-        const auto error =
-            solver_.enabled()
-                ? solver_.update(
-                      tf_, pitch, TwoAxisGimbalSolver::SetControlShift{
-                                      yaw_velocity * dt,
-                                      pitch_velocity * dt,
-                                  })
-                : solver_.update(tf_, pitch, TwoAxisGimbalSolver::SetToLevel{});
+        const auto error = solver_.enabled()
+                             ? solver_.update(
+                                   tf_, pitch,
+                                   TwoAxisGimbalSolver::SetControlShift{
+                                       yaw_velocity * dt,
+                                       pitch_velocity * dt,
+                                   })
+                             : solver_.update(tf_, pitch, TwoAxisGimbalSolver::SetToLevel{});
 
         if (std::isfinite(error.yaw) && std::isfinite(error.pitch)) {
             target_yaw_ = angles::normalize_angle(yaw + error.yaw);
@@ -215,17 +212,10 @@ private:
 
     std::size_t state_interface_count() const {
         return state_interface_names.size()
-             + (params_.use_imu_tf
-                    ? rmgo_core::io_state_interfaces::gimbal_imu_orientation_state_interfaces.size()
-                    : 0);
+             + rmgo_core::io_state_interfaces::gimbal_imu_orientation_state_interfaces.size();
     }
 
     void update_tf(double yaw, double pitch) {
-        if (!params_.use_imu_tf) {
-            update_encoder_gimbal_tf(tf_, yaw, pitch);
-            return;
-        }
-
         Eigen::Quaterniond orientation{
             read_state(imu_orientation_w_index),
             read_state(imu_orientation_x_index),
