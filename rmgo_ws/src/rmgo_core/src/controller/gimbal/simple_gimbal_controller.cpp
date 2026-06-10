@@ -4,6 +4,8 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include <angles/angles.h>
@@ -110,8 +112,12 @@ public:
             return controller_interface::CallbackReturn::ERROR;
         }
 
-        const double yaw = read_state(yaw_index);
-        const double pitch = read_state(pitch_index);
+        if (!bind_command_interfaces() || !bind_state_interfaces()) {
+            return controller_interface::CallbackReturn::ERROR;
+        }
+
+        const double yaw = read_state(state_indexes_.yaw);
+        const double pitch = read_state(state_indexes_.pitch);
         update_tf(yaw, pitch);
         target_yaw_ = angles::normalize_angle(yaw);
         target_pitch_ = std::clamp(pitch, params_.pitch_lower_limit, params_.pitch_upper_limit);
@@ -124,7 +130,7 @@ public:
     controller_interface::CallbackReturn
         on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
         reset_references();
-        return write_commands(read_state(yaw_index), read_state(pitch_index))
+        return write_commands(read_state(state_indexes_.yaw), read_state(state_indexes_.pitch))
                  ? controller_interface::CallbackReturn::SUCCESS
                  : controller_interface::CallbackReturn::ERROR;
     }
@@ -146,12 +152,7 @@ public:
     }
 
 private:
-    static constexpr std::size_t yaw_index = 0;
-    static constexpr std::size_t pitch_index = 1;
-    static constexpr std::size_t imu_orientation_w_index = 2;
-    static constexpr std::size_t imu_orientation_x_index = 3;
-    static constexpr std::size_t imu_orientation_y_index = 4;
-    static constexpr std::size_t imu_orientation_z_index = 5;
+    static constexpr std::size_t invalid_index = std::numeric_limits<std::size_t>::max();
     static constexpr std::array<const char*, 2> command_interface_names = {"yaw", "pitch"};
     static constexpr std::array<const char*, 2> state_interface_names = {
         "yaw",
@@ -163,6 +164,20 @@ private:
         "enabled",
     };
 
+    struct CommandInterfaceIndexes {
+        std::size_t yaw = invalid_index;
+        std::size_t pitch = invalid_index;
+    };
+
+    struct StateInterfaceIndexes {
+        std::size_t yaw = invalid_index;
+        std::size_t pitch = invalid_index;
+        std::size_t imu_w = invalid_index;
+        std::size_t imu_x = invalid_index;
+        std::size_t imu_y = invalid_index;
+        std::size_t imu_z = invalid_index;
+    };
+
     double read_state(std::size_t index) const {
         if (index >= state_interfaces_.size()) {
             return 0.0;
@@ -172,9 +187,78 @@ private:
         return value.has_value() && std::isfinite(*value) ? *value : 0.0;
     }
 
+    std::optional<std::size_t> find_command_interface_index(std::string_view name) const {
+        for (std::size_t index = 0; index < command_interfaces_.size(); ++index) {
+            if (command_interfaces_[index].get_name() == name) {
+                return index;
+            }
+        }
+        return std::nullopt;
+    }
+
+    std::optional<std::size_t> find_state_interface_index(std::string_view name) const {
+        for (std::size_t index = 0; index < state_interfaces_.size(); ++index) {
+            if (state_interfaces_[index].get_name() == name) {
+                return index;
+            }
+        }
+        return std::nullopt;
+    }
+
+    bool bind_command_interface(std::size_t& index, const std::string& name) {
+        const auto found = find_command_interface_index(name);
+        if (!found.has_value()) {
+            RCLCPP_ERROR(
+                get_node()->get_logger(), "Missing gimbal command interface '%s'", name.c_str());
+            return false;
+        }
+        index = *found;
+        return true;
+    }
+
+    bool bind_state_interface(std::size_t& index, const std::string& name) {
+        const auto found = find_state_interface_index(name);
+        if (!found.has_value()) {
+            RCLCPP_ERROR(
+                get_node()->get_logger(), "Missing gimbal state interface '%s'", name.c_str());
+            return false;
+        }
+        index = *found;
+        return true;
+    }
+
+    bool bind_command_interfaces() {
+        command_indexes_ = {};
+        return bind_command_interface(
+                   command_indexes_.yaw, params_.yaw_joint_name + "/" + params_.command_interface_name)
+            && bind_command_interface(
+                   command_indexes_.pitch,
+                   params_.pitch_joint_name + "/" + params_.command_interface_name);
+    }
+
+    // Gimbal self-stabilization depends on this quaternion being read as w/x/y/z.
+    // Do not index state_interfaces_ by the request order here: ros2_control and
+    // /dynamic_joint_states expose interfaces by full names, and grouped diagnostic
+    // output may not preserve the controller's requested order. A swapped IMU
+    // quaternion makes the solver see the wrong world frame, so the yaw joint will
+    // not cancel chassis rotation even though the controller chain is active.
+    bool bind_state_interfaces() {
+        using namespace rmgo_core::io_state_interfaces;
+        state_indexes_ = {};
+        return bind_state_interface(
+                   state_indexes_.yaw, params_.yaw_joint_name + "/" + params_.state_interface_name)
+            && bind_state_interface(
+                   state_indexes_.pitch,
+                   params_.pitch_joint_name + "/" + params_.state_interface_name)
+            && bind_state_interface(state_indexes_.imu_w, gimbal_imu_orientation_w)
+            && bind_state_interface(state_indexes_.imu_x, gimbal_imu_orientation_x)
+            && bind_state_interface(state_indexes_.imu_y, gimbal_imu_orientation_y)
+            && bind_state_interface(state_indexes_.imu_z, gimbal_imu_orientation_z);
+    }
+
     void update_targets(double dt) {
-        const double yaw = read_state(yaw_index);
-        const double pitch = read_state(pitch_index);
+        const double yaw = read_state(state_indexes_.yaw);
+        const double pitch = read_state(state_indexes_.pitch);
         update_tf(yaw, pitch);
         if (!is_enabled_reference()) {
             solver_.update(tf_, pitch, TwoAxisGimbalSolver::SetDisabled{});
@@ -217,10 +301,10 @@ private:
 
     void update_tf(double yaw, double pitch) {
         Eigen::Quaterniond orientation{
-            read_state(imu_orientation_w_index),
-            read_state(imu_orientation_x_index),
-            read_state(imu_orientation_y_index),
-            read_state(imu_orientation_z_index),
+            read_state(state_indexes_.imu_w),
+            read_state(state_indexes_.imu_x),
+            read_state(state_indexes_.imu_y),
+            read_state(state_indexes_.imu_z),
         };
         if (orientation.norm() <= 1e-6 || !orientation.coeffs().allFinite()) {
             orientation = Eigen::Quaterniond::Identity();
@@ -237,13 +321,14 @@ private:
     void reset_references() { remote_command_reference_.fill(0.0); }
 
     bool write_commands(double yaw, double pitch) {
-        const double current_yaw = read_state(yaw_index);
+        const double current_yaw = read_state(state_indexes_.yaw);
         const std::array<double, 2> values = {
             current_yaw + angles::shortest_angular_distance(current_yaw, yaw),
             std::clamp(pitch, params_.pitch_lower_limit, params_.pitch_upper_limit),
         };
+        const std::array command_indexes = {command_indexes_.yaw, command_indexes_.pitch};
         for (std::size_t index = 0; index < values.size(); ++index) {
-            if (!command_interfaces_[index].set_value(values[index])) {
+            if (!command_interfaces_[command_indexes[index]].set_value(values[index])) {
                 RCLCPP_ERROR(
                     get_node()->get_logger(), "Failed to write %s gimbal command",
                     command_interface_names[index]);
@@ -255,6 +340,8 @@ private:
 
     double target_yaw_ = 0.0;
     double target_pitch_ = 0.0;
+    CommandInterfaceIndexes command_indexes_;
+    StateInterfaceIndexes state_indexes_;
     std::array<double, 3> remote_command_reference_{0.0, 0.0, 0.0};
     rmgo_description::Tf tf_;
     TwoAxisGimbalSolver solver_{
