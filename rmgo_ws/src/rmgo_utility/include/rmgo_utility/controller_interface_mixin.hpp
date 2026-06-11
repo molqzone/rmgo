@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cassert>
 #include <cmath>
 #include <concepts>
 #include <cstddef>
@@ -7,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <span>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -213,25 +216,19 @@ struct ControllerInterfaceMixin {
         return interfaces;
     }
 
-    template <SizedIndexable Interfaces, SizedIndexable Values, SizedIndexable Suffixes>
+    template <
+        SizedIndexable Interfaces, typename ValueT, std::size_t ValueCount, typename SuffixT,
+        std::size_t SuffixCount>
     bool write_safe_commands(
-        this NodeBackedController auto& self, Interfaces& command_interfaces, const Values& values,
-        const std::string& controller_name, const Suffixes& suffixes,
+        this NodeBackedController auto& self, Interfaces& command_interfaces,
+        const std::array<ValueT, ValueCount>& values, const std::string& controller_name,
+        const std::array<SuffixT, SuffixCount>& suffixes,
         std::string_view description = "reference command", std::size_t offset = 0) {
-        if (values.size() != suffixes.size()) {
-            self.logging::error(
-                "Expected {} values for {}, got {}", suffixes.size(), description, values.size());
-            return false;
-        }
-        if (offset + values.size() > command_interfaces.size()) {
-            self.logging::error(
-                "Expected at least {} command interfaces for {}, got {}", offset + values.size(),
-                description, command_interfaces.size());
-            return false;
-        }
+        static_assert(ValueCount == SuffixCount, "Command values and suffixes must match.");
+        assert(offset + ValueCount <= command_interfaces.size());
 
-        for (std::size_t index = 0; index < values.size(); ++index) {
-            if (!command_interfaces[offset + index].set_value(values[index])) {
+        for (std::size_t index = 0; index < ValueCount; ++index) {
+            if (!command_interfaces[offset + index].set_value(values[index])) [[unlikely]] {
                 self.logging::error(
                     "Failed to write {} '{}/{}'", description, controller_name, suffixes[index]);
                 return false;
@@ -240,26 +237,22 @@ struct ControllerInterfaceMixin {
         return true;
     }
 
-    template <SizedIndexable Interfaces, SizedIndexable Values, SizedIndexable Joints>
+    template <
+        SizedIndexable Interfaces, typename ValueT, std::size_t ValueCount, typename JointT,
+        std::size_t JointCount>
     bool write_safe_joint_commands(
-        this NodeBackedController auto& self, Interfaces& command_interfaces, const Values& values,
-        const Joints& joints, const std::string& interface_name, std::size_t offset = 0) {
-        const auto value_count = static_cast<std::size_t>(values.size());
-        if (value_count != joints.size()) {
-            self.logging::error(
-                "Expected {} joint command values for {}, got {}", joints.size(), interface_name,
-                value_count);
-            return false;
-        }
-        if (offset + value_count > command_interfaces.size()) {
-            self.logging::error(
-                "Expected at least {} command interfaces for {}, got {}", offset + value_count,
-                interface_name, command_interfaces.size());
-            return false;
-        }
+        this NodeBackedController auto& self, Interfaces& command_interfaces,
+        std::span<const ValueT, ValueCount> values, std::span<const JointT, JointCount> joints,
+        const std::string& interface_name, std::size_t offset = 0) {
+        static_assert(
+            ValueCount != std::dynamic_extent, "Joint command values must be fixed size.");
+        static_assert(JointCount != std::dynamic_extent, "Joint names must be fixed size.");
+        static_assert(ValueCount == JointCount, "Joint command values and joints must match.");
 
-        for (std::size_t index = 0; index < value_count; ++index) {
-            if (!command_interfaces[offset + index].set_value(values[index])) {
+        assert(offset + ValueCount <= command_interfaces.size());
+
+        for (std::size_t index = 0; index < ValueCount; ++index) {
+            if (!command_interfaces[offset + index].set_value(values[index])) [[unlikely]] {
                 self.logging::error(
                     "Failed to write {} command for joint {}", interface_name, joints[index]);
                 return false;
@@ -269,26 +262,20 @@ struct ControllerInterfaceMixin {
     }
 
     template <
-        SizedIndexable Interfaces, SizedIndexable Values, SizedIndexable Indexes,
-        SizedIndexable Names>
+        SizedIndexable Interfaces, typename ValueT, std::size_t ValueCount, typename IndexT,
+        std::size_t IndexCount, typename NameT, std::size_t NameCount>
     bool write_safe_indexed_commands(
-        this NodeBackedController auto& self, Interfaces& command_interfaces, const Values& values,
-        const Indexes& command_indexes, const Names& names, std::string_view description) {
-        if (values.size() != command_indexes.size() || values.size() != names.size()) {
-            self.logging::error(
-                "Mismatched {} value/index/name counts: {}/{}/{}", description, values.size(),
-                command_indexes.size(), names.size());
-            return false;
-        }
+        this NodeBackedController auto& self, Interfaces& command_interfaces,
+        const std::array<ValueT, ValueCount>& values,
+        const std::array<IndexT, IndexCount>& command_indexes,
+        const std::array<NameT, NameCount>& names, std::string_view description) {
+        static_assert(ValueCount == IndexCount, "Indexed command values and indexes must match.");
+        static_assert(ValueCount == NameCount, "Indexed command values and names must match.");
 
         for (std::size_t index = 0; index < values.size(); ++index) {
             const std::size_t command_index = command_indexes[index];
-            if (command_index >= command_interfaces.size()) {
-                self.logging::error(
-                    "Missing {} command interface for {}", description, names[index]);
-                return false;
-            }
-            if (!command_interfaces[command_index].set_value(values[index])) {
+            assert(command_index < command_interfaces.size());
+            if (!command_interfaces[command_index].set_value(values[index])) [[unlikely]] {
                 self.logging::error("Failed to write {} {}", names[index], description);
                 return false;
             }
