@@ -1,7 +1,9 @@
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <numbers>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -53,6 +55,7 @@ public:
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
         update_parameters(param_listener_, params_);
+        std::ranges::copy(params_.wheel_joints, wheel_joints_.begin());
 
         base_link_to_wheel_ = make_base_link_to_wheel_matrix();
         wheel_to_base_link_ = make_wheel_to_base_link_matrix(base_link_to_wheel_);
@@ -121,6 +124,8 @@ public:
     }
 
 private:
+    static constexpr std::size_t wheel_count = 4;
+
     // ros2_control exchanges scalar reference interfaces, but the three values
     // are semantically a BaseLink-frame chassis velocity command, matching the
     // RMCS BaseLink::DirectionVector convention at this controller boundary.
@@ -199,10 +204,13 @@ private:
 
     bool write_wheel_commands(const WheelCommand& wheel_commands) {
         return write_safe_joint_commands(
-            command_interfaces_, wheel_commands, params_.wheel_joints,
+            command_interfaces_,
+            std::span<const double, wheel_count>{wheel_commands.data(), wheel_count},
+            std::span<const std::string, wheel_count>{wheel_joints_},
             params_.command_interface_name);
     }
 
+    std::array<std::string, wheel_count> wheel_joints_{};
     std::array<double, 3> base_link_velocity_reference_{0.0, 0.0, 0.0};
     BaseLinkToWheelMatrix base_link_to_wheel_ = BaseLinkToWheelMatrix::Zero();
     WheelToBaseLinkMatrix wheel_to_base_link_ = WheelToBaseLinkMatrix::Zero();
