@@ -68,13 +68,6 @@ public:
 
     controller_interface::CallbackReturn
         on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        if (!expect_interface_count(command_interfaces_, params_.wheel_joints.size(), "command")) {
-            return controller_interface::CallbackReturn::ERROR;
-        }
-        if (!expect_interface_count(state_interfaces_, params_.wheel_joints.size(), "state")) {
-            return controller_interface::CallbackReturn::ERROR;
-        }
-
         reset_references(base_link_velocity_reference_);
         reset_pid_calculators();
         return write_wheel_commands(WheelCommand::Zero())

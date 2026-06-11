@@ -58,17 +58,6 @@ public:
 
     controller_interface::CallbackReturn
         on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        if (!expect_interface_count(
-                command_interfaces_, chassis_command_suffixes.size(), "command")) {
-            return controller_interface::CallbackReturn::ERROR;
-        }
-        const std::size_t expected_state_interfaces =
-            rmgo_core::io_state_interfaces::chassis_power_state_interfaces.size();
-        if (!expect_interface_count(
-                state_interfaces_, expected_state_interfaces, "chassis power state")) {
-            return controller_interface::CallbackReturn::ERROR;
-        }
-
         reset_references(chassis_reference_);
         return write_chassis_commands({0.0, 0.0, 0.0})
                  ? controller_interface::CallbackReturn::SUCCESS

@@ -18,6 +18,8 @@
 
 namespace rmgo_utility {
 
+/* Contracts */
+
 template <typename Range>
 concept NamedInterfaceRange =
     std::ranges::range<Range> && requires(std::ranges::range_reference_t<Range> interface) {
@@ -42,6 +44,7 @@ concept NodeBackedController = requires(Controller controller) {
 };
 
 struct ControllerInterfaceMixin {
+    /* on init */
     template <typename ListenerT, typename ParamsT>
     void init_parameters(
         this NodeBackedController auto& self, std::shared_ptr<ListenerT>& listener,
@@ -50,27 +53,16 @@ struct ControllerInterfaceMixin {
         params = listener->get_params();
     }
 
+    /* on configure */
     template <typename ListenerT, typename ParamsT>
     void update_parameters(const std::shared_ptr<ListenerT>& listener, ParamsT& params) const {
         params = listener->get_params();
     }
 
+    /* on cleanup */
     template <typename Values>
     void reset_references(Values& values) const {
         values.fill(0.0);
-    }
-
-    template <SizedRange Interfaces>
-    bool expect_interface_count(
-        this NodeBackedController auto& self, const Interfaces& interfaces, std::size_t expected,
-        std::string_view label) {
-        if (interfaces.size() == expected) {
-            return true;
-        }
-
-        self.logging::error(
-            "Expected {} {} interfaces, got {}", expected, label, interfaces.size());
-        return false;
     }
 
     template <NamedInterfaceRange Interfaces>
@@ -126,6 +118,7 @@ struct ControllerInterfaceMixin {
         return true;
     }
 
+    /* on update */
     template <SizedIndexable Interfaces>
     std::optional<double>
         read_finite_interface(const Interfaces& interfaces, std::size_t index) const {

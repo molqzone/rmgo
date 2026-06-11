@@ -73,15 +73,6 @@ public:
 
     controller_interface::CallbackReturn
         on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        if (!expect_interface_count(
-                command_interfaces_, command_interface_names.size(), "command")) {
-            return controller_interface::CallbackReturn::ERROR;
-        }
-        if (!expect_interface_count(
-                state_interfaces_, std::to_underlying(StateInterfaceIndex::count), "state")) {
-            return controller_interface::CallbackReturn::ERROR;
-        }
-
         if (!bind_command_interfaces() || !bind_state_interfaces()) {
             return controller_interface::CallbackReturn::ERROR;
         }

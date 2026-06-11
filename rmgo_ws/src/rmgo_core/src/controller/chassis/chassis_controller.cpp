@@ -62,14 +62,6 @@ public:
 
     controller_interface::CallbackReturn
         on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        if (!expect_interface_count(
-                command_interfaces_, chassis_command_suffixes.size(), "command")) {
-            return controller_interface::CallbackReturn::ERROR;
-        }
-        if (!expect_interface_count(state_interfaces_, 1, "yaw state")) {
-            return controller_interface::CallbackReturn::ERROR;
-        }
-
         reset_internal_state();
         return stop_chassis() ? controller_interface::CallbackReturn::SUCCESS
                               : controller_interface::CallbackReturn::ERROR;
