@@ -28,9 +28,9 @@ public:
         double pitch = nan;
     };
 
-    TwoAxisGimbalSolver(double upper_limit, double lower_limit)
-        : upper_limit_(std::cos(upper_limit), -std::sin(upper_limit))
-        , lower_limit_(std::cos(lower_limit), -std::sin(lower_limit)) {}
+    TwoAxisGimbalSolver(double lower_limit, double upper_limit)
+        : lower_limit_(std::cos(lower_limit), -std::sin(lower_limit))
+        , upper_limit_(std::cos(upper_limit), -std::sin(upper_limit)) {}
 
     class SetDisabled : public Operation {
         PitchLink::DirectionVector
@@ -172,10 +172,10 @@ private:
         }
         projection /= norm;
 
-        if (z > upper_limit_.y()) {
-            *direction << upper_limit_.x() * projection, upper_limit_.y();
-        } else if (z < lower_limit_.y()) {
+        if (z > lower_limit_.y()) {
             *direction << lower_limit_.x() * projection, lower_limit_.y();
+        } else if (z < upper_limit_.y()) {
+            *direction << upper_limit_.x() * projection, upper_limit_.y();
         }
     }
 
@@ -196,8 +196,8 @@ private:
 
     static constexpr double nan = std::numeric_limits<double>::quiet_NaN();
 
-    Eigen::Vector2d upper_limit_;
     Eigen::Vector2d lower_limit_;
+    Eigen::Vector2d upper_limit_;
     OdomImu::DirectionVector yaw_axis_filtered_{Eigen::Vector3d::UnitZ()};
     bool control_enabled_ = false;
     OdomImu::DirectionVector control_direction_{Eigen::Vector3d::UnitX()};
