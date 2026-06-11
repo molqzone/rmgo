@@ -12,12 +12,15 @@
   <depend>controller_interface</depend>
   <depend>generate_parameter_library</depend>
   <depend>geometry_msgs</depend>
+  <depend>gz_sim_vendor</depend>
+  <depend>gz_ros2_control</depend>
   <depend>hardware_interface</depend>
-  <depend>nav_msgs</depend>
   <depend>pluginlib</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_lifecycle</depend>
   <depend>realtime_tools</depend>
+  <depend>rmgo_description</depend>
+  <depend>rmgo_utility</depend>
   <depend>std_msgs</depend>
 
   <test_depend>ament_lint_auto</test_depend>

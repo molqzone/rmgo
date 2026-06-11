@@ -1,61 +1,27 @@
 simple_gimbal_controller:
   yaw_joint_name:
     type: string
-    default_value: "yaw_joint"
     description: "Yaw joint controlled by the gimbal controller."
     validation:
       not_empty<>: []
   pitch_joint_name:
     type: string
-    default_value: "pitch_joint"
     description: "Pitch joint controlled by the gimbal controller."
     validation:
       not_empty<>: []
   command_interface_name:
     type: string
-    default_value: "position"
     description: "Command interface used for yaw and pitch joints."
     validation:
       not_empty<>: []
   state_interface_name:
     type: string
-    default_value: "position"
     description: "State interface used for yaw and pitch joints."
     validation:
       not_empty<>: []
-  base_odometry_topic:
-    type: string
-    default_value: "/model/omni_infantry/odometry"
-    description: "Gazebo model odometry topic used to hold gimbal yaw in the world frame."
-    validation:
-      not_empty<>: []
-  command_topic:
-    type: string
-    default_value: "/cmd_gimbal"
-    description: "Twist topic used as a minimal gimbal command source."
-    validation:
-      not_empty<>: []
-  command_timeout:
-    type: double
-    default_value: 0.25
-    description: "Seconds before gimbal command input is considered stale. Non-positive disables timeout."
-  base_odometry_timeout:
-    type: double
-    default_value: 0.5
-    description: "Seconds before base odometry input is considered stale. Non-positive disables timeout."
-  yaw_velocity_scale:
-    type: double
-    default_value: 1.0
-    description: "Scale applied to command_topic angular.z before integrating the yaw target."
-  pitch_velocity_scale:
-    type: double
-    default_value: 1.0
-    description: "Scale applied to command_topic angular.y before integrating the pitch target."
   pitch_lower_limit:
     type: double
-    default_value: -0.5098
     description: "Lower pitch command limit."
   pitch_upper_limit:
     type: double
-    default_value: 0.2262
     description: "Upper pitch command limit."
