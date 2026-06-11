@@ -17,6 +17,8 @@ chassis_power_controller:
   power_gain:
     type: double
     description: "Additional power per joule of referee buffer energy above buffer_threshold."
+    validation:
+      gt_eq<>: [0.0]
   max_power_limit:
     type: double
     description: "Upper bound for the computed chassis control power limit."

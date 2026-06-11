@@ -12,9 +12,21 @@ find_package(controller_interface REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(rclcpp REQUIRED)
 
+add_library(${PROJECT_NAME} INTERFACE)
+
+target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_23)
+
+target_include_directories(
+  ${PROJECT_NAME} INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+                            $<INSTALL_INTERFACE:include>
+)
+
 install(DIRECTORY include/ DESTINATION include)
 
+install(TARGETS ${PROJECT_NAME} EXPORT export_${PROJECT_NAME})
+
 ament_export_include_directories(include)
+ament_export_targets(export_${PROJECT_NAME})
 ament_export_dependencies(controller_interface hardware_interface rclcpp)
 
 if(BUILD_TESTING)

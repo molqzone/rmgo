@@ -139,7 +139,7 @@ public:
         const std::vector<std::string>& start_interfaces,
         const std::vector<std::string>& stop_interfaces) override {
         for (const auto& interface : stop_interfaces) {
-            const auto split = split_joint_interface_name(interface);
+            const auto split = split_interface_name(interface);
             if (!split.has_value()) {
                 continue;
             }
@@ -150,7 +150,7 @@ public:
         }
 
         for (const auto& interface : start_interfaces) {
-            const auto split = split_joint_interface_name(interface);
+            const auto split = split_interface_name(interface);
             if (!split.has_value()) {
                 continue;
             }
@@ -245,17 +245,6 @@ private:
     }
 
     static std::optional<InterfaceName> split_interface_name(std::string_view full_name) {
-        const auto slash = full_name.rfind('/');
-        if (slash == std::string_view::npos || slash == 0 || slash == full_name.size() - 1) {
-            return std::nullopt;
-        }
-        return InterfaceName{
-            .prefix = std::string{full_name.substr(0, slash)},
-            .name = std::string{full_name.substr(slash + 1)},
-        };
-    }
-
-    static std::optional<InterfaceName> split_joint_interface_name(std::string_view full_name) {
         const auto slash = full_name.rfind('/');
         if (slash == std::string_view::npos || slash == 0 || slash == full_name.size() - 1) {
             return std::nullopt;
