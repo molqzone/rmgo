@@ -25,8 +25,7 @@ class TeleopRemoteController
     , public rmgo_utility::NodeMixin {
 public:
     controller_interface::CallbackReturn on_init() override {
-        param_listener_ = std::make_shared<::teleop_remote_controller::ParamListener>(get_node());
-        params_ = param_listener_->get_params();
+        init_parameters(param_listener_, params_);
         target_controller_name_ = params_.target_controller_name;
         target_gimbal_controller_name_ = params_.target_gimbal_controller_name;
         command_buffer_.initRT(BufferedCommand{});
@@ -39,19 +38,12 @@ public:
         controller_interface::InterfaceConfiguration config;
         config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-        const std::string target_controller_name = params_.target_controller_name;
-        config.names.reserve(
-            command_interface_suffixes.size()
-            + (params_.target_gimbal_controller_name.empty()
-                   ? 0
-                   : gimbal_command_interface_suffixes.size()));
-        for (const char* suffix : command_interface_suffixes) {
-            config.names.push_back(target_controller_name + "/" + suffix);
-        }
+        append_prefixed_interface_names(
+            config.names, params_.target_controller_name, command_interface_suffixes);
         if (!params_.target_gimbal_controller_name.empty()) {
-            for (const char* suffix : gimbal_command_interface_suffixes) {
-                config.names.push_back(params_.target_gimbal_controller_name + "/" + suffix);
-            }
+            append_prefixed_interface_names(
+                config.names, params_.target_gimbal_controller_name,
+                gimbal_command_interface_suffixes);
         }
 
         return config;
@@ -67,7 +59,7 @@ public:
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
         node_ = get_node();
-        params_ = param_listener_->get_params();
+        update_parameters(param_listener_, params_);
         target_controller_name_ = params_.target_controller_name;
         target_gimbal_controller_name_ = params_.target_gimbal_controller_name;
         if (cmd_vel_subscriber_ && cmd_vel_topic_ != params_.cmd_vel_topic) {
@@ -208,16 +200,8 @@ private:
     };
 
     bool write_command(const std::array<double, 4>& values) {
-        for (std::size_t index = 0; index < values.size(); ++index) {
-            if (!command_interfaces_[index].set_value(values[index])) {
-                logging::error(
-                    "Failed to write reference command '{}/{}'", target_controller_name_,
-                    command_interface_suffixes[index]);
-                return false;
-            }
-        }
-
-        return true;
+        return write_safe_commands(
+            command_interfaces_, values, target_controller_name_, command_interface_suffixes);
     }
 
     bool write_gimbal_command(const std::array<double, 3>& values) {
@@ -226,16 +210,9 @@ private:
         }
 
         const std::size_t offset = command_interface_suffixes.size();
-        for (std::size_t index = 0; index < values.size(); ++index) {
-            if (!command_interfaces_[offset + index].set_value(values[index])) {
-                logging::error(
-                    "Failed to write reference command '{}/{}'", target_gimbal_controller_name_,
-                    gimbal_command_interface_suffixes[index]);
-                return false;
-            }
-        }
-
-        return true;
+        return write_safe_commands(
+            command_interfaces_, values, target_gimbal_controller_name_,
+            gimbal_command_interface_suffixes, "reference command", offset);
     }
 
     std::string target_controller_name_;

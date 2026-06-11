@@ -3,8 +3,8 @@
 #include <cstdint>
 #include <memory>
 #include <numbers>
-#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <angles/angles.h>
@@ -26,8 +26,7 @@ class ChassisController
     , public rmgo_utility::NodeMixin {
 public:
     controller_interface::CallbackReturn on_init() override {
-        param_listener_ = std::make_shared<::chassis_controller::ParamListener>(get_node());
-        params_ = param_listener_->get_params();
+        init_parameters(param_listener_, params_);
         target_controller_name_ = params_.target_controller_name;
         yaw_joint_name_ = params_.yaw_joint_name;
         yaw_state_interface_name_ = params_.yaw_state_interface_name;
@@ -35,48 +34,29 @@ public:
     }
 
     controller_interface::InterfaceConfiguration command_interface_configuration() const override {
-        controller_interface::InterfaceConfiguration config;
-        config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-
-        const std::string target_controller_name = get_target_controller_name();
-        config.names.reserve(chassis_command_suffixes.size());
-        for (const char* suffix : chassis_command_suffixes) {
-            config.names.push_back(target_controller_name + "/" + suffix);
-        }
-        return config;
+        return build_individual_config(params_.target_controller_name, chassis_command_suffixes);
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        controller_interface::InterfaceConfiguration config;
-        config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-        config.names.push_back(get_yaw_state_interface_name());
-        return config;
+        return build_individual_config(std::array{get_yaw_state_interface_name()});
     }
 
     std::vector<hardware_interface::CommandInterface::SharedPtr>
         on_export_reference_interfaces_list() override {
-        reset_references();
+        reset_references(remote_command_reference_);
         return make_reference_interfaces(remote_command_suffixes, remote_command_reference_);
     }
 
-    std::vector<hardware_interface::StateInterface::SharedPtr>
-        on_export_state_interfaces_list() override {
-        return {};
-    }
-
-    bool on_set_chained_mode(bool /*chained_mode*/) override { return true; }
-
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        params_ = param_listener_->get_params();
+        update_parameters(param_listener_, params_);
         target_controller_name_ = params_.target_controller_name;
         yaw_joint_name_ = params_.yaw_joint_name;
         yaw_state_interface_name_ = params_.yaw_state_interface_name;
         auto& node = *get_node();
         follow_pid_ = rmgo_core::pid::make_pid_calculator(node, "follow_", 0.0, 0.0, 0.0);
 
-        reset_references();
-        reset_pid();
+        reset_internal_state();
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
@@ -90,40 +70,36 @@ public:
             return controller_interface::CallbackReturn::ERROR;
         }
 
-        reset_references();
-        reset_pid();
-        last_mode_ = Mode::raw;
-        return write_command({0.0, 0.0, 0.0}) ? controller_interface::CallbackReturn::SUCCESS
-                                              : controller_interface::CallbackReturn::ERROR;
+        reset_internal_state();
+        return stop_chassis() ? controller_interface::CallbackReturn::SUCCESS
+                              : controller_interface::CallbackReturn::ERROR;
     }
 
     controller_interface::CallbackReturn
         on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        reset_references();
-        reset_pid();
-        last_mode_ = Mode::raw;
-        return write_command({0.0, 0.0, 0.0}) ? controller_interface::CallbackReturn::SUCCESS
-                                              : controller_interface::CallbackReturn::ERROR;
+        reset_internal_state();
+        return stop_chassis() ? controller_interface::CallbackReturn::SUCCESS
+                              : controller_interface::CallbackReturn::ERROR;
     }
 
     controller_interface::return_type update_reference_from_subscribers(
         const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
         if (!is_in_chained_mode()) {
-            reset_references();
-            reset_pid();
-            last_mode_ = Mode::raw;
+            reset_internal_state();
         }
         return controller_interface::return_type::OK;
     }
 
     controller_interface::return_type update_and_write_commands(
         const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
+        const auto& [linear_x_reference, linear_y_reference, angular_z_reference, mode_reference] =
+            remote_command_reference_;
         const RemoteCommand command{
-            remote_command_reference_[0],
-            remote_command_reference_[1],
-            remote_command_reference_[2],
+            linear_x_reference,
+            linear_y_reference,
+            angular_z_reference,
         };
-        const Mode mode = mode_from_value(remote_command_reference_[3]);
+        const Mode mode = mode_from_value(mode_reference);
         if (mode != last_mode_) {
             reset_pid();
             last_mode_ = mode;
@@ -148,6 +124,17 @@ private:
         double wz = 0.0;
     };
 
+    enum class ChassisCommandIndex : std::size_t {
+        linear_x = 0,
+        linear_y,
+        angular_z,
+        count,
+    };
+
+    static constexpr std::size_t to_index(ChassisCommandIndex index) {
+        return std::to_underlying(index);
+    }
+
     static constexpr std::array<const char*, 4> remote_command_suffixes = {
         "linear/x/velocity",
         "linear/y/velocity",
@@ -161,7 +148,8 @@ private:
         "angular/z/velocity",
     };
 
-    std::string get_target_controller_name() const { return params_.target_controller_name; }
+    static_assert(
+        chassis_command_suffixes.size() == std::to_underlying(ChassisCommandIndex::count));
 
     std::string get_yaw_state_interface_name() const {
         return params_.yaw_joint_name + "/" + params_.yaw_state_interface_name;
@@ -172,10 +160,11 @@ private:
             return Mode::raw;
         }
 
-        switch (static_cast<std::uint8_t>(std::llround(value))) {
-        case static_cast<std::uint8_t>(Mode::follow): return Mode::follow;
-        case static_cast<std::uint8_t>(Mode::twist): return Mode::twist;
-        case static_cast<std::uint8_t>(Mode::raw):
+        const auto mode = static_cast<Mode>(std::llround(value));
+        switch (mode) {
+        case Mode::follow:
+        case Mode::twist: return mode;
+        case Mode::raw:
         default: return Mode::raw;
         }
     }
@@ -184,8 +173,14 @@ private:
         const double yaw = read_yaw_position();
         std::array<double, 3> values = command_to_base_link(command, yaw);
         switch (mode) {
-        case Mode::follow: values[2] = calculate_follow_angular_velocity(yaw, command.wz); break;
-        case Mode::twist: values[2] = calculate_twist_angular_velocity(yaw); break;
+        case Mode::follow:
+            values[to_index(ChassisCommandIndex::angular_z)] =
+                calculate_follow_angular_velocity(yaw, command.wz);
+            break;
+        case Mode::twist:
+            values[to_index(ChassisCommandIndex::angular_z)] =
+                calculate_twist_angular_velocity(yaw);
+            break;
         case Mode::raw:
         default: break;
         }
@@ -235,20 +230,19 @@ private:
 
     double read_yaw_position() const { return read_finite_interface_or(state_interfaces_, 0, 0.0); }
 
-    void reset_references() { remote_command_reference_.fill(0.0); }
-
     void reset_pid() { follow_pid_.reset(); }
 
+    void reset_internal_state() {
+        reset_references(remote_command_reference_);
+        reset_pid();
+        last_mode_ = Mode::raw;
+    }
+
+    bool stop_chassis() { return write_command({0.0, 0.0, 0.0}); }
+
     bool write_command(const std::array<double, 3>& values) {
-        for (std::size_t index = 0; index < values.size(); ++index) {
-            if (!command_interfaces_[index].set_value(values[index])) {
-                logging::error(
-                    "Failed to write reference command '{}/{}'", target_controller_name_,
-                    chassis_command_suffixes[index]);
-                return false;
-            }
-        }
-        return true;
+        return write_safe_commands(
+            command_interfaces_, values, target_controller_name_, chassis_command_suffixes);
     }
 
     std::string target_controller_name_;
