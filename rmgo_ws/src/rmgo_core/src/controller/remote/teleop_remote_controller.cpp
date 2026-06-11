@@ -148,6 +148,7 @@ public:
         const bool gimbal_valid = gimbal_command.valid
                                && (command_timeout_ <= 0.0
                                    || (now - gimbal_command.stamp).seconds() <= command_timeout_);
+        // Keep the gimbal controller enabled on stale teleop input so it keeps stabilizing.
         const auto gimbal_values =
             gimbal_valid
                 ? std::array<double, 3>{gimbal_command.yaw, gimbal_command.pitch, enabled_gimbal}
