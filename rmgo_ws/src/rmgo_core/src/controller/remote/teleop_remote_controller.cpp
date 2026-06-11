@@ -113,14 +113,6 @@ public:
 
     controller_interface::CallbackReturn
         on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        const std::size_t expected_interfaces =
-            command_interface_suffixes.size()
-            + (target_gimbal_controller_name_.empty() ? 0
-                                                      : gimbal_command_interface_suffixes.size());
-        if (!expect_interface_count(command_interfaces_, expected_interfaces, "command")) {
-            return controller_interface::CallbackReturn::ERROR;
-        }
-
         command_buffer_.writeFromNonRT(BufferedCommand{});
         gimbal_command_buffer_.writeFromNonRT(BufferedGimbalCommand{});
         mode_buffer_.writeFromNonRT(raw_mode);
