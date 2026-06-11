@@ -6,7 +6,6 @@
 #include <controller_interface/controller_interface.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <pluginlib/class_list_macros.hpp>
-#include <rclcpp/logging.hpp>
 #include <rclcpp/qos.hpp>
 #include <rclcpp/subscription.hpp>
 #include <rclcpp/time.hpp>
@@ -15,16 +14,22 @@
 #include <std_msgs/msg/u_int8.hpp>
 
 #include "rmgo_core/teleop_remote_controller_config.hpp"
+#include "rmgo_utility/controller_interface_mixin.hpp"
+#include "rmgo_utility/node_mixin.hpp"
 
 namespace rmgo_core {
 
-class TeleopRemoteController : public controller_interface::ControllerInterface {
+class TeleopRemoteController
+    : public controller_interface::ControllerInterface
+    , public rmgo_utility::ControllerInterfaceMixin
+    , public rmgo_utility::NodeMixin {
 public:
     controller_interface::CallbackReturn on_init() override {
-        param_listener_ = std::make_shared<::teleop_remote_controller::ParamListener>(get_node());
-        params_ = param_listener_->get_params();
+        init_parameters(param_listener_, params_);
         target_controller_name_ = params_.target_controller_name;
+        target_gimbal_controller_name_ = params_.target_gimbal_controller_name;
         command_buffer_.initRT(BufferedCommand{});
+        gimbal_command_buffer_.initRT(BufferedGimbalCommand{});
         mode_buffer_.initRT(raw_mode);
         return controller_interface::CallbackReturn::SUCCESS;
     }
@@ -33,10 +38,12 @@ public:
         controller_interface::InterfaceConfiguration config;
         config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-        const std::string target_controller_name = params_.target_controller_name;
-        config.names.reserve(command_interface_suffixes.size());
-        for (const char* suffix : command_interface_suffixes) {
-            config.names.push_back(target_controller_name + "/" + suffix);
+        append_prefixed_interface_names(
+            config.names, params_.target_controller_name, command_interface_suffixes);
+        if (!params_.target_gimbal_controller_name.empty()) {
+            append_prefixed_interface_names(
+                config.names, params_.target_gimbal_controller_name,
+                gimbal_command_interface_suffixes);
         }
 
         return config;
@@ -52,16 +59,21 @@ public:
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
         node_ = get_node();
-        params_ = param_listener_->get_params();
+        update_parameters(param_listener_, params_);
         target_controller_name_ = params_.target_controller_name;
+        target_gimbal_controller_name_ = params_.target_gimbal_controller_name;
         if (cmd_vel_subscriber_ && cmd_vel_topic_ != params_.cmd_vel_topic) {
             cmd_vel_subscriber_.reset();
+        }
+        if (cmd_gimbal_subscriber_ && cmd_gimbal_topic_ != params_.cmd_gimbal_topic) {
+            cmd_gimbal_subscriber_.reset();
         }
         if (mode_subscriber_ && mode_topic_ != params_.mode_topic) {
             mode_subscriber_.reset();
         }
 
         cmd_vel_topic_ = params_.cmd_vel_topic;
+        cmd_gimbal_topic_ = params_.cmd_gimbal_topic;
         mode_topic_ = params_.mode_topic;
         command_timeout_ = params_.command_timeout;
 
@@ -78,6 +90,18 @@ public:
                     });
                 });
         }
+        if (!target_gimbal_controller_name_.empty() && !cmd_gimbal_subscriber_) {
+            cmd_gimbal_subscriber_ = node_->create_subscription<geometry_msgs::msg::Twist>(
+                cmd_gimbal_topic_, rclcpp::SystemDefaultsQoS(),
+                [this](const geometry_msgs::msg::Twist& msg) {
+                    gimbal_command_buffer_.writeFromNonRT(BufferedGimbalCommand{
+                        msg.angular.z,
+                        msg.angular.y,
+                        steady_clock_.now(),
+                        true,
+                    });
+                });
+        }
         if (!mode_subscriber_) {
             mode_subscriber_ = node_->create_subscription<std_msgs::msg::UInt8>(
                 mode_topic_, rclcpp::SystemDefaultsQoS(),
@@ -89,16 +113,11 @@ public:
 
     controller_interface::CallbackReturn
         on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        if (command_interfaces_.size() != command_interface_suffixes.size()) {
-            RCLCPP_ERROR(
-                get_node()->get_logger(), "Expected %zu command interfaces, got %zu",
-                command_interface_suffixes.size(), command_interfaces_.size());
-            return controller_interface::CallbackReturn::ERROR;
-        }
-
         command_buffer_.writeFromNonRT(BufferedCommand{});
+        gimbal_command_buffer_.writeFromNonRT(BufferedGimbalCommand{});
         mode_buffer_.writeFromNonRT(raw_mode);
         return write_command({0.0, 0.0, 0.0, raw_mode})
+                    && write_gimbal_command({0.0, 0.0, enabled_gimbal})
                  ? controller_interface::CallbackReturn::SUCCESS
                  : controller_interface::CallbackReturn::ERROR;
     }
@@ -106,8 +125,10 @@ public:
     controller_interface::CallbackReturn
         on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
         command_buffer_.writeFromNonRT(BufferedCommand{});
+        gimbal_command_buffer_.writeFromNonRT(BufferedGimbalCommand{});
         mode_buffer_.writeFromNonRT(raw_mode);
         return write_command({0.0, 0.0, 0.0, raw_mode})
+                    && write_gimbal_command({0.0, 0.0, disabled_gimbal})
                  ? controller_interface::CallbackReturn::SUCCESS
                  : controller_interface::CallbackReturn::ERROR;
     }
@@ -123,8 +144,19 @@ public:
         const auto values = valid ? std::array<double, 4>{command.vx, command.vy, command.wz, mode}
                                   : std::array<double, 4>{0.0, 0.0, 0.0, mode};
 
-        return write_command(values) ? controller_interface::return_type::OK
-                                     : controller_interface::return_type::ERROR;
+        const BufferedGimbalCommand gimbal_command = *gimbal_command_buffer_.readFromRT();
+        const bool gimbal_valid = gimbal_command.valid
+                               && (command_timeout_ <= 0.0
+                                   || (now - gimbal_command.stamp).seconds() <= command_timeout_);
+        // Keep the gimbal controller enabled on stale teleop input so it keeps stabilizing.
+        const auto gimbal_values =
+            gimbal_valid
+                ? std::array<double, 3>{gimbal_command.yaw, gimbal_command.pitch, enabled_gimbal}
+                : std::array<double, 3>{0.0, 0.0, enabled_gimbal};
+
+        return write_command(values) && write_gimbal_command(gimbal_values)
+                 ? controller_interface::return_type::OK
+                 : controller_interface::return_type::ERROR;
     }
 
 private:
@@ -136,7 +168,16 @@ private:
         bool valid = false;
     };
 
+    struct BufferedGimbalCommand {
+        double yaw = 0.0;
+        double pitch = 0.0;
+        rclcpp::Time stamp{0, 0, RCL_STEADY_TIME};
+        bool valid = false;
+    };
+
     static constexpr std::uint8_t raw_mode = 0;
+    static constexpr double disabled_gimbal = 0.0;
+    static constexpr double enabled_gimbal = 1.0;
 
     static constexpr std::array<const char*, 4> command_interface_suffixes = {
         "linear/x/velocity",
@@ -145,30 +186,43 @@ private:
         "mode",
     };
 
+    static constexpr std::array<const char*, 3> gimbal_command_interface_suffixes = {
+        "yaw/velocity",
+        "pitch/velocity",
+        "enabled",
+    };
+
     bool write_command(const std::array<double, 4>& values) {
-        for (std::size_t index = 0; index < values.size(); ++index) {
-            if (!command_interfaces_[index].set_value(values[index])) {
-                RCLCPP_ERROR(
-                    get_node()->get_logger(), "Failed to write reference command '%s/%s'",
-                    target_controller_name_.c_str(), command_interface_suffixes[index]);
-                return false;
-            }
+        return write_safe_commands(
+            command_interfaces_, values, target_controller_name_, command_interface_suffixes);
+    }
+
+    bool write_gimbal_command(const std::array<double, 3>& values) {
+        if (target_gimbal_controller_name_.empty()) {
+            return true;
         }
 
-        return true;
+        const std::size_t offset = command_interface_suffixes.size();
+        return write_safe_commands(
+            command_interfaces_, values, target_gimbal_controller_name_,
+            gimbal_command_interface_suffixes, "reference command", offset);
     }
 
     std::string target_controller_name_;
+    std::string target_gimbal_controller_name_;
     std::string cmd_vel_topic_ = "/cmd_vel";
+    std::string cmd_gimbal_topic_ = "/cmd_gimbal";
     std::string mode_topic_ = "/cmd_chassis_mode";
     double command_timeout_ = 0.25;
     rclcpp::Clock steady_clock_{RCL_STEADY_TIME};
     realtime_tools::RealtimeBuffer<BufferedCommand> command_buffer_;
+    realtime_tools::RealtimeBuffer<BufferedGimbalCommand> gimbal_command_buffer_;
     realtime_tools::RealtimeBuffer<std::uint8_t> mode_buffer_;
     std::shared_ptr<::teleop_remote_controller::ParamListener> param_listener_;
     ::teleop_remote_controller::Params params_;
     std::shared_ptr<rclcpp_lifecycle::LifecycleNode> node_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_subscriber_;
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_gimbal_subscriber_;
     rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr mode_subscriber_;
 };
 

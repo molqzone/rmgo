@@ -14,11 +14,11 @@ controller_manager:
     chassis_controller:
       type: rmgo_core/ChassisController
 
-    simple_gimbal_controller:
-      type: rmgo_core/SimpleGimbalController
-
     teleop_remote_controller:
       type: rmgo_core/TeleopRemoteController
+
+    simple_gimbal_controller:
+      type: rmgo_core/SimpleGimbalController
 
 chassis_controller:
   ros__parameters:

@@ -1,7 +1,9 @@
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <numbers>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -9,15 +11,19 @@
 #include <eigen3/Eigen/Dense>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
-#include <rclcpp/logging.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
+#include "../pid/pid_calculator.hpp"
 #include "rmgo_core/omni_wheel_controller_config.hpp"
-#include "rmgo_core/pid/pid_calculator.hpp"
+#include "rmgo_utility/controller_interface_mixin.hpp"
+#include "rmgo_utility/node_mixin.hpp"
 
 namespace rmgo_core::controller::chassis {
 
-class OmniWheelController : public controller_interface::ChainableControllerInterface {
+class OmniWheelController
+    : public controller_interface::ChainableControllerInterface
+    , public rmgo_utility::ControllerInterfaceMixin
+    , public rmgo_utility::NodeMixin {
 public:
     using BaseLinkVelocityCommand = Eigen::Vector3d;
     using WheelState = Eigen::Vector4d;
@@ -26,59 +32,30 @@ public:
     using WheelToBaseLinkMatrix = Eigen::Matrix<double, 3, 4>;
 
     controller_interface::CallbackReturn on_init() override {
-        param_listener_ = std::make_shared<::omni_wheel_controller::ParamListener>(get_node());
-        params_ = param_listener_->get_params();
+        init_parameters(param_listener_, params_);
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
     controller_interface::InterfaceConfiguration command_interface_configuration() const override {
-        controller_interface::InterfaceConfiguration config;
-        config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-        config.names.reserve(params_.wheel_joints.size());
-        for (const auto& joint_name : params_.wheel_joints) {
-            config.names.push_back(joint_name + "/" + params_.command_interface_name);
-        }
-        return config;
+        return build_joint_interface_config(params_.wheel_joints, params_.command_interface_name);
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        controller_interface::InterfaceConfiguration config;
-        config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-        config.names.reserve(params_.wheel_joints.size());
-        for (const auto& joint_name : params_.wheel_joints) {
-            config.names.push_back(joint_name + "/" + params_.wheel_state_interface_name);
-        }
-        return config;
+        return build_joint_interface_config(
+            params_.wheel_joints, params_.wheel_state_interface_name);
     }
 
     std::vector<hardware_interface::CommandInterface::SharedPtr>
         on_export_reference_interfaces_list() override {
-        reset_references();
-
-        const std::string controller_name = get_node()->get_name();
-        return {
-            std::make_shared<hardware_interface::CommandInterface>(
-                controller_name, base_link_velocity_suffixes[0], &base_link_velocity_reference_[0]),
-            std::make_shared<hardware_interface::CommandInterface>(
-                controller_name, base_link_velocity_suffixes[1], &base_link_velocity_reference_[1]),
-            std::make_shared<hardware_interface::CommandInterface>(
-                controller_name, base_link_velocity_suffixes[2], &base_link_velocity_reference_[2]),
-        };
-    }
-
-    std::vector<hardware_interface::StateInterface::SharedPtr>
-        on_export_state_interfaces_list() override {
-        return {};
-    }
-
-    bool on_set_chained_mode(bool chained_mode) override {
-        (void)chained_mode;
-        return true;
+        reset_references(base_link_velocity_reference_);
+        return make_reference_interfaces(
+            base_link_velocity_suffixes, base_link_velocity_reference_);
     }
 
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        params_ = param_listener_->get_params();
+        update_parameters(param_listener_, params_);
+        std::ranges::copy(params_.wheel_joints, wheel_joints_.begin());
 
         base_link_to_wheel_ = make_base_link_to_wheel_matrix();
         wheel_to_base_link_ = make_wheel_to_base_link_matrix(base_link_to_wheel_);
@@ -87,27 +64,14 @@ public:
         linear_y_pid_ = rmgo_core::pid::make_pid_calculator(node, "linear_y_", 0.0, 0.0, 0.0);
         angular_z_pid_ = rmgo_core::pid::make_pid_calculator(node, "angular_z_", 0.0, 0.0, 0.0);
 
-        reset_references();
+        reset_references(base_link_velocity_reference_);
         reset_pid_calculators();
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
     controller_interface::CallbackReturn
         on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        if (command_interfaces_.size() != params_.wheel_joints.size()) {
-            RCLCPP_ERROR(
-                get_node()->get_logger(), "Expected %zu command interfaces, got %zu",
-                params_.wheel_joints.size(), command_interfaces_.size());
-            return controller_interface::CallbackReturn::ERROR;
-        }
-        if (state_interfaces_.size() != params_.wheel_joints.size()) {
-            RCLCPP_ERROR(
-                get_node()->get_logger(), "Expected %zu state interfaces, got %zu",
-                params_.wheel_joints.size(), state_interfaces_.size());
-            return controller_interface::CallbackReturn::ERROR;
-        }
-
-        reset_references();
+        reset_references(base_link_velocity_reference_);
         reset_pid_calculators();
         return write_wheel_commands(WheelCommand::Zero())
                  ? controller_interface::CallbackReturn::SUCCESS
@@ -116,7 +80,7 @@ public:
 
     controller_interface::CallbackReturn
         on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        reset_references();
+        reset_references(base_link_velocity_reference_);
         reset_pid_calculators();
         return write_wheel_commands(WheelCommand::Zero())
                  ? controller_interface::CallbackReturn::SUCCESS
@@ -126,7 +90,7 @@ public:
     controller_interface::return_type update_reference_from_subscribers(
         const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
         if (!is_in_chained_mode()) {
-            reset_references();
+            reset_references(base_link_velocity_reference_);
             reset_pid_calculators();
         }
         return controller_interface::return_type::OK;
@@ -134,9 +98,13 @@ public:
 
     controller_interface::return_type update_and_write_commands(
         const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
+        const auto& [linear_x_reference, linear_y_reference, angular_z_reference] =
+            base_link_velocity_reference_;
         const BaseLinkVelocityCommand base_link_velocity_command{
-            base_link_velocity_reference_[0], base_link_velocity_reference_[1],
-            base_link_velocity_reference_[2]};
+            linear_x_reference,
+            linear_y_reference,
+            angular_z_reference,
+        };
         const std::optional<BaseLinkVelocityCommand> measured_velocity =
             measure_base_link_velocity();
         const BaseLinkVelocityCommand control_velocity =
@@ -156,6 +124,8 @@ public:
     }
 
 private:
+    static constexpr std::size_t wheel_count = 4;
+
     // ros2_control exchanges scalar reference interfaces, but the three values
     // are semantically a BaseLink-frame chassis velocity command, matching the
     // RMCS BaseLink::DirectionVector convention at this controller boundary.
@@ -193,7 +163,7 @@ private:
 
         WheelState wheel_state;
         for (std::size_t index = 0; index < params_.wheel_joints.size(); ++index) {
-            const std::optional<double> value = state_interfaces_[index].get_optional();
+            const std::optional<double> value = read_finite_interface(state_interfaces_, index);
             if (!value.has_value() || !std::isfinite(*value)) {
                 return std::nullopt;
             }
@@ -226,8 +196,6 @@ private:
         wheel_commands *= params_.max_wheel_velocity / max_command;
     }
 
-    void reset_references() { base_link_velocity_reference_.fill(0.0); }
-
     void reset_pid_calculators() {
         linear_x_pid_.reset();
         linear_y_pid_.reset();
@@ -235,18 +203,14 @@ private:
     }
 
     bool write_wheel_commands(const WheelCommand& wheel_commands) {
-        for (std::size_t index = 0; index < params_.wheel_joints.size(); ++index) {
-            if (!command_interfaces_[index].set_value(
-                    wheel_commands[static_cast<Eigen::Index>(index)])) {
-                RCLCPP_ERROR(
-                    get_node()->get_logger(), "Failed to write %s command for joint %s",
-                    params_.command_interface_name.c_str(), params_.wheel_joints[index].c_str());
-                return false;
-            }
-        }
-        return true;
+        return write_safe_joint_commands(
+            command_interfaces_,
+            std::span<const double, wheel_count>{wheel_commands.data(), wheel_count},
+            std::span<const std::string, wheel_count>{wheel_joints_},
+            params_.command_interface_name);
     }
 
+    std::array<std::string, wheel_count> wheel_joints_{};
     std::array<double, 3> base_link_velocity_reference_{0.0, 0.0, 0.0};
     BaseLinkToWheelMatrix base_link_to_wheel_ = BaseLinkToWheelMatrix::Zero();
     WheelToBaseLinkMatrix wheel_to_base_link_ = WheelToBaseLinkMatrix::Zero();

@@ -2,7 +2,14 @@ import os
 
 import yaml
 from launch import LaunchContext, LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction, SetEnvironmentVariable, TimerAction
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    LogInfo,
+    OpaqueFunction,
+    SetEnvironmentVariable,
+    TimerAction,
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration
 from launch_ros.actions import Node
@@ -49,7 +56,10 @@ def launch_setup(context: LaunchContext, *args, **kwargs):
     gazebo_resource_path = os.path.dirname(description_share)
     existing_gazebo_resource_path = os.environ.get("GZ_SIM_RESOURCE_PATH", "")
     controller_names = load_controller_names(config_file)
-    odometry_topic = f"/model/{robot_name}/odometry"
+    bridge_arguments = [
+        "/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock",
+        f"/model/{robot_name}/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry",
+    ]
 
     robot_description = ParameterValue(
         Command(
@@ -93,10 +103,7 @@ def launch_setup(context: LaunchContext, *args, **kwargs):
         Node(
             package="ros_gz_bridge",
             executable="parameter_bridge",
-            arguments=[
-                "/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock",
-                odometry_topic + "@nav_msgs/msg/Odometry[gz.msgs.Odometry",
-            ],
+            arguments=bridge_arguments,
             output="screen",
         ),
         Node(
@@ -160,7 +167,7 @@ def generate_launch_description():
             DeclareLaunchArgument("controller_manager", default_value="/controller_manager"),
             DeclareLaunchArgument("controller_spawn_delay", default_value="5.0"),
             DeclareLaunchArgument("controller_manager_timeout", default_value="60.0"),
-            DeclareLaunchArgument("hardware_plugin", default_value="gz_ros2_control/GazeboSimSystem"),
+            DeclareLaunchArgument("hardware_plugin", default_value="rmgo_core/OmniInfantryGzInterface"),
             DeclareLaunchArgument("debug_visuals", default_value="false"),
             OpaqueFunction(function=launch_setup),
         ]

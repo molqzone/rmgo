@@ -15,9 +15,18 @@ def generate_launch_description() -> LaunchDescription:
     model = LaunchConfiguration("model")
     rviz_config = LaunchConfiguration("rvizconfig")
     gui = LaunchConfiguration("gui")
+    hardware_plugin = LaunchConfiguration("hardware_plugin")
 
     robot_description = ParameterValue(
-        Command([FindExecutable(name="xacro"), " ", model]),
+        Command(
+            [
+                FindExecutable(name="xacro"),
+                " ",
+                model,
+                " hardware_plugin:=",
+                hardware_plugin,
+            ]
+        ),
         value_type=str,
     )
 
@@ -26,6 +35,8 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("gui", default_value="true"),
             DeclareLaunchArgument("model", default_value=default_model),
             DeclareLaunchArgument("rvizconfig", default_value=default_rviz),
+            DeclareLaunchArgument(
+                "hardware_plugin", default_value="gz_ros2_control/GazeboSimSystem"),
             Node(
                 package="robot_state_publisher",
                 executable="robot_state_publisher",
