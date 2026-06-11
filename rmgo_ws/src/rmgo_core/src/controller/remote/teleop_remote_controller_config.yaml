@@ -1,33 +1,27 @@
 teleop_remote_controller:
   target_controller_name:
     type: string
-    default_value: "chassis_controller"
     description: "Downstream chain controller that receives remote commands."
     validation:
       not_empty<>: []
   target_gimbal_controller_name:
     type: string
-    default_value: ""
     description: "Optional downstream gimbal chain controller that receives remote commands."
   cmd_vel_topic:
     type: string
-    default_value: "/cmd_vel"
     description: "Teleop velocity command topic."
     validation:
       not_empty<>: []
   cmd_gimbal_topic:
     type: string
-    default_value: "/cmd_gimbal"
     description: "Teleop gimbal angular velocity command topic."
     validation:
       not_empty<>: []
   mode_topic:
     type: string
-    default_value: "/cmd_chassis_mode"
     description: "Teleop chassis mode command topic."
     validation:
       not_empty<>: []
   command_timeout:
     type: double
-    default_value: 0.25
     description: "Maximum age of cmd_vel before zeroing velocity. Non-positive disables timeout."

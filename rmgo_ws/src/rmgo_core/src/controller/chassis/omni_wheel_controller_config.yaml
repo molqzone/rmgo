@@ -1,45 +1,34 @@
 omni_wheel_controller:
   wheel_joints:
     type: string_array
-    default_value:
-      - "left_front_wheel_joint"
-      - "left_back_wheel_joint"
-      - "right_back_wheel_joint"
-      - "right_front_wheel_joint"
     description: "Wheel joints ordered as left-front, left-back, right-back, right-front."
     validation:
       fixed_size<>: 4
   command_interface_name:
     type: string
-    default_value: "velocity"
     description: "Wheel command interface."
     validation:
       not_empty<>: []
   wheel_state_interface_name:
     type: string
-    default_value: "velocity"
     description: "Wheel state interface used for chassis velocity feedback."
     validation:
       not_empty<>: []
   wheel_radius:
     type: double
-    default_value: 0.07
     description: "Wheel radius in meters."
     validation:
       gt<>: [0.0]
   chassis_radius_x:
     type: double
-    default_value: 0.15897
     description: "Base-link x lever arm used by omni-wheel kinematics."
     validation:
       gt_eq<>: [0.0]
   chassis_radius_y:
     type: double
-    default_value: 0.15897
     description: "Base-link y lever arm used by omni-wheel kinematics."
     validation:
       gt_eq<>: [0.0]
   max_wheel_velocity:
     type: double
-    default_value: 40.0
     description: "Maximum absolute wheel velocity command. Non-positive disables saturation."

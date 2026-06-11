@@ -1,33 +1,27 @@
 simple_gimbal_controller:
   yaw_joint_name:
     type: string
-    default_value: "yaw_joint"
     description: "Yaw joint controlled by the gimbal controller."
     validation:
       not_empty<>: []
   pitch_joint_name:
     type: string
-    default_value: "pitch_joint"
     description: "Pitch joint controlled by the gimbal controller."
     validation:
       not_empty<>: []
   command_interface_name:
     type: string
-    default_value: "position"
     description: "Command interface used for yaw and pitch joints."
     validation:
       not_empty<>: []
   state_interface_name:
     type: string
-    default_value: "position"
     description: "State interface used for yaw and pitch joints."
     validation:
       not_empty<>: []
   pitch_lower_limit:
     type: double
-    default_value: -0.5098
     description: "Lower pitch command limit."
   pitch_upper_limit:
     type: double
-    default_value: 0.2262
     description: "Upper pitch command limit."
