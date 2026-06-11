@@ -24,57 +24,35 @@ class ChassisPowerController
     , public rmgo_utility::NodeMixin {
 public:
     controller_interface::CallbackReturn on_init() override {
-        param_listener_ = std::make_shared<::chassis_power_controller::ParamListener>(get_node());
-        params_ = param_listener_->get_params();
+        init_parameters(param_listener_, params_);
         target_controller_name_ = params_.target_controller_name;
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
     controller_interface::InterfaceConfiguration command_interface_configuration() const override {
-        controller_interface::InterfaceConfiguration config;
-        config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-
-        const std::string target_controller_name = params_.target_controller_name;
-        config.names.reserve(chassis_command_suffixes.size());
-        for (const char* suffix : chassis_command_suffixes) {
-            config.names.push_back(target_controller_name + "/" + suffix);
-        }
-
-        return config;
+        return build_individual_config(params_.target_controller_name, chassis_command_suffixes);
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        controller_interface::InterfaceConfiguration config;
-        config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
-        config.names.reserve(rmgo_core::io_state_interfaces::chassis_power_state_interfaces.size());
-        for (const char* name : rmgo_core::io_state_interfaces::chassis_power_state_interfaces) {
-            config.names.emplace_back(name);
-        }
-        return config;
+        return build_individual_config(
+            rmgo_core::io_state_interfaces::chassis_power_state_interfaces);
     }
 
     std::vector<hardware_interface::CommandInterface::SharedPtr>
         on_export_reference_interfaces_list() override {
-        reset_references();
+        reset_references(chassis_reference_);
         return make_reference_interfaces(chassis_command_suffixes, chassis_reference_);
     }
 
-    std::vector<hardware_interface::StateInterface::SharedPtr>
-        on_export_state_interfaces_list() override {
-        return {};
-    }
-
-    bool on_set_chained_mode(bool /*chained_mode*/) override { return true; }
-
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        params_ = param_listener_->get_params();
+        update_parameters(param_listener_, params_);
         target_controller_name_ = params_.target_controller_name;
         if (target_controller_name_.empty()) {
             logging::error("target_controller_name must not be empty");
             return controller_interface::CallbackReturn::ERROR;
         }
-        reset_references();
+        reset_references(chassis_reference_);
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
@@ -91,7 +69,7 @@ public:
             return controller_interface::CallbackReturn::ERROR;
         }
 
-        reset_references();
+        reset_references(chassis_reference_);
         return write_chassis_commands({0.0, 0.0, 0.0})
                  ? controller_interface::CallbackReturn::SUCCESS
                  : controller_interface::CallbackReturn::ERROR;
@@ -99,7 +77,7 @@ public:
 
     controller_interface::CallbackReturn
         on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        reset_references();
+        reset_references(chassis_reference_);
         return write_chassis_commands({0.0, 0.0, 0.0})
                  ? controller_interface::CallbackReturn::SUCCESS
                  : controller_interface::CallbackReturn::ERROR;
@@ -108,7 +86,7 @@ public:
     controller_interface::return_type update_reference_from_subscribers(
         const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
         if (!is_in_chained_mode()) {
-            reset_references();
+            reset_references(chassis_reference_);
         }
         return controller_interface::return_type::OK;
     }
@@ -130,8 +108,6 @@ private:
     static constexpr std::size_t power_buffer_index = 1;
     static constexpr std::size_t power_limit_index = 2;
 
-    void reset_references() { chassis_reference_.fill(0.0); }
-
     double calculate_control_power_limit() {
         const std::optional<double> referee_power_limit = read_state(power_limit_index);
         if (!referee_power_limit.has_value()) {
@@ -152,10 +128,12 @@ private:
 
         const double power_ratio =
             std::clamp(control_power_limit / params_.full_speed_power_limit, 0.0, 1.0);
+        const auto& [linear_x_reference, linear_y_reference, angular_z_reference] =
+            chassis_reference_;
         return {
-            clamp_abs(chassis_reference_[0], params_.max_linear_x_velocity * power_ratio),
-            clamp_abs(chassis_reference_[1], params_.max_linear_y_velocity * power_ratio),
-            clamp_abs(chassis_reference_[2], params_.max_angular_z_velocity * power_ratio),
+            clamp_abs(linear_x_reference, params_.max_linear_x_velocity * power_ratio),
+            clamp_abs(linear_y_reference, params_.max_linear_y_velocity * power_ratio),
+            clamp_abs(angular_z_reference, params_.max_angular_z_velocity * power_ratio),
         };
     }
 
@@ -171,15 +149,9 @@ private:
     }
 
     bool write_chassis_commands(const std::array<double, 3>& commands) {
-        for (std::size_t index = 0; index < commands.size(); ++index) {
-            if (!command_interfaces_[index].set_value(commands[index])) {
-                logging::error(
-                    "Failed to write chained command '{}/{}'", target_controller_name_,
-                    chassis_command_suffixes[index]);
-                return false;
-            }
-        }
-        return true;
+        return write_safe_commands(
+            command_interfaces_, commands, target_controller_name_, chassis_command_suffixes,
+            "chained command");
     }
 
     std::string target_controller_name_;
