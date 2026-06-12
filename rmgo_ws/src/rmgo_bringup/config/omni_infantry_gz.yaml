@@ -207,10 +207,10 @@ left_friction_velocity_pid_controller:
     command_interface_name: effort
     state_joint_name: ""
     state_interface_name: velocity
-    kp: 0.003436926
+    kp: 0.001
     ki: 0.0
-    kd: 0.009373434
-    velocity_feedforward: 0.0
+    kd: 0.0
+    velocity_feedforward: 0.003
     integral_min: -1.7976931348623157e+308
     integral_max: 1.7976931348623157e+308
     integral_split_min: -1.7976931348623157e+308
@@ -224,10 +224,10 @@ right_friction_velocity_pid_controller:
     command_interface_name: effort
     state_joint_name: ""
     state_interface_name: velocity
-    kp: 0.003436926
+    kp: 0.001
     ki: 0.0
-    kd: 0.009373434
-    velocity_feedforward: 0.0
+    kd: 0.0
+    velocity_feedforward: 0.003
     integral_min: -1.7976931348623157e+308
     integral_max: 1.7976931348623157e+308
     integral_split_min: -1.7976931348623157e+308
@@ -241,10 +241,10 @@ bullet_feeder_velocity_pid_controller:
     command_interface_name: effort
     state_joint_name: ""
     state_interface_name: velocity
-    kp: 1.583
+    kp: 0.002
     ki: 0.0
     kd: 0.0
-    velocity_feedforward: 0.0
+    velocity_feedforward: 0.005
     integral_min: -1.7976931348623157e+308
     integral_max: 1.7976931348623157e+308
     integral_split_min: -1.7976931348623157e+308
