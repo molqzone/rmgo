@@ -82,9 +82,9 @@ public:
         }
 
         double command = params_.velocity_feedforward * target_velocity;
-        const auto measured_velocity = read_finite_interface(state_interfaces_, 0);
-        if (measured_velocity.has_value()) {
-            command += pid_.update(target_velocity - *measured_velocity);
+        const double measured_velocity = read_interface_value(state_interfaces_, 0);
+        if (std::isfinite(measured_velocity)) {
+            command += pid_.update(target_velocity - measured_velocity);
         } else {
             pid_.reset();
         }

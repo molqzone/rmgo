@@ -75,9 +75,12 @@ public:
             return controller_interface::CallbackReturn::ERROR;
         }
 
-        const double yaw = read_state(state_indexes_[to_index(StateInterfaceIndex::yaw)]);
-        const double pitch = read_state(state_indexes_[to_index(StateInterfaceIndex::pitch)]);
-        update_tf(yaw, pitch);
+        const double yaw = read_state(StateInterfaceIndex::yaw);
+        const double pitch = read_state(StateInterfaceIndex::pitch);
+        if (!std::isfinite(yaw) || !std::isfinite(pitch) || !update_tf(yaw, pitch)) {
+            logging::error("Gimbal state source unavailable during activation");
+            return controller_interface::CallbackReturn::ERROR;
+        }
 
         return write_angle_errors({0.0, 0.0}) ? controller_interface::CallbackReturn::SUCCESS
                                               : controller_interface::CallbackReturn::ERROR;
@@ -92,9 +95,9 @@ public:
 
     controller_interface::return_type
         update(const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
-        return write_angle_errors(calculate_angle_error(period.seconds()))
-                 ? controller_interface::return_type::OK
-                 : controller_interface::return_type::ERROR;
+        const TwoAxisGimbalSolver::AngleError angle_error = calculate_angle_error(period.seconds());
+        return write_angle_errors(angle_error) ? controller_interface::return_type::OK
+                                               : controller_interface::return_type::ERROR;
     }
 
 private:
@@ -143,8 +146,8 @@ private:
         return indexes;
     }
 
-    double read_state(std::size_t index) const {
-        return read_finite_interface_or(state_interfaces_, index, 0.0);
+    double read_state(StateInterfaceIndex index) const {
+        return read_interface_value(state_interfaces_, state_indexes_[to_index(index)]);
     }
 
     bool bind_command_interfaces() {
@@ -205,47 +208,40 @@ private:
     }
 
     TwoAxisGimbalSolver::AngleError calculate_angle_error(double dt) {
-        const double yaw = read_state(state_indexes_[to_index(StateInterfaceIndex::yaw)]);
-        const double pitch = read_state(state_indexes_[to_index(StateInterfaceIndex::pitch)]);
-        update_tf(yaw, pitch);
+        const double yaw = read_state(StateInterfaceIndex::yaw);
+        const double pitch = read_state(StateInterfaceIndex::pitch);
+        if (!std::isfinite(yaw) || !std::isfinite(pitch) || !update_tf(yaw, pitch)) {
+            return disabled_angle_error();
+        }
 
-        const double yaw_reference =
-            read_state(state_indexes_[to_index(StateInterfaceIndex::command_yaw_velocity)]);
-        const double pitch_reference =
-            read_state(state_indexes_[to_index(StateInterfaceIndex::command_pitch_velocity)]);
-        const double enabled_reference =
-            read_state(state_indexes_[to_index(StateInterfaceIndex::command_enabled)]);
+        const double yaw_reference = read_state(StateInterfaceIndex::command_yaw_velocity);
+        const double pitch_reference = read_state(StateInterfaceIndex::command_pitch_velocity);
+        const double enabled_reference = read_state(StateInterfaceIndex::command_enabled);
         const bool is_enabled = std::isfinite(enabled_reference) && enabled_reference > 0.5;
         if (!is_enabled) {
             return solver_.update(tf_, pitch, TwoAxisGimbalSolver::SetDisabled{});
         }
 
-        const double yaw_velocity = finite_or_zero(yaw_reference);
-        const double pitch_velocity = finite_or_zero(pitch_reference);
         const auto error = solver_.enabled()
                              ? solver_.update(
                                    tf_, pitch,
                                    TwoAxisGimbalSolver::SetControlShift{
-                                       yaw_velocity * dt,
-                                       pitch_velocity * dt,
+                                       finite_or_zero(yaw_reference) * dt,
+                                       finite_or_zero(pitch_reference) * dt,
                                    })
                              : solver_.update(tf_, pitch, TwoAxisGimbalSolver::SetToLevel{});
 
         return error;
     }
 
-    static double finite_or_zero(double value) { return std::isfinite(value) ? value : 0.0; }
-
-    void update_tf(double yaw, double pitch) {
-        Eigen::Quaterniond orientation{
-            read_state(state_indexes_[to_index(StateInterfaceIndex::imu_w)]),
-            read_state(state_indexes_[to_index(StateInterfaceIndex::imu_x)]),
-            read_state(state_indexes_[to_index(StateInterfaceIndex::imu_y)]),
-            read_state(state_indexes_[to_index(StateInterfaceIndex::imu_z)]),
-        };
-        // NOTE: is here lack of check?
+    bool update_tf(double yaw, double pitch) {
+        const double imu_w = read_state(StateInterfaceIndex::imu_w);
+        const double imu_x = read_state(StateInterfaceIndex::imu_x);
+        const double imu_y = read_state(StateInterfaceIndex::imu_y);
+        const double imu_z = read_state(StateInterfaceIndex::imu_z);
+        Eigen::Quaterniond orientation{imu_w, imu_x, imu_y, imu_z};
         if (orientation.norm() <= 1e-6 || !orientation.coeffs().allFinite()) {
-            orientation = Eigen::Quaterniond::Identity();
+            return false;
         }
 
         update_gimbal_tf(
@@ -254,6 +250,7 @@ private:
                      .pitch = pitch,
                      .pitch_link_to_odom_imu = orientation,
                  });
+        return true;
     }
 
     static TwoAxisGimbalSolver::AngleError disabled_angle_error() {
@@ -262,6 +259,8 @@ private:
             std::numeric_limits<double>::quiet_NaN(),
         };
     }
+
+    static double finite_or_zero(double value) { return std::isfinite(value) ? value : 0.0; }
 
     bool write_angle_errors(TwoAxisGimbalSolver::AngleError angle_error) {
         const std::array<double, 2> values = {angle_error.yaw, angle_error.pitch};

@@ -78,18 +78,14 @@ public:
 
     controller_interface::return_type
         update(const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
-        const RemoteCommand command{
-            read_state(StateInterfaceIndex::command_linear_x),
-            read_state(StateInterfaceIndex::command_linear_y),
-            read_state(StateInterfaceIndex::command_angular_z),
-        };
-        const Mode mode = mode_from_value(read_state(StateInterfaceIndex::command_mode));
+        const StateSnapshot state = read_state_snapshot();
+        const Mode mode = mode_from_value(state.mode);
         if (mode != last_mode_) {
             reset_pid();
             last_mode_ = mode;
         }
 
-        const auto values = calculate_command(mode, command);
+        const auto values = calculate_command(mode, state.command, state.yaw);
 
         return write_command(values) ? controller_interface::return_type::OK
                                      : controller_interface::return_type::ERROR;
@@ -115,6 +111,12 @@ private:
         double vx = 0.0;
         double vy = 0.0;
         double wz = 0.0;
+    };
+
+    struct StateSnapshot {
+        double yaw = 0.0;
+        RemoteCommand command;
+        double mode = 0.0;
     };
 
     enum class ChassisCommandIndex : std::size_t {
@@ -160,8 +162,7 @@ private:
         }
     }
 
-    std::array<double, 3> calculate_command(Mode mode, const RemoteCommand& command) {
-        const double yaw = read_yaw_position();
+    std::array<double, 3> calculate_command(Mode mode, const RemoteCommand& command, double yaw) {
         std::array<double, 3> values = command_to_base_link(command, yaw);
         switch (mode) {
         case Mode::follow:
@@ -243,11 +244,22 @@ private:
                    "chassis command state interface");
     }
 
-    double read_state(StateInterfaceIndex index) const {
-        return read_finite_interface_or(state_interfaces_, state_indexes_[to_index(index)], 0.0);
+    StateSnapshot read_state_snapshot() const {
+        return StateSnapshot{
+            .yaw = read_state(StateInterfaceIndex::yaw),
+            .command =
+                RemoteCommand{
+                    .vx = read_state(StateInterfaceIndex::command_linear_x),
+                    .vy = read_state(StateInterfaceIndex::command_linear_y),
+                    .wz = read_state(StateInterfaceIndex::command_angular_z),
+                },
+            .mode = read_state(StateInterfaceIndex::command_mode),
+        };
     }
 
-    double read_yaw_position() const { return read_state(StateInterfaceIndex::yaw); }
+    double read_state(StateInterfaceIndex index) const {
+        return read_interface_value(state_interfaces_, state_indexes_[to_index(index)]);
+    }
 
     void reset_pid() { follow_pid_.reset(); }
 

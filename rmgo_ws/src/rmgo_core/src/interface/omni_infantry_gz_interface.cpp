@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <map>
 #include <optional>
@@ -27,6 +28,7 @@
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/duration.hpp>
+#include <rclcpp/logging.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "rmgo_core/interface/io_state_interfaces.hpp"
@@ -60,18 +62,19 @@ public:
             joint_interface.name = joint.name;
             for (const auto& command_interface : joint.command_interfaces) {
                 if (command_interface.name == hardware_interface::HW_IF_POSITION) {
-                    joint_interface.position_servo_kp =
-                        interface_parameter(command_interface, "sim_servo_kp", 24.0);
-                    joint_interface.position_servo_kd =
-                        interface_parameter(command_interface, "sim_servo_kd", 3.0);
-                    joint_interface.position_servo_max_effort =
-                        interface_parameter(command_interface, "sim_servo_max_effort", 10.0);
-                    joint_interface.position_servo_max_velocity =
-                        interface_parameter(command_interface, "sim_servo_max_velocity", 12.0);
-                    joint_interface.position_servo_deadband =
-                        interface_parameter(command_interface, "sim_servo_deadband", 1e-4);
-                    joint_interface.position_servo_velocity_feedforward = interface_parameter(
-                        command_interface, "sim_servo_velocity_feedforward", 1.0);
+                    const auto position_servo =
+                        position_servo_parameters(command_interface, joint.name);
+                    if (!position_servo.has_value()) {
+                        return hardware_interface::CallbackReturn::ERROR;
+                    }
+
+                    joint_interface.position_servo_kp = position_servo->kp;
+                    joint_interface.position_servo_kd = position_servo->kd;
+                    joint_interface.position_servo_max_effort = position_servo->max_effort;
+                    joint_interface.position_servo_max_velocity = position_servo->max_velocity;
+                    joint_interface.position_servo_deadband = position_servo->deadband;
+                    joint_interface.position_servo_velocity_feedforward =
+                        position_servo->velocity_feedforward;
                 }
                 joint_interface.command_interfaces.push_back(JointCommandInterface{
                     .name = command_interface.name,
@@ -207,6 +210,15 @@ private:
         std::vector<JointStateInterface> state_interfaces;
     };
 
+    struct PositionServoParameters {
+        double kp = 0.0;
+        double kd = 0.0;
+        double max_effort = 0.0;
+        double max_velocity = 0.0;
+        double deadband = 0.0;
+        double velocity_feedforward = 0.0;
+    };
+
     struct InterfaceName {
         std::string prefix;
         std::string name;
@@ -229,19 +241,78 @@ private:
         }
     }
 
-    static double interface_parameter(
-        const hardware_interface::InterfaceInfo& interface, std::string_view name,
-        double fallback) {
-        const auto parameter = interface.parameters.find(std::string{name});
+    static std::optional<PositionServoParameters> position_servo_parameters(
+        const hardware_interface::InterfaceInfo& interface, std::string_view joint_name) {
+        const auto kp = required_interface_parameter(interface, joint_name, "sim_servo_kp");
+        const auto kd = required_interface_parameter(interface, joint_name, "sim_servo_kd");
+        const auto max_effort =
+            required_interface_parameter(interface, joint_name, "sim_servo_max_effort");
+        const auto max_velocity =
+            required_interface_parameter(interface, joint_name, "sim_servo_max_velocity");
+        const auto deadband =
+            required_interface_parameter(interface, joint_name, "sim_servo_deadband");
+        const auto velocity_feedforward =
+            required_interface_parameter(interface, joint_name, "sim_servo_velocity_feedforward");
+
+        if (!kp.has_value() || !kd.has_value() || !max_effort.has_value()
+            || !max_velocity.has_value() || !deadband.has_value()
+            || !velocity_feedforward.has_value()) {
+            return std::nullopt;
+        }
+
+        return PositionServoParameters{
+            .kp = *kp,
+            .kd = *kd,
+            .max_effort = *max_effort,
+            .max_velocity = *max_velocity,
+            .deadband = *deadband,
+            .velocity_feedforward = *velocity_feedforward,
+        };
+    }
+
+    static std::optional<double> required_interface_parameter(
+        const hardware_interface::InterfaceInfo& interface, std::string_view joint_name,
+        std::string_view name) {
+        const auto parameter_name = std::string{name};
+        const auto joint_name_string = std::string{joint_name};
+        const auto parameter = interface.parameters.find(parameter_name);
         if (parameter == interface.parameters.end()) {
-            return fallback;
+            RCLCPP_ERROR(
+                rclcpp::get_logger("OmniInfantryGzInterface"),
+                "Missing required parameter '%s' on command interface '%s/%s'.",
+                parameter_name.c_str(), joint_name_string.c_str(), interface.name.c_str());
+            return std::nullopt;
         }
 
         try {
-            return std::stod(parameter->second);
-        } catch (const std::exception&) {
-            return fallback;
+            std::size_t parsed = 0;
+            const double value = std::stod(parameter->second, &parsed);
+            if (!std::isfinite(value) || !has_only_trailing_whitespace(parameter->second, parsed)) {
+                RCLCPP_ERROR(
+                    rclcpp::get_logger("OmniInfantryGzInterface"),
+                    "Invalid parameter '%s' on command interface '%s/%s': '%s'.",
+                    parameter_name.c_str(), joint_name_string.c_str(), interface.name.c_str(),
+                    parameter->second.c_str());
+                return std::nullopt;
+            }
+            return value;
+        } catch (const std::exception& exception) {
+            RCLCPP_ERROR(
+                rclcpp::get_logger("OmniInfantryGzInterface"),
+                "Invalid parameter '%s' on command interface '%s/%s': '%s' (%s).",
+                parameter_name.c_str(), joint_name_string.c_str(), interface.name.c_str(),
+                parameter->second.c_str(), exception.what());
+            return std::nullopt;
         }
+    }
+
+    static bool has_only_trailing_whitespace(std::string_view text, std::size_t offset) {
+        for (std::size_t index = offset; index < text.size(); ++index) {
+            if (std::isspace(static_cast<unsigned char>(text[index])) == 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     static std::optional<InterfaceName> split_interface_name(std::string_view full_name) {
@@ -544,9 +615,9 @@ private:
         set_mock_state(referee_chassis_power_limit, 80.0);
         set_mock_state(referee_chassis_voltage, 24.0);
         set_mock_state(referee_chassis_current, 0.0);
-        set_mock_state(referee_shooter_cooling, 20000.0);
+        set_mock_state(referee_shooter_cooling, 40.0);
         set_mock_state(referee_shooter_heat, 0.0);
-        set_mock_state(referee_shooter_heat_limit, 200000.0);
+        set_mock_state(referee_shooter_heat_limit, 50000.0);
         set_mock_state(referee_robot_hp, 400.0);
         set_mock_state(referee_robot_max_hp, 400.0);
         set_mock_state(referee_robot_level, 1.0);

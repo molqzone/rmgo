@@ -33,11 +33,10 @@ public:
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
         using namespace rmgo_core::io_state_interfaces;
-        return build_individual_config(
-            std::array{
-                std::string{referee_shooter_cooling},
-                std::string{referee_shooter_heat_limit},
-            });
+        return build_individual_config(std::array{
+            std::string{referee_shooter_cooling},
+            std::string{referee_shooter_heat_limit},
+        });
     }
 
     std::vector<hardware_interface::CommandInterface::SharedPtr>
@@ -77,9 +76,8 @@ public:
 
     controller_interface::return_type update_and_write_commands(
         const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
-        const double cooling = read_finite_interface_or(state_interfaces_, cooling_index, 0.0);
-        const double heat_limit =
-            read_finite_interface_or(state_interfaces_, heat_limit_index, 0.0);
+        const double cooling = read_state(cooling_index);
+        const double heat_limit = read_state(heat_limit_index);
         heat_ = std::max(0.0, heat_ - std::max(0.0, cooling) * std::max(0.0, period.seconds()));
 
         const bool bullet_fired = reference_[0] > 0.5;
@@ -101,6 +99,10 @@ private:
     };
     static constexpr std::size_t cooling_index = 0;
     static constexpr std::size_t heat_limit_index = 1;
+
+    double read_state(std::size_t index) const {
+        return read_interface_value(state_interfaces_, index);
+    }
 
     void reset() {
         reset_references(reference_);

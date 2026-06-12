@@ -85,17 +85,18 @@ public:
 
     controller_interface::return_type update_and_write_commands(
         const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
+        const StateSnapshot state = read_state_snapshot();
         const double dt = std::max(0.0, period.seconds());
-        const Mode mode = mode_from_value(read_state(StateInterfaceIndex::command_mode));
-        const std::uint64_t sequence =
-            sequence_from_value(read_state(StateInterfaceIndex::command_sequence));
+        const Mode mode = mode_from_value(state.mode);
+        const std::uint64_t sequence = sequence_from_value(state.sequence);
         const bool friction_ready = reference_[to_index(ReferenceIndex::friction_ready)] > 0.5;
         const bool bullet_fired = reference_[to_index(ReferenceIndex::bullet_fired)] > 0.5;
         const int heat_allowance = static_cast<int>(
             std::max(0.0, std::floor(reference_[to_index(ReferenceIndex::heat_allowance)])));
 
         update_mode_events(mode, sequence, bullet_fired);
-        const double command = calculate_feeder_command(mode, friction_ready, heat_allowance, dt);
+        const double command = calculate_feeder_command(
+            mode, friction_ready, heat_allowance, state.feeder_velocity, dt);
         last_feeder_command_ = command;
 
         return write_feeder_command(command) ? controller_interface::return_type::OK
@@ -124,6 +125,12 @@ private:
         command_mode,
         command_sequence,
         count,
+    };
+
+    struct StateSnapshot {
+        double feeder_velocity = 0.0;
+        double mode = 0.0;
+        double sequence = 0.0;
     };
 
     static constexpr std::size_t to_index(ReferenceIndex index) {
@@ -188,8 +195,16 @@ private:
                    "bullet feeder command state interface");
     }
 
+    StateSnapshot read_state_snapshot() const {
+        return StateSnapshot{
+            .feeder_velocity = read_state(StateInterfaceIndex::feeder_velocity),
+            .mode = read_state(StateInterfaceIndex::command_mode),
+            .sequence = read_state(StateInterfaceIndex::command_sequence),
+        };
+    }
+
     double read_state(StateInterfaceIndex index) const {
-        return read_finite_interface_or(state_interfaces_, state_indexes_[to_index(index)], 0.0);
+        return read_interface_value(state_interfaces_, state_indexes_[to_index(index)]);
     }
 
     void update_derived_parameters() {
@@ -239,7 +254,8 @@ private:
         last_mode_ = mode;
     }
 
-    double calculate_feeder_command(Mode mode, bool friction_ready, int heat_allowance, double dt) {
+    double calculate_feeder_command(
+        Mode mode, bool friction_ready, int heat_allowance, double feeder_velocity, double dt) {
         if (eject_remaining_time_ > 0.0) {
             eject_remaining_time_ = std::max(0.0, eject_remaining_time_ - dt);
             feeder_working_status_time_ = 0.0;
@@ -271,14 +287,14 @@ private:
         if (command > last_feeder_command_) {
             feeder_working_status_time_ = std::min(0.0, feeder_working_status_time_);
         }
-        if (update_jam_detection(command, dt)) {
+        if (update_jam_detection(command, feeder_velocity, dt)) {
             return active_eject_velocity_;
         }
         return command;
     }
 
-    bool update_jam_detection(double command, double dt) {
-        const double measured_velocity = std::abs(read_state(StateInterfaceIndex::feeder_velocity));
+    bool update_jam_detection(double command, double feeder_velocity, double dt) {
+        const double measured_velocity = std::abs(feeder_velocity);
         if (measured_velocity >= std::abs(command) * stalled_velocity_ratio) {
             if (feeder_working_status_time_ < 0.0) {
                 feeder_working_status_time_ = 0.0;

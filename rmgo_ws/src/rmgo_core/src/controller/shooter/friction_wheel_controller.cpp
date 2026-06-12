@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -46,11 +45,10 @@ public:
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        auto config = build_individual_config(
-            std::array{
-                params_.left_friction_joint_name + "/" + params_.friction_state_interface_name,
-                params_.right_friction_joint_name + "/" + params_.friction_state_interface_name,
-            });
+        auto config = build_individual_config(std::array{
+            params_.left_friction_joint_name + "/" + params_.friction_state_interface_name,
+            params_.right_friction_joint_name + "/" + params_.friction_state_interface_name,
+        });
         append_interface_names(
             config.names, rmgo_core::command_state_interfaces::shooter_interfaces);
         return config;
@@ -84,8 +82,9 @@ public:
 
     controller_interface::return_type
         update(const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
+        const StateSnapshot state = read_state_snapshot();
         const double dt = std::max(0.0, period.seconds());
-        const Mode mode = mode_from_value(read_state(StateInterfaceIndex::command_mode));
+        const Mode mode = mode_from_value(state.mode);
         const bool friction_requested = mode != Mode::disabled;
         if (!friction_requested) {
             reset_friction_status();
@@ -93,8 +92,8 @@ public:
 
         const std::array<double, 2> commands =
             update_friction_commands(friction_requested && !friction_faulted_, dt);
-        const bool friction_ready = update_friction_status(friction_requested, commands, dt);
-        const bool bullet_fired = friction_ready && detect_bullet_fire();
+        const bool friction_ready = update_friction_status(state, friction_requested, commands, dt);
+        const bool bullet_fired = friction_ready && detect_bullet_fire(state.left_velocity);
 
         return write_outputs(commands, friction_ready, bullet_fired)
                  ? controller_interface::return_type::OK
@@ -117,6 +116,12 @@ private:
         command_mode,
         command_sequence,
         count,
+    };
+
+    struct StateSnapshot {
+        double left_velocity = 0.0;
+        double right_velocity = 0.0;
+        double mode = 0.0;
     };
 
     static constexpr std::size_t to_index(StateInterfaceIndex index) {
@@ -169,8 +174,16 @@ private:
                    "friction wheel command state interface");
     }
 
+    StateSnapshot read_state_snapshot() const {
+        return StateSnapshot{
+            .left_velocity = read_state(StateInterfaceIndex::left_velocity),
+            .right_velocity = read_state(StateInterfaceIndex::right_velocity),
+            .mode = read_state(StateInterfaceIndex::command_mode),
+        };
+    }
+
     double read_state(StateInterfaceIndex index) const {
-        return read_finite_interface_or(state_interfaces_, state_indexes_[to_index(index)], 0.0);
+        return read_interface_value(state_interfaces_, state_indexes_[to_index(index)]);
     }
 
     std::array<double, 2> update_friction_commands(bool enabled, double dt) {
@@ -183,18 +196,20 @@ private:
     }
 
     bool update_friction_status(
-        bool friction_requested, const std::array<double, 2>& commands, double dt) {
+        const StateSnapshot& state, bool friction_requested, const std::array<double, 2>& commands,
+        double dt) {
         if (!friction_requested || friction_scale_ < 1.0) {
             friction_fault_time_ = 0.0;
             return false;
         }
 
-        const bool faulty = is_velocity_below_ratio(0, commands[0], params_.friction_fault_ratio)
-                         || is_velocity_below_ratio(1, commands[1], params_.friction_fault_ratio);
+        const bool faulty =
+            is_velocity_below_ratio(state, 0, commands[0], params_.friction_fault_ratio)
+            || is_velocity_below_ratio(state, 1, commands[1], params_.friction_fault_ratio);
         if (!faulty) {
             friction_fault_time_ = 0.0;
-            return !is_velocity_below_ratio(0, commands[0], params_.friction_ready_ratio)
-                && !is_velocity_below_ratio(1, commands[1], params_.friction_ready_ratio);
+            return !is_velocity_below_ratio(state, 0, commands[0], params_.friction_ready_ratio)
+                && !is_velocity_below_ratio(state, 1, commands[1], params_.friction_ready_ratio);
         }
 
         friction_fault_time_ += dt;
@@ -205,20 +220,24 @@ private:
         return !friction_faulted_;
     }
 
-    bool is_velocity_below_ratio(std::size_t index, double command, double ratio) const {
+    bool is_velocity_below_ratio(
+        const StateSnapshot& state, std::size_t index, double command, double ratio) const {
         const double command_abs = std::abs(command);
+        if (!std::isfinite(command_abs)) {
+            return true;
+        }
         if (command_abs <= 1e-6) {
             return false;
         }
-        return std::abs(read_state(
-                   index == 0 ? StateInterfaceIndex::left_velocity
-                              : StateInterfaceIndex::right_velocity))
-             < command_abs * ratio;
+        const double velocity = index == 0 ? state.left_velocity : state.right_velocity;
+        if (!std::isfinite(velocity)) {
+            return true;
+        }
+        return std::abs(velocity) < command_abs * ratio;
     }
 
-    bool detect_bullet_fire() {
+    bool detect_bullet_fire(double primary_velocity) {
         bool fired = false;
-        const double primary_velocity = read_state(StateInterfaceIndex::left_velocity);
         if (std::isfinite(last_primary_friction_velocity_)) {
             const double differential = primary_velocity - last_primary_friction_velocity_;
             if (differential < params_.bullet_drop_recovery_threshold) {
