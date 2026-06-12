@@ -251,19 +251,16 @@
       <state_interface name="velocity"/>
     </joint>
     <joint name="left_friction_joint">
-      <command_interface name="velocity"/>
       <command_interface name="effort"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
     <joint name="right_friction_joint">
-      <command_interface name="velocity"/>
       <command_interface name="effort"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
     <joint name="bullet_feeder_joint">
-      <command_interface name="velocity"/>
       <command_interface name="effort"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
