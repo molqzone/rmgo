@@ -17,19 +17,25 @@
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "rmgo_core/interface/command_state_interfaces.hpp"
+#include "rmgo_utility/node_mixin.hpp"
 
 namespace rmgo_core::interface {
 
-class CommandGzInterface final : public gz_ros2_control::GazeboSimSystemInterface {
+class CommandGzInterface final
+    : public gz_ros2_control::GazeboSimSystemInterface
+    , public rmgo_utility::NodeMixin {
 public:
     bool initSim(
-        rclcpp::Node::SharedPtr& /*model_nh*/, std::map<std::string, gz::sim::Entity>& /*joints*/,
+        rclcpp::Node::SharedPtr& model_nh, std::map<std::string, gz::sim::Entity>& /*joints*/,
         const hardware_interface::HardwareInfo& hardware_info,
         gz::sim::EntityComponentManager& /*ecm*/, unsigned int /*update_rate*/) override {
+        node_ = model_nh;
         auto params = hardware_interface::HardwareComponentInterfaceParams{};
         params.hardware_info = hardware_info;
         return on_init(params) == hardware_interface::CallbackReturn::SUCCESS;
     }
+
+    rclcpp::Node::SharedPtr get_node() const override { return node_; }
 
     hardware_interface::CallbackReturn
         on_init(const hardware_interface::HardwareComponentInterfaceParams& params) override {
@@ -131,12 +137,11 @@ private:
             if (!split_name.has_value()) {
                 continue;
             }
-            interfaces.push_back(
-                BusInterface{
-                    .prefix = split_name->prefix,
-                    .name = split_name->name,
-                    .index = interfaces.size(),
-                });
+            interfaces.push_back(BusInterface{
+                .prefix = split_name->prefix,
+                .name = split_name->name,
+                .index = interfaces.size(),
+            });
         }
         return interfaces;
     }
@@ -144,6 +149,7 @@ private:
     std::array<double, command_state_count> commands_{};
     std::array<double, command_state_count> states_{};
     std::vector<BusInterface> command_interfaces_ = make_command_interfaces();
+    rclcpp::Node::SharedPtr node_;
 };
 
 } // namespace rmgo_core::interface

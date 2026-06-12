@@ -28,19 +28,23 @@
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/duration.hpp>
-#include <rclcpp/logging.hpp>
+#include <rclcpp/node.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "rmgo_core/interface/io_state_interfaces.hpp"
+#include "rmgo_utility/node_mixin.hpp"
 
 namespace rmgo_core::interface {
 
-class OmniInfantryGzInterface final : public gz_ros2_control::GazeboSimSystemInterface {
+class OmniInfantryGzInterface final
+    : public gz_ros2_control::GazeboSimSystemInterface
+    , public rmgo_utility::NodeMixin {
 public:
     bool initSim(
-        rclcpp::Node::SharedPtr& /*model_nh*/, std::map<std::string, gz::sim::Entity>& joints,
+        rclcpp::Node::SharedPtr& model_nh, std::map<std::string, gz::sim::Entity>& joints,
         const hardware_interface::HardwareInfo& hardware_info, gz::sim::EntityComponentManager& ecm,
         unsigned int /*update_rate*/) override {
+        node_ = model_nh;
         ecm_ = &ecm;
         gazebo_joints_ = joints;
 
@@ -48,6 +52,8 @@ public:
         params.hardware_info = hardware_info;
         return on_init(params) == hardware_interface::CallbackReturn::SUCCESS;
     }
+
+    rclcpp::Node::SharedPtr get_node() const override { return node_; }
 
     hardware_interface::CallbackReturn
         on_init(const hardware_interface::HardwareComponentInterfaceParams& params) override {
@@ -241,7 +247,7 @@ private:
         }
     }
 
-    static std::optional<PositionServoParameters> position_servo_parameters(
+    std::optional<PositionServoParameters> position_servo_parameters(
         const hardware_interface::InterfaceInfo& interface, std::string_view joint_name) {
         const auto kp = required_interface_parameter(interface, joint_name, "sim_servo_kp");
         const auto kd = required_interface_parameter(interface, joint_name, "sim_servo_kd");
@@ -270,17 +276,16 @@ private:
         };
     }
 
-    static std::optional<double> required_interface_parameter(
+    std::optional<double> required_interface_parameter(
         const hardware_interface::InterfaceInfo& interface, std::string_view joint_name,
         std::string_view name) {
         const auto parameter_name = std::string{name};
         const auto joint_name_string = std::string{joint_name};
         const auto parameter = interface.parameters.find(parameter_name);
         if (parameter == interface.parameters.end()) {
-            RCLCPP_ERROR(
-                rclcpp::get_logger("OmniInfantryGzInterface"),
-                "Missing required parameter '%s' on command interface '%s/%s'.",
-                parameter_name.c_str(), joint_name_string.c_str(), interface.name.c_str());
+            logging::error(
+                "Missing required parameter '{}' on command interface '{}/{}'.", parameter_name,
+                joint_name_string, interface.name);
             return std::nullopt;
         }
 
@@ -288,20 +293,16 @@ private:
             std::size_t parsed = 0;
             const double value = std::stod(parameter->second, &parsed);
             if (!std::isfinite(value) || !has_only_trailing_whitespace(parameter->second, parsed)) {
-                RCLCPP_ERROR(
-                    rclcpp::get_logger("OmniInfantryGzInterface"),
-                    "Invalid parameter '%s' on command interface '%s/%s': '%s'.",
-                    parameter_name.c_str(), joint_name_string.c_str(), interface.name.c_str(),
-                    parameter->second.c_str());
+                logging::error(
+                    "Invalid parameter '{}' on command interface '{}/{}': '{}'.", parameter_name,
+                    joint_name_string, interface.name, parameter->second);
                 return std::nullopt;
             }
             return value;
         } catch (const std::exception& exception) {
-            RCLCPP_ERROR(
-                rclcpp::get_logger("OmniInfantryGzInterface"),
-                "Invalid parameter '%s' on command interface '%s/%s': '%s' (%s).",
-                parameter_name.c_str(), joint_name_string.c_str(), interface.name.c_str(),
-                parameter->second.c_str(), exception.what());
+            logging::error(
+                "Invalid parameter '{}' on command interface '{}/{}': '{}' ({}).", parameter_name,
+                joint_name_string, interface.name, parameter->second, exception.what());
             return std::nullopt;
         }
     }
@@ -629,6 +630,7 @@ private:
     std::vector<JointInterface> joint_interfaces_;
     std::array<double, mock_state_count> mock_states_{};
     std::vector<MockStateInterface> mock_state_interfaces_ = make_mock_state_interfaces();
+    rclcpp::Node::SharedPtr node_;
 };
 
 } // namespace rmgo_core::interface
