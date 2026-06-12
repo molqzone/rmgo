@@ -38,19 +38,20 @@ public:
     }
 
     controller_interface::InterfaceConfiguration command_interface_configuration() const override {
-        return build_individual_config(
-            std::array{
-                params_.yaw_joint_name + "/" + params_.command_interface_name,
-                params_.pitch_joint_name + "/" + params_.command_interface_name,
-            });
+        controller_interface::InterfaceConfiguration config;
+        config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
+        append_prefixed_interface_names(
+            config.names, params_.yaw_target_controller_name, angle_error_suffixes);
+        append_prefixed_interface_names(
+            config.names, params_.pitch_target_controller_name, angle_error_suffixes);
+        return config;
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        auto config = build_individual_config(
-            std::array{
-                params_.yaw_joint_name + "/" + params_.state_interface_name,
-                params_.pitch_joint_name + "/" + params_.state_interface_name,
-            });
+        auto config = build_individual_config(std::array{
+            params_.yaw_joint_name + "/" + params_.state_interface_name,
+            params_.pitch_joint_name + "/" + params_.state_interface_name,
+        });
         append_interface_names(
             config.names, rmgo_core::io_state_interfaces::gimbal_imu_orientation_state_interfaces);
         append_interface_names(
@@ -77,33 +78,32 @@ public:
         const double yaw = read_state(state_indexes_[to_index(StateInterfaceIndex::yaw)]);
         const double pitch = read_state(state_indexes_[to_index(StateInterfaceIndex::pitch)]);
         update_tf(yaw, pitch);
-        target_yaw_ = angles::normalize_angle(yaw);
-        target_pitch_ = std::clamp(pitch, params_.pitch_lower_limit, params_.pitch_upper_limit);
 
-        return write_commands(yaw, target_pitch_) ? controller_interface::CallbackReturn::SUCCESS
-                                                  : controller_interface::CallbackReturn::ERROR;
+        return write_angle_errors({0.0, 0.0}) ? controller_interface::CallbackReturn::SUCCESS
+                                              : controller_interface::CallbackReturn::ERROR;
     }
 
     controller_interface::CallbackReturn
         on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        return write_commands(
-                   read_state(state_indexes_[to_index(StateInterfaceIndex::yaw)]),
-                   read_state(state_indexes_[to_index(StateInterfaceIndex::pitch)]))
+        return write_angle_errors(disabled_angle_error())
                  ? controller_interface::CallbackReturn::SUCCESS
                  : controller_interface::CallbackReturn::ERROR;
     }
 
     controller_interface::return_type
         update(const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
-        update_targets(period.seconds());
-        return write_commands(target_yaw_, target_pitch_)
+        return write_angle_errors(calculate_angle_error(period.seconds()))
                  ? controller_interface::return_type::OK
                  : controller_interface::return_type::ERROR;
     }
 
 private:
     static constexpr std::size_t invalid_index = std::numeric_limits<std::size_t>::max();
-    static constexpr std::array<const char*, 2> command_interface_names = {"yaw", "pitch"};
+    static constexpr std::array<const char*, 1> angle_error_suffixes = {"control_angle_error"};
+    static constexpr std::array<const char*, 2> command_interface_names = {
+        "yaw_angle_error",
+        "pitch_angle_error",
+    };
 
     enum class CommandInterfaceIndex : std::size_t {
         yaw = 0,
@@ -152,12 +152,12 @@ private:
         return bind_prefixed_interface_indexes(
             command_interfaces_,
             {
-                {&command_indexes_[to_index(CommandInterfaceIndex::yaw)], params_.yaw_joint_name,
-                 params_.command_interface_name},
+                {&command_indexes_[to_index(CommandInterfaceIndex::yaw)],
+                 params_.yaw_target_controller_name, angle_error_suffixes[0]},
                 {&command_indexes_[to_index(CommandInterfaceIndex::pitch)],
-                 params_.pitch_joint_name, params_.command_interface_name},
+                 params_.pitch_target_controller_name, angle_error_suffixes[0]},
             },
-            "gimbal command interface");
+            "gimbal angle-error command interface");
     }
 
     // Gimbal self-stabilization depends on this quaternion being read as w/x/y/z.
@@ -204,7 +204,7 @@ private:
                    "gimbal command state interface");
     }
 
-    void update_targets(double dt) {
+    TwoAxisGimbalSolver::AngleError calculate_angle_error(double dt) {
         const double yaw = read_state(state_indexes_[to_index(StateInterfaceIndex::yaw)]);
         const double pitch = read_state(state_indexes_[to_index(StateInterfaceIndex::pitch)]);
         update_tf(yaw, pitch);
@@ -217,10 +217,7 @@ private:
             read_state(state_indexes_[to_index(StateInterfaceIndex::command_enabled)]);
         const bool is_enabled = std::isfinite(enabled_reference) && enabled_reference > 0.5;
         if (!is_enabled) {
-            solver_.update(tf_, pitch, TwoAxisGimbalSolver::SetDisabled{});
-            target_yaw_ = angles::normalize_angle(yaw);
-            target_pitch_ = std::clamp(pitch, params_.pitch_lower_limit, params_.pitch_upper_limit);
-            return;
+            return solver_.update(tf_, pitch, TwoAxisGimbalSolver::SetDisabled{});
         }
 
         const double yaw_velocity = finite_or_zero(yaw_reference);
@@ -234,14 +231,7 @@ private:
                                    })
                              : solver_.update(tf_, pitch, TwoAxisGimbalSolver::SetToLevel{});
 
-        if (std::isfinite(error.yaw) && std::isfinite(error.pitch)) {
-            target_yaw_ = angles::normalize_angle(yaw + error.yaw);
-            target_pitch_ = std::clamp(
-                pitch + error.pitch, params_.pitch_lower_limit, params_.pitch_upper_limit);
-        } else {
-            target_yaw_ = angles::normalize_angle(yaw);
-            target_pitch_ = std::clamp(pitch, params_.pitch_lower_limit, params_.pitch_upper_limit);
-        }
+        return error;
     }
 
     static double finite_or_zero(double value) { return std::isfinite(value) ? value : 0.0; }
@@ -266,19 +256,20 @@ private:
                  });
     }
 
-    bool write_commands(double yaw, double pitch) {
-        const double current_yaw = read_state(state_indexes_[to_index(StateInterfaceIndex::yaw)]);
-        const std::array<double, 2> values = {
-            current_yaw + angles::shortest_angular_distance(current_yaw, yaw),
-            std::clamp(pitch, params_.pitch_lower_limit, params_.pitch_upper_limit),
+    static TwoAxisGimbalSolver::AngleError disabled_angle_error() {
+        return {
+            std::numeric_limits<double>::quiet_NaN(),
+            std::numeric_limits<double>::quiet_NaN(),
         };
-        return write_safe_indexed_commands(
-            command_interfaces_, values, command_indexes_, command_interface_names,
-            "gimbal command");
     }
 
-    double target_yaw_ = 0.0;
-    double target_pitch_ = 0.0;
+    bool write_angle_errors(TwoAxisGimbalSolver::AngleError angle_error) {
+        const std::array<double, 2> values = {angle_error.yaw, angle_error.pitch};
+        return write_safe_indexed_commands(
+            command_interfaces_, values, command_indexes_, command_interface_names,
+            "gimbal angle error");
+    }
+
     std::array<std::size_t, std::to_underlying(CommandInterfaceIndex::count)> command_indexes_ =
         invalid_indexes<std::to_underlying(CommandInterfaceIndex::count)>();
     std::array<std::size_t, std::to_underlying(StateInterfaceIndex::count)> state_indexes_ =

@@ -48,6 +48,14 @@
     </description>
   </class>
   <class
+    name="rmgo_core/ErrorPidController"
+    type="rmgo_core::controller::pid::ErrorPidController"
+    base_class_type="controller_interface::ChainableControllerInterface">
+    <description>
+      RMCS-style error PID bridge from control angle error to downstream command.
+    </description>
+  </class>
+  <class
     name="rmgo_core/FrictionWheelController"
     type="rmgo_core::controller::shooter::FrictionWheelController"
     base_class_type="controller_interface::ControllerInterface">

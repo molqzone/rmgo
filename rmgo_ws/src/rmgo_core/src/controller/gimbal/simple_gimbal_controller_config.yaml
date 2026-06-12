@@ -9,9 +9,16 @@ simple_gimbal_controller:
     description: "Pitch joint controlled by the gimbal controller."
     validation:
       not_empty<>: []
-  command_interface_name:
+  yaw_target_controller_name:
     type: string
-    description: "Command interface used for yaw and pitch joints."
+    default_value: "yaw_angle_pid_controller"
+    description: "Downstream controller that receives yaw control angle error."
+    validation:
+      not_empty<>: []
+  pitch_target_controller_name:
+    type: string
+    default_value: "pitch_angle_pid_controller"
+    description: "Downstream controller that receives pitch control angle error."
     validation:
       not_empty<>: []
   state_interface_name:

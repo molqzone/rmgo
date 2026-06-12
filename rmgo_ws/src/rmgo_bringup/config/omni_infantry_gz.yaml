@@ -17,6 +17,15 @@ controller_manager:
     simple_gimbal_controller:
       type: rmgo_core/SimpleGimbalController
 
+    yaw_angle_pid_controller:
+      type: rmgo_core/ErrorPidController
+
+    yaw_velocity_pid_controller:
+      type: rmgo_core/JointVelocityPidController
+
+    pitch_angle_pid_controller:
+      type: rmgo_core/ErrorPidController
+
     friction_wheel_controller:
       type: rmgo_core/FrictionWheelController
 
@@ -99,10 +108,43 @@ simple_gimbal_controller:
   ros__parameters:
     yaw_joint_name: yaw_joint
     pitch_joint_name: pitch_joint
-    command_interface_name: position
+    yaw_target_controller_name: yaw_angle_pid_controller
+    pitch_target_controller_name: pitch_angle_pid_controller
     state_interface_name: position
     pitch_lower_limit: -0.5098
     pitch_upper_limit: 0.2262
+
+yaw_angle_pid_controller:
+  ros__parameters:
+    target_name: yaw_velocity_pid_controller
+    target_interface_name: control_velocity
+    kp: 15.0
+    ki: 0.0
+    kd: 0.0
+    output_min: -10.0
+    output_max: 10.0
+
+yaw_velocity_pid_controller:
+  ros__parameters:
+    joint_name: yaw_joint
+    command_interface_name: effort
+    state_joint_name: gimbal/yaw
+    state_interface_name: velocity_imu
+    kp: 40.0
+    ki: 0.001
+    kd: 0.01
+    output_min: -25.0
+    output_max: 25.0
+
+pitch_angle_pid_controller:
+  ros__parameters:
+    target_name: pitch_joint
+    target_interface_name: velocity
+    kp: 20.0
+    ki: 0.0
+    kd: 0.1
+    output_min: -4.0
+    output_max: 4.0
 
 friction_wheel_controller:
   ros__parameters:

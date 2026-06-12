@@ -371,6 +371,12 @@ private:
         return state_interface == joint.state_interfaces.end() ? 0.0 : state_interface->value;
     }
 
+    double joint_state_value_or(
+        std::string_view joint_name, std::string_view interface_name, double fallback) {
+        const auto* joint = find_joint(joint_name);
+        return joint == nullptr ? fallback : joint_state_value(*joint, interface_name);
+    }
+
     void create_gazebo_joint_state_components(gz::sim::Entity entity) {
         if (ecm_ == nullptr || entity == gz::sim::kNullEntity) {
             return;
@@ -496,19 +502,23 @@ private:
 
     void update_mock_gimbal_imu_states() {
         using namespace rmgo_core::io_state_interfaces;
+        const double yaw_velocity =
+            joint_state_value_or("yaw_joint", hardware_interface::HW_IF_VELOCITY, 0.0);
+        const double pitch_velocity =
+            joint_state_value_or("pitch_joint", hardware_interface::HW_IF_VELOCITY, 0.0);
         const auto odom_imu_to_pitch_link = read_odom_imu_to_pitch_link();
         set_mock_state(gimbal_imu_orientation_w, odom_imu_to_pitch_link.W());
         set_mock_state(gimbal_imu_orientation_x, odom_imu_to_pitch_link.X());
         set_mock_state(gimbal_imu_orientation_y, odom_imu_to_pitch_link.Y());
         set_mock_state(gimbal_imu_orientation_z, odom_imu_to_pitch_link.Z());
         set_mock_state(gimbal_imu_angular_velocity_x, 0.0);
-        set_mock_state(gimbal_imu_angular_velocity_y, 0.0);
-        set_mock_state(gimbal_imu_angular_velocity_z, 0.0);
+        set_mock_state(gimbal_imu_angular_velocity_y, pitch_velocity);
+        set_mock_state(gimbal_imu_angular_velocity_z, yaw_velocity);
         set_mock_state(gimbal_imu_linear_acceleration_x, 0.0);
         set_mock_state(gimbal_imu_linear_acceleration_y, 0.0);
         set_mock_state(gimbal_imu_linear_acceleration_z, 0.0);
-        set_mock_state(gimbal_yaw_velocity_imu, 0.0);
-        set_mock_state(gimbal_pitch_velocity_imu, 0.0);
+        set_mock_state(gimbal_yaw_velocity_imu, yaw_velocity);
+        set_mock_state(gimbal_pitch_velocity_imu, pitch_velocity);
     }
 
     gz::math::Quaterniond read_odom_imu_to_pitch_link() {

@@ -1,25 +1,15 @@
-joint_velocity_pid_controller:
-  joint_name:
+error_pid_controller:
+  target_name:
     type: string
-    description: "Joint controlled by this velocity PID."
+    description: "Downstream controller or joint prefix that receives this PID output."
     validation:
       not_empty<>: []
-  command_interface_name:
+  target_interface_name:
     type: string
-    default_value: "effort"
-    description: "Joint command interface written by the PID."
+    default_value: "control_velocity"
+    description: "Downstream interface name written by this PID."
     validation:
       not_empty<>: []
-  state_interface_name:
-    type: string
-    default_value: "velocity"
-    description: "Joint state interface used as velocity feedback."
-    validation:
-      not_empty<>: []
-  state_joint_name:
-    type: string
-    default_value: ""
-    description: "Optional state interface prefix. Empty uses joint_name."
   kp:
     type: double
     default_value: 0.0
@@ -32,10 +22,10 @@ joint_velocity_pid_controller:
     type: double
     default_value: 0.0
     description: "Derivative gain."
-  velocity_feedforward:
+  feedforward:
     type: double
     default_value: 0.0
-    description: "Feedforward multiplier from target velocity to command output."
+    description: "Constant feedforward added to the PID output."
   integral_min:
     type: double
     default_value: -1.7976931348623157e+308
