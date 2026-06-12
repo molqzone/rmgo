@@ -1,7 +1,6 @@
 bullet_feeder_controller_17mm:
   bullet_feeder_joint_name:
     type: string
-    default_value: "bullet_feeder_joint"
     description: "Bullet feeder joint."
     validation:
       not_empty<>: []
@@ -12,61 +11,51 @@ bullet_feeder_controller_17mm:
       not_empty<>: []
   feeder_velocity_state_interface_name:
     type: string
-    default_value: "velocity"
     description: "Bullet feeder state interface used for jam detection."
     validation:
       not_empty<>: []
   bullets_per_feeder_turn:
     type: double
-    default_value: 8.0
     description: "Number of bullets pushed per full feeder rotation."
     validation:
       gt<>: [0.0]
   shot_frequency:
     type: double
-    default_value: 30.0
     description: "Automatic fire shot frequency."
     validation:
       gt_eq<>: [0.0]
   safe_shot_frequency:
     type: double
-    default_value: 10.0
     description: "Single-shot and heat-limited shot frequency."
     validation:
       gt_eq<>: [0.0]
   eject_frequency:
     type: double
-    default_value: 10.0
     description: "Short reverse feeder frequency used by jam protection."
     validation:
       gt_eq<>: [0.0]
   eject_time:
     type: double
-    default_value: 0.05
     description: "Short reverse feeder duration in seconds."
     validation:
       gt_eq<>: [0.0]
   deep_eject_frequency:
     type: double
-    default_value: 5.0
     description: "Deep reverse feeder frequency used after repeated jams."
     validation:
       gt_eq<>: [0.0]
   deep_eject_time:
     type: double
-    default_value: 0.2
     description: "Deep reverse feeder duration in seconds."
     validation:
       gt_eq<>: [0.0]
   single_shot_max_stop_delay:
     type: double
-    default_value: 2.0
     description: "Maximum time a single-shot request may drive the feeder before a shot is detected."
     validation:
       gt_eq<>: [0.0]
   feeder_jam_time:
     type: double
-    default_value: 0.5
     description: "Continuous feeder stall duration before jam protection reverses the feeder."
     validation:
       gt_eq<>: [0.0]

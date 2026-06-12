@@ -121,6 +121,11 @@ yaw_angle_pid_controller:
     kp: 15.0
     ki: 0.0
     kd: 0.0
+    feedforward: 0.0
+    integral_min: -1.7976931348623157e+308
+    integral_max: 1.7976931348623157e+308
+    integral_split_min: -1.7976931348623157e+308
+    integral_split_max: 1.7976931348623157e+308
     output_min: -10.0
     output_max: 10.0
 
@@ -133,6 +138,11 @@ yaw_velocity_pid_controller:
     kp: 40.0
     ki: 0.001
     kd: 0.01
+    velocity_feedforward: 0.0
+    integral_min: -1.7976931348623157e+308
+    integral_max: 1.7976931348623157e+308
+    integral_split_min: -1.7976931348623157e+308
+    integral_split_max: 1.7976931348623157e+308
     output_min: -25.0
     output_max: 25.0
 
@@ -143,6 +153,11 @@ pitch_angle_pid_controller:
     kp: 20.0
     ki: 0.0
     kd: 0.1
+    feedforward: 0.0
+    integral_min: -1.7976931348623157e+308
+    integral_max: 1.7976931348623157e+308
+    integral_split_min: -1.7976931348623157e+308
+    integral_split_max: 1.7976931348623157e+308
     output_min: -4.0
     output_max: 4.0
 
@@ -191,10 +206,16 @@ left_friction_velocity_pid_controller:
   ros__parameters:
     joint_name: left_friction_joint
     command_interface_name: effort
+    state_joint_name: ""
     state_interface_name: velocity
     kp: 0.003436926
     ki: 0.0
     kd: 0.009373434
+    velocity_feedforward: 0.0
+    integral_min: -1.7976931348623157e+308
+    integral_max: 1.7976931348623157e+308
+    integral_split_min: -1.7976931348623157e+308
+    integral_split_max: 1.7976931348623157e+308
     output_min: -2.0
     output_max: 2.0
 
@@ -202,10 +223,16 @@ right_friction_velocity_pid_controller:
   ros__parameters:
     joint_name: right_friction_joint
     command_interface_name: effort
+    state_joint_name: ""
     state_interface_name: velocity
     kp: 0.003436926
     ki: 0.0
     kd: 0.009373434
+    velocity_feedforward: 0.0
+    integral_min: -1.7976931348623157e+308
+    integral_max: 1.7976931348623157e+308
+    integral_split_min: -1.7976931348623157e+308
+    integral_split_max: 1.7976931348623157e+308
     output_min: -2.0
     output_max: 2.0
 
@@ -213,9 +240,15 @@ bullet_feeder_velocity_pid_controller:
   ros__parameters:
     joint_name: bullet_feeder_joint
     command_interface_name: effort
+    state_joint_name: ""
     state_interface_name: velocity
     kp: 1.583
     ki: 0.0
     kd: 0.0
+    velocity_feedforward: 0.0
+    integral_min: -1.7976931348623157e+308
+    integral_max: 1.7976931348623157e+308
+    integral_split_min: -1.7976931348623157e+308
+    integral_split_max: 1.7976931348623157e+308
     output_min: -4.0
     output_max: 4.0

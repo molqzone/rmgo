@@ -6,57 +6,44 @@ joint_velocity_pid_controller:
       not_empty<>: []
   command_interface_name:
     type: string
-    default_value: "effort"
     description: "Joint command interface written by the PID."
     validation:
       not_empty<>: []
   state_interface_name:
     type: string
-    default_value: "velocity"
     description: "Joint state interface used as velocity feedback."
     validation:
       not_empty<>: []
   state_joint_name:
     type: string
-    default_value: ""
     description: "Optional state interface prefix. Empty uses joint_name."
   kp:
     type: double
-    default_value: 0.0
     description: "Proportional gain."
   ki:
     type: double
-    default_value: 0.0
     description: "Integral gain."
   kd:
     type: double
-    default_value: 0.0
     description: "Derivative gain."
   velocity_feedforward:
     type: double
-    default_value: 0.0
     description: "Feedforward multiplier from target velocity to command output."
   integral_min:
     type: double
-    default_value: -1.7976931348623157e+308
     description: "Minimum integral accumulator."
   integral_max:
     type: double
-    default_value: 1.7976931348623157e+308
     description: "Maximum integral accumulator."
   integral_split_min:
     type: double
-    default_value: -1.7976931348623157e+308
     description: "Minimum error that enables integral accumulation."
   integral_split_max:
     type: double
-    default_value: 1.7976931348623157e+308
     description: "Maximum error that enables integral accumulation."
   output_min:
     type: double
-    default_value: -1.7976931348623157e+308
     description: "Minimum control output."
   output_max:
     type: double
-    default_value: 1.7976931348623157e+308
     description: "Maximum control output."

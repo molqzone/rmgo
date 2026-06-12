@@ -6,47 +6,36 @@ error_pid_controller:
       not_empty<>: []
   target_interface_name:
     type: string
-    default_value: "control_velocity"
     description: "Downstream interface name written by this PID."
     validation:
       not_empty<>: []
   kp:
     type: double
-    default_value: 0.0
     description: "Proportional gain."
   ki:
     type: double
-    default_value: 0.0
     description: "Integral gain."
   kd:
     type: double
-    default_value: 0.0
     description: "Derivative gain."
   feedforward:
     type: double
-    default_value: 0.0
     description: "Constant feedforward added to the PID output."
   integral_min:
     type: double
-    default_value: -1.7976931348623157e+308
     description: "Minimum integral accumulator."
   integral_max:
     type: double
-    default_value: 1.7976931348623157e+308
     description: "Maximum integral accumulator."
   integral_split_min:
     type: double
-    default_value: -1.7976931348623157e+308
     description: "Minimum error that enables integral accumulation."
   integral_split_max:
     type: double
-    default_value: 1.7976931348623157e+308
     description: "Maximum error that enables integral accumulation."
   output_min:
     type: double
-    default_value: -1.7976931348623157e+308
     description: "Minimum control output."
   output_max:
     type: double
-    default_value: 1.7976931348623157e+308
     description: "Maximum control output."
