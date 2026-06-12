@@ -451,6 +451,12 @@ private:
                         -joint.position_servo_max_effort, joint.position_servo_max_effort);
                     set_gazebo_joint_force_command(joint.entity, effort);
                 }
+            } else if (control_method & gz_ros2_control::GazeboSimSystemInterface::EFFORT) {
+                if (const auto* command =
+                        find_joint_command_interface(joint, hardware_interface::HW_IF_EFFORT);
+                    command != nullptr) {
+                    set_gazebo_joint_force_command(joint.entity, command->value);
+                }
             }
         }
     }
@@ -528,8 +534,9 @@ private:
         set_mock_state(referee_chassis_power_limit, 80.0);
         set_mock_state(referee_chassis_voltage, 24.0);
         set_mock_state(referee_chassis_current, 0.0);
+        set_mock_state(referee_shooter_cooling, 20000.0);
         set_mock_state(referee_shooter_heat, 0.0);
-        set_mock_state(referee_shooter_heat_limit, 200.0);
+        set_mock_state(referee_shooter_heat_limit, 200000.0);
         set_mock_state(referee_robot_hp, 400.0);
         set_mock_state(referee_robot_max_hp, 400.0);
         set_mock_state(referee_robot_level, 1.0);

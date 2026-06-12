@@ -47,13 +47,38 @@ generate_parameter_library(
   src/controller/gimbal/simple_gimbal_controller_config.yaml
 )
 
+generate_parameter_library(
+  joint_velocity_pid_controller_config
+  src/controller/pid/joint_velocity_pid_controller_config.yaml
+)
+
+generate_parameter_library(
+  friction_wheel_controller_config
+  src/controller/shooter/friction_wheel_controller_config.yaml
+)
+
+generate_parameter_library(
+  heat_controller_config
+  src/controller/shooter/heat_controller_config.yaml
+)
+
+generate_parameter_library(
+  bullet_feeder_controller_17mm_config
+  src/controller/shooter/bullet_feeder_controller_17mm_config.yaml
+)
+
 add_library(
   rmgo_chassis_controller SHARED
   src/controller/chassis/chassis_controller.cpp
   src/controller/chassis/chassis_power_controller.cpp
   src/controller/chassis/omni_wheel_controller.cpp
   src/controller/gimbal/simple_gimbal_controller.cpp
+  src/controller/pid/joint_velocity_pid_controller.cpp
   src/controller/remote/teleop_remote_controller.cpp
+  src/controller/shooter/bullet_feeder_controller_17mm.cpp
+  src/controller/shooter/friction_wheel_controller.cpp
+  src/controller/shooter/heat_controller.cpp
+  src/interface/command_gz_interface.cpp
   src/interface/omni_infantry_gz_interface.cpp
 )
 
@@ -78,9 +103,13 @@ ament_target_dependencies(
 
 target_link_libraries(
   rmgo_chassis_controller
+  bullet_feeder_controller_17mm_config
   chassis_controller_config
   chassis_power_controller_config
+  friction_wheel_controller_config
   gz-sim8::gz-sim8
+  heat_controller_config
+  joint_velocity_pid_controller_config
   omni_wheel_controller_config
   teleop_remote_controller_config
   simple_gimbal_controller_config

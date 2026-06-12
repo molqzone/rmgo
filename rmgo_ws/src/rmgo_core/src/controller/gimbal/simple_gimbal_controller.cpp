@@ -7,13 +7,14 @@
 #include <vector>
 
 #include <angles/angles.h>
-#include <controller_interface/chainable_controller_interface.hpp>
+#include <controller_interface/controller_interface.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/time.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "gimbal_tf_builder.hpp"
+#include "rmgo_core/interface/command_state_interfaces.hpp"
 #include "rmgo_core/interface/io_state_interfaces.hpp"
 #include "rmgo_core/simple_gimbal_controller_config.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
@@ -27,37 +28,34 @@ using TwoAxisGimbalSolver = rmgo_core::gimbal::TwoAxisGimbalSolver;
 using rmgo_core::gimbal::update_gimbal_tf;
 
 class SimpleGimbalController
-    : public controller_interface::ChainableControllerInterface
+    : public controller_interface::ControllerInterface
     , public rmgo_utility::ControllerInterfaceMixin
     , public rmgo_utility::NodeMixin {
 public:
     controller_interface::CallbackReturn on_init() override {
         init_parameters(param_listener_, params_);
-        reset_references(remote_command_reference_);
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
     controller_interface::InterfaceConfiguration command_interface_configuration() const override {
-        return build_individual_config(std::array{
-            params_.yaw_joint_name + "/" + params_.command_interface_name,
-            params_.pitch_joint_name + "/" + params_.command_interface_name,
-        });
+        return build_individual_config(
+            std::array{
+                params_.yaw_joint_name + "/" + params_.command_interface_name,
+                params_.pitch_joint_name + "/" + params_.command_interface_name,
+            });
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        auto config = build_individual_config(std::array{
-            params_.yaw_joint_name + "/" + params_.state_interface_name,
-            params_.pitch_joint_name + "/" + params_.state_interface_name,
-        });
+        auto config = build_individual_config(
+            std::array{
+                params_.yaw_joint_name + "/" + params_.state_interface_name,
+                params_.pitch_joint_name + "/" + params_.state_interface_name,
+            });
         append_interface_names(
             config.names, rmgo_core::io_state_interfaces::gimbal_imu_orientation_state_interfaces);
+        append_interface_names(
+            config.names, rmgo_core::command_state_interfaces::gimbal_interfaces);
         return config;
-    }
-
-    std::vector<hardware_interface::CommandInterface::SharedPtr>
-        on_export_reference_interfaces_list() override {
-        reset_references(remote_command_reference_);
-        return make_reference_interfaces(remote_command_suffixes, remote_command_reference_);
     }
 
     controller_interface::CallbackReturn
@@ -67,7 +65,6 @@ public:
             params_.pitch_lower_limit,
             params_.pitch_upper_limit,
         };
-        reset_references(remote_command_reference_);
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
@@ -82,7 +79,6 @@ public:
         update_tf(yaw, pitch);
         target_yaw_ = angles::normalize_angle(yaw);
         target_pitch_ = std::clamp(pitch, params_.pitch_lower_limit, params_.pitch_upper_limit);
-        reset_references(remote_command_reference_);
 
         return write_commands(yaw, target_pitch_) ? controller_interface::CallbackReturn::SUCCESS
                                                   : controller_interface::CallbackReturn::ERROR;
@@ -90,7 +86,6 @@ public:
 
     controller_interface::CallbackReturn
         on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        reset_references(remote_command_reference_);
         return write_commands(
                    read_state(state_indexes_[to_index(StateInterfaceIndex::yaw)]),
                    read_state(state_indexes_[to_index(StateInterfaceIndex::pitch)]))
@@ -98,16 +93,8 @@ public:
                  : controller_interface::CallbackReturn::ERROR;
     }
 
-    controller_interface::return_type update_reference_from_subscribers(
-        const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
-        if (!is_in_chained_mode()) {
-            reset_references(remote_command_reference_);
-        }
-        return controller_interface::return_type::OK;
-    }
-
-    controller_interface::return_type update_and_write_commands(
-        const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
+    controller_interface::return_type
+        update(const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
         update_targets(period.seconds());
         return write_commands(target_yaw_, target_pitch_)
                  ? controller_interface::return_type::OK
@@ -117,11 +104,6 @@ public:
 private:
     static constexpr std::size_t invalid_index = std::numeric_limits<std::size_t>::max();
     static constexpr std::array<const char*, 2> command_interface_names = {"yaw", "pitch"};
-    static constexpr std::array<const char*, 3> remote_command_suffixes = {
-        "yaw/velocity",
-        "pitch/velocity",
-        "enabled",
-    };
 
     enum class CommandInterfaceIndex : std::size_t {
         yaw = 0,
@@ -136,6 +118,9 @@ private:
         imu_x,
         imu_y,
         imu_z,
+        command_yaw_velocity,
+        command_pitch_velocity,
+        command_enabled,
         count,
     };
 
@@ -148,7 +133,8 @@ private:
         command_interface_names.size() == std::to_underlying(CommandInterfaceIndex::count));
     static_assert(
         std::to_underlying(StateInterfaceIndex::count)
-        == 2 + rmgo_core::io_state_interfaces::gimbal_imu_orientation_state_interfaces.size());
+        == 2 + rmgo_core::io_state_interfaces::gimbal_imu_orientation_state_interfaces.size()
+               + rmgo_core::command_state_interfaces::gimbal_interfaces.size());
 
     template <std::size_t N>
     static constexpr std::array<std::size_t, N> invalid_indexes() {
@@ -204,7 +190,18 @@ private:
                        {&state_indexes_[to_index(StateInterfaceIndex::imu_z)],
                         gimbal_imu_orientation_z},
                    },
-                   "gimbal state interface");
+                   "gimbal state interface")
+            && bind_interface_indexes(
+                   state_interfaces_,
+                   {
+                       {&state_indexes_[to_index(StateInterfaceIndex::command_yaw_velocity)],
+                        rmgo_core::command_state_interfaces::gimbal_yaw_velocity},
+                       {&state_indexes_[to_index(StateInterfaceIndex::command_pitch_velocity)],
+                        rmgo_core::command_state_interfaces::gimbal_pitch_velocity},
+                       {&state_indexes_[to_index(StateInterfaceIndex::command_enabled)],
+                        rmgo_core::command_state_interfaces::gimbal_enabled},
+                   },
+                   "gimbal command state interface");
     }
 
     void update_targets(double dt) {
@@ -212,7 +209,12 @@ private:
         const double pitch = read_state(state_indexes_[to_index(StateInterfaceIndex::pitch)]);
         update_tf(yaw, pitch);
 
-        const auto& [yaw_reference, pitch_reference, enabled_reference] = remote_command_reference_;
+        const double yaw_reference =
+            read_state(state_indexes_[to_index(StateInterfaceIndex::command_yaw_velocity)]);
+        const double pitch_reference =
+            read_state(state_indexes_[to_index(StateInterfaceIndex::command_pitch_velocity)]);
+        const double enabled_reference =
+            read_state(state_indexes_[to_index(StateInterfaceIndex::command_enabled)]);
         const bool is_enabled = std::isfinite(enabled_reference) && enabled_reference > 0.5;
         if (!is_enabled) {
             solver_.update(tf_, pitch, TwoAxisGimbalSolver::SetDisabled{});
@@ -281,7 +283,6 @@ private:
         invalid_indexes<std::to_underlying(CommandInterfaceIndex::count)>();
     std::array<std::size_t, std::to_underlying(StateInterfaceIndex::count)> state_indexes_ =
         invalid_indexes<std::to_underlying(StateInterfaceIndex::count)>();
-    std::array<double, 3> remote_command_reference_{0.0, 0.0, 0.0};
     rmgo_description::Tf tf_;
     TwoAxisGimbalSolver solver_{
         std::numeric_limits<double>::infinity(),
@@ -295,4 +296,4 @@ private:
 
 PLUGINLIB_EXPORT_CLASS(
     rmgo_core::controller::gimbal::SimpleGimbalController,
-    controller_interface::ChainableControllerInterface)
+    controller_interface::ControllerInterface)

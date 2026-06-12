@@ -1,12 +1,4 @@
 teleop_remote_controller:
-  target_controller_name:
-    type: string
-    description: "Downstream chain controller that receives remote commands."
-    validation:
-      not_empty<>: []
-  target_gimbal_controller_name:
-    type: string
-    description: "Optional downstream gimbal chain controller that receives remote commands."
   cmd_vel_topic:
     type: string
     description: "Teleop velocity command topic."
@@ -20,6 +12,11 @@ teleop_remote_controller:
   mode_topic:
     type: string
     description: "Teleop chassis mode command topic."
+    validation:
+      not_empty<>: []
+  shooter_mode_topic:
+    type: string
+    description: "Teleop shooter mode command topic."
     validation:
       not_empty<>: []
   command_timeout:

@@ -1,6 +1,7 @@
 <?xml version="1.0"?>
 <robot name="omni_infantry" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:arg name="hardware_plugin" default="rmgo_core/OmniInfantryGzInterface"/>
+  <xacro:arg name="command_hardware_plugin" default="rmgo_core/CommandGzInterface"/>
   <xacro:arg name="controllers_file" default="$(find rmgo_description)/config/omni_infantry_controllers.yaml"/>
   <xacro:arg name="debug_visuals" default="false"/>
 
@@ -254,6 +255,45 @@
     <child link="pitch_link"/>
   </joint>
 
+  <link name="left_friction_link">
+    <xacro:x_cylinder_inertial mass="0.08" radius="0.025" length="0.025"/>
+    <xacro:debug_x_cylinder_visual name="left_friction_debug_visual" radius="0.025" length="0.025" material="black"/>
+  </link>
+  <joint name="left_friction_joint" type="continuous">
+    <axis xyz="1 0 0"/>
+    <limit effort="2.0" velocity="800.0"/>
+    <dynamics damping="0.0" friction="0.001"/>
+    <parent link="pitch_link"/>
+    <child link="left_friction_link"/>
+    <origin xyz="0.075 0.04 0"/>
+  </joint>
+
+  <link name="right_friction_link">
+    <xacro:x_cylinder_inertial mass="0.08" radius="0.025" length="0.025"/>
+    <xacro:debug_x_cylinder_visual name="right_friction_debug_visual" radius="0.025" length="0.025" material="black"/>
+  </link>
+  <joint name="right_friction_joint" type="continuous">
+    <axis xyz="1 0 0"/>
+    <limit effort="2.0" velocity="800.0"/>
+    <dynamics damping="0.0" friction="0.001"/>
+    <parent link="pitch_link"/>
+    <child link="right_friction_link"/>
+    <origin xyz="0.075 -0.04 0"/>
+  </joint>
+
+  <link name="bullet_feeder_link">
+    <xacro:x_cylinder_inertial mass="0.12" radius="0.03" length="0.025"/>
+    <xacro:debug_x_cylinder_visual name="bullet_feeder_debug_visual" radius="0.03" length="0.025" material="gimbal_orange"/>
+  </link>
+  <joint name="bullet_feeder_joint" type="continuous">
+    <axis xyz="1 0 0"/>
+    <limit effort="4.0" velocity="60.0"/>
+    <dynamics damping="0.01" friction="0.002"/>
+    <parent link="pitch_link"/>
+    <child link="bullet_feeder_link"/>
+    <origin xyz="-0.025 0 -0.035"/>
+  </joint>
+
   <link name="imu_link">
     <xacro:tiny_inertial mass="0.01"/>
   </link>
@@ -330,6 +370,65 @@
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
+    <joint name="left_friction_joint">
+      <command_interface name="velocity"/>
+      <command_interface name="effort"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="right_friction_joint">
+      <command_interface name="velocity"/>
+      <command_interface name="effort"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="bullet_feeder_joint">
+      <command_interface name="velocity"/>
+      <command_interface name="effort"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+
+  <ros2_control name="CommandGz" type="system">
+    <hardware>
+      <plugin>$(arg command_hardware_plugin)</plugin>
+    </hardware>
+
+    <gpio name="command/chassis/linear/x">
+      <command_interface name="velocity"/>
+      <state_interface name="velocity"/>
+    </gpio>
+    <gpio name="command/chassis/linear/y">
+      <command_interface name="velocity"/>
+      <state_interface name="velocity"/>
+    </gpio>
+    <gpio name="command/chassis/angular/z">
+      <command_interface name="velocity"/>
+      <state_interface name="velocity"/>
+    </gpio>
+    <gpio name="command/chassis">
+      <command_interface name="mode"/>
+      <state_interface name="mode"/>
+    </gpio>
+    <gpio name="command/gimbal/yaw">
+      <command_interface name="velocity"/>
+      <state_interface name="velocity"/>
+    </gpio>
+    <gpio name="command/gimbal/pitch">
+      <command_interface name="velocity"/>
+      <state_interface name="velocity"/>
+    </gpio>
+    <gpio name="command/gimbal">
+      <command_interface name="enabled"/>
+      <state_interface name="enabled"/>
+    </gpio>
+    <gpio name="command/shooter">
+      <command_interface name="mode"/>
+      <command_interface name="sequence"/>
+      <state_interface name="mode"/>
+      <state_interface name="sequence"/>
+    </gpio>
   </ros2_control>
 
   <gazebo>

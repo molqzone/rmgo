@@ -17,6 +17,24 @@ controller_manager:
     simple_gimbal_controller:
       type: rmgo_core/SimpleGimbalController
 
+    friction_wheel_controller:
+      type: rmgo_core/FrictionWheelController
+
+    heat_controller:
+      type: rmgo_core/HeatController
+
+    bullet_feeder_controller:
+      type: rmgo_core/BulletFeederController17mm
+
+    left_friction_velocity_pid_controller:
+      type: rmgo_core/JointVelocityPidController
+
+    right_friction_velocity_pid_controller:
+      type: rmgo_core/JointVelocityPidController
+
+    bullet_feeder_velocity_pid_controller:
+      type: rmgo_core/JointVelocityPidController
+
     teleop_remote_controller:
       type: rmgo_core/TeleopRemoteController
 
@@ -71,11 +89,10 @@ omni_wheel_controller:
 
 teleop_remote_controller:
   ros__parameters:
-    target_controller_name: chassis_controller
-    target_gimbal_controller_name: simple_gimbal_controller
     cmd_vel_topic: /cmd_vel
     cmd_gimbal_topic: /cmd_gimbal
     mode_topic: /cmd_chassis_mode
+    shooter_mode_topic: /cmd_shooter_mode
     command_timeout: 2.0
 
 simple_gimbal_controller:
@@ -86,3 +103,80 @@ simple_gimbal_controller:
     state_interface_name: position
     pitch_lower_limit: -0.5098
     pitch_upper_limit: 0.2262
+
+friction_wheel_controller:
+  ros__parameters:
+    left_friction_joint_name: left_friction_joint
+    right_friction_joint_name: right_friction_joint
+    left_target_controller_name: left_friction_velocity_pid_controller
+    right_target_controller_name: right_friction_velocity_pid_controller
+    target_heat_controller_name: heat_controller
+    target_bullet_feeder_controller_name: bullet_feeder_controller
+    friction_state_interface_name: velocity
+    left_friction_velocity: 660.0
+    right_friction_velocity: 660.0
+    friction_soft_start_stop_time: 1.0
+    friction_ready_ratio: 0.95
+    friction_fault_ratio: 0.5
+    friction_fault_time: 0.2
+    bullet_drop_integral_threshold: -14.0
+    bullet_drop_recovery_threshold: 0.1
+    bullet_drop_velocity_margin: 20.0
+
+heat_controller:
+  ros__parameters:
+    target_bullet_feeder_controller_name: bullet_feeder_controller
+    heat_per_shot: 10000.0
+    extra_heat_per_shot: 10.0
+    reserved_heat: 10000.0
+
+bullet_feeder_controller:
+  ros__parameters:
+    bullet_feeder_joint_name: bullet_feeder_joint
+    target_velocity_pid_controller_name: bullet_feeder_velocity_pid_controller
+    feeder_velocity_state_interface_name: velocity
+    bullets_per_feeder_turn: 8.0
+    shot_frequency: 20.0
+    safe_shot_frequency: 10.0
+    eject_frequency: 10.0
+    eject_time: 0.05
+    deep_eject_frequency: 5.0
+    deep_eject_time: 0.2
+    single_shot_max_stop_delay: 2.0
+    feeder_jam_time: 0.5
+
+left_friction_velocity_pid_controller:
+  ros__parameters:
+    joint_name: left_friction_joint
+    command_interface_name: velocity
+    state_interface_name: velocity
+    kp: 0.0
+    ki: 0.0
+    kd: 0.0
+    velocity_feedforward: 1.0
+    output_min: -800.0
+    output_max: 800.0
+
+right_friction_velocity_pid_controller:
+  ros__parameters:
+    joint_name: right_friction_joint
+    command_interface_name: velocity
+    state_interface_name: velocity
+    kp: 0.0
+    ki: 0.0
+    kd: 0.0
+    velocity_feedforward: 1.0
+    output_min: -800.0
+    output_max: 800.0
+
+bullet_feeder_velocity_pid_controller:
+  ros__parameters:
+    joint_name: bullet_feeder_joint
+    command_interface_name: velocity
+    state_interface_name: velocity
+    kp: 0.0
+    ki: 0.0
+    kd: 0.0
+    velocity_feedforward: 1.0
+    output_min: -60.0
+    output_max: 60.0
