@@ -1,6 +1,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <numbers>
 #include <string>
@@ -8,20 +9,21 @@
 #include <vector>
 
 #include <angles/angles.h>
-#include <controller_interface/chainable_controller_interface.hpp>
+#include <controller_interface/controller_interface.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "../pid/pid_calculator.hpp"
 #include "rmgo_core/chassis_controller_config.hpp"
+#include "rmgo_core/interface/command_state_interfaces.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 
 namespace rmgo_core::controller::chassis {
 
 class ChassisController
-    : public controller_interface::ChainableControllerInterface
+    : public controller_interface::ControllerInterface
     , public rmgo_utility::ControllerInterfaceMixin
     , public rmgo_utility::NodeMixin {
 public:
@@ -38,13 +40,10 @@ public:
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        return build_individual_config(std::array{get_yaw_state_interface_name()});
-    }
-
-    std::vector<hardware_interface::CommandInterface::SharedPtr>
-        on_export_reference_interfaces_list() override {
-        reset_references(remote_command_reference_);
-        return make_reference_interfaces(remote_command_suffixes, remote_command_reference_);
+        auto config = build_individual_config(std::array{get_yaw_state_interface_name()});
+        append_interface_names(
+            config.names, rmgo_core::command_state_interfaces::chassis_interfaces);
+        return config;
     }
 
     controller_interface::CallbackReturn
@@ -62,6 +61,9 @@ public:
 
     controller_interface::CallbackReturn
         on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override {
+        if (!bind_state_interfaces()) {
+            return controller_interface::CallbackReturn::ERROR;
+        }
         reset_internal_state();
         return stop_chassis() ? controller_interface::CallbackReturn::SUCCESS
                               : controller_interface::CallbackReturn::ERROR;
@@ -74,30 +76,16 @@ public:
                               : controller_interface::CallbackReturn::ERROR;
     }
 
-    controller_interface::return_type update_reference_from_subscribers(
-        const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
-        if (!is_in_chained_mode()) {
-            reset_internal_state();
-        }
-        return controller_interface::return_type::OK;
-    }
-
-    controller_interface::return_type update_and_write_commands(
-        const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
-        const auto& [linear_x_reference, linear_y_reference, angular_z_reference, mode_reference] =
-            remote_command_reference_;
-        const RemoteCommand command{
-            linear_x_reference,
-            linear_y_reference,
-            angular_z_reference,
-        };
-        const Mode mode = mode_from_value(mode_reference);
+    controller_interface::return_type
+        update(const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
+        const StateSnapshot state = read_state_snapshot();
+        const Mode mode = mode_from_value(state.mode);
         if (mode != last_mode_) {
             reset_pid();
             last_mode_ = mode;
         }
 
-        const auto values = calculate_command(mode, command);
+        const auto values = calculate_command(mode, state.command, state.yaw);
 
         return write_command(values) ? controller_interface::return_type::OK
                                      : controller_interface::return_type::ERROR;
@@ -110,10 +98,25 @@ private:
         twist = 2,
     };
 
+    enum class StateInterfaceIndex : std::size_t {
+        yaw = 0,
+        command_linear_x,
+        command_linear_y,
+        command_angular_z,
+        command_mode,
+        count,
+    };
+
     struct RemoteCommand {
         double vx = 0.0;
         double vy = 0.0;
         double wz = 0.0;
+    };
+
+    struct StateSnapshot {
+        double yaw = 0.0;
+        RemoteCommand command;
+        double mode = 0.0;
     };
 
     enum class ChassisCommandIndex : std::size_t {
@@ -127,12 +130,9 @@ private:
         return std::to_underlying(index);
     }
 
-    static constexpr std::array<const char*, 4> remote_command_suffixes = {
-        "linear/x/velocity",
-        "linear/y/velocity",
-        "angular/z/velocity",
-        "mode",
-    };
+    static constexpr std::size_t to_index(StateInterfaceIndex index) {
+        return std::to_underlying(index);
+    }
 
     static constexpr std::array<const char*, 3> chassis_command_suffixes = {
         "linear/x/velocity",
@@ -142,6 +142,7 @@ private:
 
     static_assert(
         chassis_command_suffixes.size() == std::to_underlying(ChassisCommandIndex::count));
+    static_assert(std::to_underlying(StateInterfaceIndex::count) == 5);
 
     std::string get_yaw_state_interface_name() const {
         return params_.yaw_joint_name + "/" + params_.yaw_state_interface_name;
@@ -161,8 +162,7 @@ private:
         }
     }
 
-    std::array<double, 3> calculate_command(Mode mode, const RemoteCommand& command) {
-        const double yaw = read_yaw_position();
+    std::array<double, 3> calculate_command(Mode mode, const RemoteCommand& command, double yaw) {
         std::array<double, 3> values = command_to_base_link(command, yaw);
         switch (mode) {
         case Mode::follow:
@@ -220,12 +220,50 @@ private:
         return follow_pid_.update(-angles::shortest_angular_distance(yaw, desired_yaw));
     }
 
-    double read_yaw_position() const { return read_finite_interface_or(state_interfaces_, 0, 0.0); }
+    bool bind_state_interfaces() {
+        using namespace rmgo_core::command_state_interfaces;
+        state_indexes_.fill(invalid_index);
+        return bind_prefixed_interface_indexes(
+                   state_interfaces_,
+                   {
+                       {&state_indexes_[to_index(StateInterfaceIndex::yaw)], params_.yaw_joint_name,
+                        params_.yaw_state_interface_name},
+                   },
+                   "chassis state interface")
+            && bind_interface_indexes(
+                   state_interfaces_,
+                   {
+                       {&state_indexes_[to_index(StateInterfaceIndex::command_linear_x)],
+                        chassis_linear_x_velocity},
+                       {&state_indexes_[to_index(StateInterfaceIndex::command_linear_y)],
+                        chassis_linear_y_velocity},
+                       {&state_indexes_[to_index(StateInterfaceIndex::command_angular_z)],
+                        chassis_angular_z_velocity},
+                       {&state_indexes_[to_index(StateInterfaceIndex::command_mode)], chassis_mode},
+                   },
+                   "chassis command state interface");
+    }
+
+    StateSnapshot read_state_snapshot() const {
+        return StateSnapshot{
+            .yaw = read_state(StateInterfaceIndex::yaw),
+            .command =
+                RemoteCommand{
+                    .vx = read_state(StateInterfaceIndex::command_linear_x),
+                    .vy = read_state(StateInterfaceIndex::command_linear_y),
+                    .wz = read_state(StateInterfaceIndex::command_angular_z),
+                },
+            .mode = read_state(StateInterfaceIndex::command_mode),
+        };
+    }
+
+    double read_state(StateInterfaceIndex index) const {
+        return read_interface_value(state_interfaces_, state_indexes_[to_index(index)]);
+    }
 
     void reset_pid() { follow_pid_.reset(); }
 
     void reset_internal_state() {
-        reset_references(remote_command_reference_);
         reset_pid();
         last_mode_ = Mode::raw;
     }
@@ -241,7 +279,8 @@ private:
     std::string yaw_joint_name_;
     std::string yaw_state_interface_name_;
     rclcpp::Clock steady_clock_{RCL_STEADY_TIME};
-    std::array<double, 4> remote_command_reference_{0.0, 0.0, 0.0, 0.0};
+    static constexpr std::size_t invalid_index = std::numeric_limits<std::size_t>::max();
+    std::array<std::size_t, std::to_underlying(StateInterfaceIndex::count)> state_indexes_{};
     Mode last_mode_ = Mode::raw;
     rmgo_core::pid::PidCalculator follow_pid_;
     std::shared_ptr<::chassis_controller::ParamListener> param_listener_;
@@ -251,5 +290,4 @@ private:
 } // namespace rmgo_core::controller::chassis
 
 PLUGINLIB_EXPORT_CLASS(
-    rmgo_core::controller::chassis::ChassisController,
-    controller_interface::ChainableControllerInterface)
+    rmgo_core::controller::chassis::ChassisController, controller_interface::ControllerInterface)

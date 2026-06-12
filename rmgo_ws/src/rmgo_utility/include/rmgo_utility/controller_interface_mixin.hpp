@@ -2,12 +2,10 @@
 
 #include <array>
 #include <cassert>
-#include <cmath>
 #include <concepts>
 #include <cstddef>
 #include <initializer_list>
 #include <memory>
-#include <optional>
 #include <ranges>
 #include <span>
 #include <string>
@@ -123,20 +121,11 @@ struct ControllerInterfaceMixin {
 
     /* on update */
     template <SizedIndexable Interfaces>
-    std::optional<double>
-        read_finite_interface(const Interfaces& interfaces, std::size_t index) const {
-        if (index >= interfaces.size()) {
-            return std::nullopt;
-        }
-
-        const std::optional<double> value = interfaces[index].get_optional();
-        return value.has_value() && std::isfinite(*value) ? value : std::nullopt;
-    }
-
-    template <SizedIndexable Interfaces>
-    double read_finite_interface_or(
-        const Interfaces& interfaces, std::size_t index, double fallback) const {
-        return read_finite_interface(interfaces, index).value_or(fallback);
+    double read_interface_value(const Interfaces& interfaces, std::size_t index) const {
+        assert(index < interfaces.size());
+        const auto value = interfaces[index].get_optional();
+        assert(value.has_value());
+        return *value;
     }
 
     template <SizedRange Names>

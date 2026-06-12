@@ -14,11 +14,38 @@ controller_manager:
     chassis_controller:
       type: rmgo_core/ChassisController
 
-    teleop_remote_controller:
-      type: rmgo_core/TeleopRemoteController
-
     simple_gimbal_controller:
       type: rmgo_core/SimpleGimbalController
+
+    yaw_angle_pid_controller:
+      type: rmgo_core/ErrorPidController
+
+    yaw_velocity_pid_controller:
+      type: rmgo_core/JointVelocityPidController
+
+    pitch_angle_pid_controller:
+      type: rmgo_core/ErrorPidController
+
+    friction_wheel_controller:
+      type: rmgo_core/FrictionWheelController
+
+    heat_controller:
+      type: rmgo_core/HeatController
+
+    bullet_feeder_controller:
+      type: rmgo_core/BulletFeederController17mm
+
+    left_friction_velocity_pid_controller:
+      type: rmgo_core/JointVelocityPidController
+
+    right_friction_velocity_pid_controller:
+      type: rmgo_core/JointVelocityPidController
+
+    bullet_feeder_velocity_pid_controller:
+      type: rmgo_core/JointVelocityPidController
+
+    teleop_remote_controller:
+      type: rmgo_core/TeleopRemoteController
 
 chassis_controller:
   ros__parameters:
@@ -37,7 +64,6 @@ chassis_controller:
 chassis_power_controller:
   ros__parameters:
     target_controller_name: omni_wheel_controller
-    safety_power: 80.0
     buffer_threshold: 30.0
     power_gain: 0.5
     max_power_limit: 95.0
@@ -71,18 +97,157 @@ omni_wheel_controller:
 
 teleop_remote_controller:
   ros__parameters:
-    target_controller_name: chassis_controller
-    target_gimbal_controller_name: simple_gimbal_controller
     cmd_vel_topic: /cmd_vel
     cmd_gimbal_topic: /cmd_gimbal
     mode_topic: /cmd_chassis_mode
+    shooter_mode_topic: /cmd_shooter_mode
     command_timeout: 2.0
 
 simple_gimbal_controller:
   ros__parameters:
     yaw_joint_name: yaw_joint
     pitch_joint_name: pitch_joint
-    command_interface_name: position
+    yaw_target_controller_name: yaw_angle_pid_controller
+    pitch_target_controller_name: pitch_angle_pid_controller
     state_interface_name: position
     pitch_lower_limit: -0.5098
     pitch_upper_limit: 0.2262
+
+yaw_angle_pid_controller:
+  ros__parameters:
+    target_name: yaw_velocity_pid_controller
+    target_interface_name: control_velocity
+    kp: 15.0
+    ki: 0.0
+    kd: 0.0
+    feedforward: 0.0
+    integral_min: -1.7976931348623157e+308
+    integral_max: 1.7976931348623157e+308
+    integral_split_min: -1.7976931348623157e+308
+    integral_split_max: 1.7976931348623157e+308
+    output_min: -10.0
+    output_max: 10.0
+
+yaw_velocity_pid_controller:
+  ros__parameters:
+    joint_name: yaw_joint
+    command_interface_name: effort
+    state_joint_name: gimbal/yaw
+    state_interface_name: velocity_imu
+    kp: 40.0
+    ki: 0.001
+    kd: 0.01
+    velocity_feedforward: 0.0
+    integral_min: -1.7976931348623157e+308
+    integral_max: 1.7976931348623157e+308
+    integral_split_min: -1.7976931348623157e+308
+    integral_split_max: 1.7976931348623157e+308
+    output_min: -25.0
+    output_max: 25.0
+
+pitch_angle_pid_controller:
+  ros__parameters:
+    target_name: pitch_joint
+    target_interface_name: velocity
+    kp: 20.0
+    ki: 0.0
+    kd: 0.1
+    feedforward: 0.0
+    integral_min: -1.7976931348623157e+308
+    integral_max: 1.7976931348623157e+308
+    integral_split_min: -1.7976931348623157e+308
+    integral_split_max: 1.7976931348623157e+308
+    output_min: -4.0
+    output_max: 4.0
+
+friction_wheel_controller:
+  ros__parameters:
+    left_friction_joint_name: left_friction_joint
+    right_friction_joint_name: right_friction_joint
+    left_target_controller_name: left_friction_velocity_pid_controller
+    right_target_controller_name: right_friction_velocity_pid_controller
+    target_heat_controller_name: heat_controller
+    target_bullet_feeder_controller_name: bullet_feeder_controller
+    friction_state_interface_name: velocity
+    left_friction_velocity: 660.0
+    right_friction_velocity: 660.0
+    friction_soft_start_stop_time: 1.0
+    friction_ready_ratio: 0.95
+    friction_fault_ratio: 0.5
+    friction_fault_time: 0.2
+    bullet_drop_integral_threshold: -14.0
+    bullet_drop_recovery_threshold: 0.1
+    bullet_drop_velocity_margin: 20.0
+
+heat_controller:
+  ros__parameters:
+    target_bullet_feeder_controller_name: bullet_feeder_controller
+    heat_per_shot: 10000.0
+    extra_heat_per_shot: 10.0
+    reserved_heat: 10000.0
+
+bullet_feeder_controller:
+  ros__parameters:
+    bullet_feeder_joint_name: bullet_feeder_joint
+    target_velocity_pid_controller_name: bullet_feeder_velocity_pid_controller
+    feeder_velocity_state_interface_name: velocity
+    bullets_per_feeder_turn: 8.0
+    shot_frequency: 20.0
+    safe_shot_frequency: 10.0
+    eject_frequency: 10.0
+    eject_time: 0.05
+    deep_eject_frequency: 5.0
+    deep_eject_time: 0.2
+    single_shot_max_stop_delay: 2.0
+    feeder_jam_time: 0.5
+
+left_friction_velocity_pid_controller:
+  ros__parameters:
+    joint_name: left_friction_joint
+    command_interface_name: effort
+    state_joint_name: ""
+    state_interface_name: velocity
+    kp: 0.001
+    ki: 0.0
+    kd: 0.0
+    velocity_feedforward: 0.003
+    integral_min: -1.7976931348623157e+308
+    integral_max: 1.7976931348623157e+308
+    integral_split_min: -1.7976931348623157e+308
+    integral_split_max: 1.7976931348623157e+308
+    output_min: -2.0
+    output_max: 2.0
+
+right_friction_velocity_pid_controller:
+  ros__parameters:
+    joint_name: right_friction_joint
+    command_interface_name: effort
+    state_joint_name: ""
+    state_interface_name: velocity
+    kp: 0.001
+    ki: 0.0
+    kd: 0.0
+    velocity_feedforward: 0.003
+    integral_min: -1.7976931348623157e+308
+    integral_max: 1.7976931348623157e+308
+    integral_split_min: -1.7976931348623157e+308
+    integral_split_max: 1.7976931348623157e+308
+    output_min: -2.0
+    output_max: 2.0
+
+bullet_feeder_velocity_pid_controller:
+  ros__parameters:
+    joint_name: bullet_feeder_joint
+    command_interface_name: effort
+    state_joint_name: ""
+    state_interface_name: velocity
+    kp: 0.002
+    ki: 0.0
+    kd: 0.0
+    velocity_feedforward: 0.005
+    integral_min: -1.7976931348623157e+308
+    integral_max: 1.7976931348623157e+308
+    integral_split_min: -1.7976931348623157e+308
+    integral_split_max: 1.7976931348623157e+308
+    output_min: -4.0
+    output_max: 4.0

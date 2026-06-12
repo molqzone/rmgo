@@ -1,0 +1,61 @@
+bullet_feeder_controller_17mm:
+  bullet_feeder_joint_name:
+    type: string
+    description: "Bullet feeder joint."
+    validation:
+      not_empty<>: []
+  target_velocity_pid_controller_name:
+    type: string
+    description: "Velocity PID controller that receives the bullet feeder control velocity."
+    validation:
+      not_empty<>: []
+  feeder_velocity_state_interface_name:
+    type: string
+    description: "Bullet feeder state interface used for jam detection."
+    validation:
+      not_empty<>: []
+  bullets_per_feeder_turn:
+    type: double
+    description: "Number of bullets pushed per full feeder rotation."
+    validation:
+      gt<>: [0.0]
+  shot_frequency:
+    type: double
+    description: "Automatic fire shot frequency."
+    validation:
+      gt_eq<>: [0.0]
+  safe_shot_frequency:
+    type: double
+    description: "Single-shot and heat-limited shot frequency."
+    validation:
+      gt_eq<>: [0.0]
+  eject_frequency:
+    type: double
+    description: "Short reverse feeder frequency used by jam protection."
+    validation:
+      gt_eq<>: [0.0]
+  eject_time:
+    type: double
+    description: "Short reverse feeder duration in seconds."
+    validation:
+      gt_eq<>: [0.0]
+  deep_eject_frequency:
+    type: double
+    description: "Deep reverse feeder frequency used after repeated jams."
+    validation:
+      gt_eq<>: [0.0]
+  deep_eject_time:
+    type: double
+    description: "Deep reverse feeder duration in seconds."
+    validation:
+      gt_eq<>: [0.0]
+  single_shot_max_stop_delay:
+    type: double
+    description: "Maximum time a single-shot request may drive the feeder before a shot is detected."
+    validation:
+      gt_eq<>: [0.0]
+  feeder_jam_time:
+    type: double
+    description: "Continuous feeder stall duration before jam protection reverses the feeder."
+    validation:
+      gt_eq<>: [0.0]

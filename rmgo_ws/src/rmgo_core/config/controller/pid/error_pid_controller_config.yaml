@@ -1,0 +1,41 @@
+error_pid_controller:
+  target_name:
+    type: string
+    description: "Downstream controller or joint prefix that receives this PID output."
+    validation:
+      not_empty<>: []
+  target_interface_name:
+    type: string
+    description: "Downstream interface name written by this PID."
+    validation:
+      not_empty<>: []
+  kp:
+    type: double
+    description: "Proportional gain."
+  ki:
+    type: double
+    description: "Integral gain."
+  kd:
+    type: double
+    description: "Derivative gain."
+  feedforward:
+    type: double
+    description: "Constant feedforward added to the PID output."
+  integral_min:
+    type: double
+    description: "Minimum integral accumulator."
+  integral_max:
+    type: double
+    description: "Maximum integral accumulator."
+  integral_split_min:
+    type: double
+    description: "Minimum error that enables integral accumulation."
+  integral_split_max:
+    type: double
+    description: "Maximum error that enables integral accumulation."
+  output_min:
+    type: double
+    description: "Minimum control output."
+  output_max:
+    type: double
+    description: "Maximum control output."

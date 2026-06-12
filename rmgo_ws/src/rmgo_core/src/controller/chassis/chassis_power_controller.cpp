@@ -2,7 +2,6 @@
 #include <array>
 #include <cmath>
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -98,16 +97,11 @@ private:
     static constexpr std::size_t power_limit_index = 2;
 
     double calculate_control_power_limit() {
-        const std::optional<double> referee_power_limit = read_state(power_limit_index);
-        if (!referee_power_limit.has_value()) {
-            return params_.safety_power;
-        }
-
-        const double referee_buffer_energy =
-            read_state(power_buffer_index).value_or(params_.buffer_threshold);
+        const double referee_power_limit = read_state(power_limit_index);
+        const double referee_buffer_energy = read_state(power_buffer_index);
         const double extra_power =
             (referee_buffer_energy - params_.buffer_threshold) * params_.power_gain;
-        return std::clamp(*referee_power_limit + extra_power, 0.0, params_.max_power_limit);
+        return std::clamp(referee_power_limit + extra_power, 0.0, params_.max_power_limit);
     }
 
     std::array<double, 3> limit_chassis_command(double control_power_limit) const {
@@ -133,8 +127,8 @@ private:
         return std::clamp(value, -limit, limit);
     }
 
-    std::optional<double> read_state(std::size_t index) const {
-        return read_finite_interface(state_interfaces_, index);
+    double read_state(std::size_t index) const {
+        return read_interface_value(state_interfaces_, index);
     }
 
     bool write_chassis_commands(const std::array<double, 3>& commands) {

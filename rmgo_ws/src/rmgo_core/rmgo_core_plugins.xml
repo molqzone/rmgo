@@ -2,9 +2,9 @@
   <class
     name="rmgo_core/ChassisController"
     type="rmgo_core::controller::chassis::ChassisController"
-    base_class_type="controller_interface::ChainableControllerInterface">
+    base_class_type="controller_interface::ControllerInterface">
     <description>
-      High-level chassis remote command chain controller for RMGO.
+      Command-bus chassis controller for RMGO.
     </description>
   </class>
   <class
@@ -34,9 +34,49 @@
   <class
     name="rmgo_core/SimpleGimbalController"
     type="rmgo_core::controller::gimbal::SimpleGimbalController"
-    base_class_type="controller_interface::ChainableControllerInterface">
+    base_class_type="controller_interface::ControllerInterface">
     <description>
       RMCS-style simple gimbal controller that keeps yaw/pitch actively commanded.
+    </description>
+  </class>
+  <class
+    name="rmgo_core/JointVelocityPidController"
+    type="rmgo_core::controller::pid::JointVelocityPidController"
+    base_class_type="controller_interface::ChainableControllerInterface">
+    <description>
+      RMCS-style velocity PID bridge from control velocity to joint effort.
+    </description>
+  </class>
+  <class
+    name="rmgo_core/ErrorPidController"
+    type="rmgo_core::controller::pid::ErrorPidController"
+    base_class_type="controller_interface::ChainableControllerInterface">
+    <description>
+      RMCS-style error PID bridge from control angle error to downstream command.
+    </description>
+  </class>
+  <class
+    name="rmgo_core/FrictionWheelController"
+    type="rmgo_core::controller::shooter::FrictionWheelController"
+    base_class_type="controller_interface::ControllerInterface">
+    <description>
+      RMCS-style friction wheel controller that drives shooter readiness chain signals.
+    </description>
+  </class>
+  <class
+    name="rmgo_core/HeatController"
+    type="rmgo_core::controller::shooter::HeatController"
+    base_class_type="controller_interface::ChainableControllerInterface">
+    <description>
+      RMCS-style shooter heat allowance controller.
+    </description>
+  </class>
+  <class
+    name="rmgo_core/BulletFeederController17mm"
+    type="rmgo_core::controller::shooter::BulletFeederController17mm"
+    base_class_type="controller_interface::ChainableControllerInterface">
+    <description>
+      RMCS-style 17mm bullet feeder controller for single, automatic, and eject modes.
     </description>
   </class>
 </library>

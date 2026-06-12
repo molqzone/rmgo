@@ -1,5 +1,13 @@
 <library path="rmgo_chassis_controller">
   <class
+    name="rmgo_core/CommandGzInterface"
+    type="rmgo_core::interface::CommandGzInterface"
+    base_class_type="gz_ros2_control::GazeboSimSystemInterface">
+    <description>
+      Gazebo ros2_control loopback system for upper-level command interfaces.
+    </description>
+  </class>
+  <class
     name="rmgo_core/OmniInfantryGzInterface"
     type="rmgo_core::interface::OmniInfantryGzInterface"
     base_class_type="gz_ros2_control::GazeboSimSystemInterface">

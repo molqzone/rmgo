@@ -1,0 +1,21 @@
+heat_controller:
+  target_bullet_feeder_controller_name:
+    type: string
+    description: "Bullet feeder controller that receives heat-limited bullet allowance."
+    validation:
+      not_empty<>: []
+  heat_per_shot:
+    type: double
+    description: "Local heat added per detected shot."
+    validation:
+      gt<>: [0.0]
+  extra_heat_per_shot:
+    type: double
+    description: "Additional RMCS-style conservative heat margin added per shot."
+    validation:
+      gt_eq<>: [0.0]
+  reserved_heat:
+    type: double
+    description: "Heat margin reserved below the referee heat limit."
+    validation:
+      gt_eq<>: [0.0]

@@ -1,8 +1,8 @@
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <numbers>
-#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -105,17 +105,20 @@ public:
             linear_y_reference,
             angular_z_reference,
         };
-        const std::optional<BaseLinkVelocityCommand> measured_velocity =
-            measure_base_link_velocity();
-        const BaseLinkVelocityCommand control_velocity =
-            measured_velocity.has_value()
-                ? apply_pid(base_link_velocity_command, *measured_velocity)
-                : base_link_velocity_command;
-
-        if (!measured_velocity.has_value()) {
+        if (!base_link_velocity_command.allFinite()) {
             reset_pid_calculators();
+            return write_wheel_commands(WheelCommand::Zero())
+                     ? controller_interface::return_type::OK
+                     : controller_interface::return_type::ERROR;
         }
 
+        const BaseLinkVelocityCommand measured_velocity = measure_base_link_velocity();
+        BaseLinkVelocityCommand control_velocity = base_link_velocity_command;
+        if (measured_velocity.allFinite()) {
+            control_velocity = apply_pid(base_link_velocity_command, measured_velocity);
+        } else {
+            reset_pid_calculators();
+        }
         WheelCommand wheel_commands = inverse_kinematics(control_velocity);
         constrain_wheel_commands(wheel_commands);
 
@@ -156,18 +159,13 @@ private:
         return base_link_to_wheel_ * base_link_velocity_command;
     }
 
-    std::optional<BaseLinkVelocityCommand> measure_base_link_velocity() const {
-        if (state_interfaces_.size() != params_.wheel_joints.size()) {
-            return std::nullopt;
-        }
+    BaseLinkVelocityCommand measure_base_link_velocity() const {
+        assert(state_interfaces_.size() == params_.wheel_joints.size());
 
         WheelState wheel_state;
         for (std::size_t index = 0; index < params_.wheel_joints.size(); ++index) {
-            const std::optional<double> value = read_finite_interface(state_interfaces_, index);
-            if (!value.has_value() || !std::isfinite(*value)) {
-                return std::nullopt;
-            }
-            wheel_state[static_cast<Eigen::Index>(index)] = *value;
+            wheel_state[static_cast<Eigen::Index>(index)] =
+                read_interface_value(state_interfaces_, index);
         }
 
         return wheel_to_base_link_ * wheel_state;

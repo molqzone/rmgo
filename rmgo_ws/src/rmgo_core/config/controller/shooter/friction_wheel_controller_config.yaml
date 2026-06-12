@@ -1,0 +1,71 @@
+friction_wheel_controller:
+  left_friction_joint_name:
+    type: string
+    description: "Left friction wheel joint."
+    validation:
+      not_empty<>: []
+  right_friction_joint_name:
+    type: string
+    description: "Right friction wheel joint."
+    validation:
+      not_empty<>: []
+  left_target_controller_name:
+    type: string
+    description: "Velocity PID controller that receives the left friction control velocity."
+    validation:
+      not_empty<>: []
+  right_target_controller_name:
+    type: string
+    description: "Velocity PID controller that receives the right friction control velocity."
+    validation:
+      not_empty<>: []
+  target_heat_controller_name:
+    type: string
+    description: "Heat controller that receives bullet-fired events."
+    validation:
+      not_empty<>: []
+  target_bullet_feeder_controller_name:
+    type: string
+    description: "Bullet feeder controller that receives friction status."
+    validation:
+      not_empty<>: []
+  friction_state_interface_name:
+    type: string
+    description: "Friction wheel state interface used for readiness and bullet detection."
+    validation:
+      not_empty<>: []
+  left_friction_velocity:
+    type: double
+    description: "Working velocity for the left friction wheel."
+  right_friction_velocity:
+    type: double
+    description: "Working velocity for the right friction wheel."
+  friction_soft_start_stop_time:
+    type: double
+    description: "Time in seconds used to ramp friction wheel speed."
+    validation:
+      gt<>: [0.0]
+  friction_ready_ratio:
+    type: double
+    description: "Minimum measured/commanded velocity ratio considered ready."
+    validation:
+      gt<>: [0.0]
+  friction_fault_ratio:
+    type: double
+    description: "Measured/commanded velocity ratio below which the wheel is considered faulty."
+    validation:
+      gt<>: [0.0]
+  friction_fault_time:
+    type: double
+    description: "Continuous friction fault duration before reporting a jam."
+    validation:
+      gt_eq<>: [0.0]
+  bullet_drop_integral_threshold:
+    type: double
+    description: "Primary friction-wheel velocity drop integral that indicates a fired bullet."
+  bullet_drop_recovery_threshold:
+    type: double
+    description: "Velocity differential threshold that closes a possible bullet-firing drop."
+  bullet_drop_velocity_margin:
+    type: double
+    description: "Primary wheel velocity margin below working velocity required for bullet detection."
