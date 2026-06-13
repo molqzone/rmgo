@@ -15,4 +15,20 @@
       Gazebo whole-robot I/O interface for OmniInfantry controller-chain development.
     </description>
   </class>
+  <class
+    name="rmgo_core/RefereeGzSystemInterface"
+    type="rmgo_core::interface::RefereeGzSystemInterface"
+    base_class_type="gz_ros2_control::GazeboSimSystemInterface">
+    <description>
+      Gazebo referee mock state source for controller-chain development.
+    </description>
+  </class>
+  <class
+    name="rmgo_core/RefereeSystemInterface"
+    type="rmgo_core::interface::RefereeSystemInterface"
+    base_class_type="hardware_interface::SystemInterface">
+    <description>
+      ROS 2 control referee transport interface with realtime scalar state exports.
+    </description>
+  </class>
 </library>

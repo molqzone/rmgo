@@ -83,8 +83,12 @@ add_library(
   src/controller/shooter/bullet_feeder_controller_17mm.cpp
   src/controller/shooter/friction_wheel_controller.cpp
   src/controller/shooter/heat_controller.cpp
-  src/interface/command_gz_interface.cpp
-  src/interface/omni_infantry_gz_interface.cpp
+  src/hardware/command_gz_interface.cpp
+  src/hardware/omni_infantry_gz_interface.cpp
+  src/hardware/referee_gz_system_interface.cpp
+  src/hardware/referee_system_interface.cpp
+  src/referee/referee_protocol.cpp
+  src/referee/referee_transfer_registry.cpp
 )
 
 target_compile_features(rmgo_chassis_controller PUBLIC cxx_std_23)
@@ -130,6 +134,7 @@ install(TARGETS rmgo_chassis_controller DESTINATION lib/${PROJECT_NAME})
 
 pluginlib_export_plugin_description_file(controller_interface rmgo_core_plugins.xml)
 pluginlib_export_plugin_description_file(gz_ros2_control rmgo_hardware_plugins.xml)
+pluginlib_export_plugin_description_file(hardware_interface rmgo_hardware_plugins.xml)
 
 install(FILES rmgo_core_plugins.xml rmgo_hardware_plugins.xml
         DESTINATION share/${PROJECT_NAME}

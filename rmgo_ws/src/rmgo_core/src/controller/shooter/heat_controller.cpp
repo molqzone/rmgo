@@ -33,10 +33,11 @@ public:
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
         using namespace rmgo_core::io_state_interfaces;
-        return build_individual_config(std::array{
-            std::string{referee_shooter_cooling},
-            std::string{referee_shooter_heat_limit},
-        });
+        return build_individual_config(
+            std::array{
+                std::string{referee_shooter_cooling},
+                std::string{referee_shooter_heat_limit},
+            });
     }
 
     std::vector<hardware_interface::CommandInterface::SharedPtr>
