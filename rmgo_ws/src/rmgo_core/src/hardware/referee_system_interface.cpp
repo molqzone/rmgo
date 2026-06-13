@@ -35,6 +35,7 @@
 #include "rmgo_core/interface/io_state_interfaces.hpp"
 #include "rmgo_core/referee/referee_protocol.hpp"
 #include "rmgo_core/referee/referee_transfer_registry.hpp"
+#include "rmgo_utility/scalar_interface_mixin.hpp"
 #include "rmgo_utility/utility/ring_buffer.hpp"
 
 namespace rmgo_core::interface {
@@ -45,27 +46,11 @@ using rmgo_core::referee::RefereeTransferResult;
 
 using namespace std::chrono_literals;
 
-struct InterfaceName {
-    std::string prefix;
-    std::string name;
-};
-
 struct TxFrame {
     std::uint16_t command_id = 0;
     std::uint16_t payload_size = 0;
     std::array<std::byte, rmgo_core::referee::max_referee_payload_size> payload{};
 };
-
-std::optional<InterfaceName> split_interface_name(std::string_view full_name) {
-    const auto slash = full_name.rfind('/');
-    if (slash == std::string_view::npos || slash == 0 || slash == full_name.size() - 1) {
-        return std::nullopt;
-    }
-    return InterfaceName{
-        .prefix = std::string{full_name.substr(0, slash)},
-        .name = std::string{full_name.substr(slash + 1)},
-    };
-}
 
 std::optional<std::string>
     parameter_string(const hardware_interface::HardwareInfo& info, std::string_view name) {
@@ -225,7 +210,9 @@ private:
 
 } // namespace
 
-class RefereeSystemInterface final : public hardware_interface::SystemInterface {
+class RefereeSystemInterface final
+    : public hardware_interface::SystemInterface
+    , public rmgo_utility::ScalarInterfaceMixin {
     class Endpoint;
 
 public:
@@ -262,33 +249,11 @@ public:
     }
 
     std::vector<hardware_interface::StateInterface> export_state_interfaces() override {
-        auto interfaces = std::vector<hardware_interface::StateInterface>{};
-        interfaces.reserve(rmgo_core::io_state_interfaces::referee_state_interfaces.size());
-        for (std::size_t index = 0;
-             index < rmgo_core::io_state_interfaces::referee_state_interfaces.size(); ++index) {
-            const auto split = split_interface_name(
-                rmgo_core::io_state_interfaces::referee_state_interfaces[index]);
-            if (!split.has_value()) {
-                continue;
-            }
-            interfaces.emplace_back(split->prefix, split->name, &state_values_[index]);
-        }
-        return interfaces;
+        return export_scalar_state_interfaces(state_interfaces_, state_values_);
     }
 
     std::vector<hardware_interface::CommandInterface> export_command_interfaces() override {
-        auto interfaces = std::vector<hardware_interface::CommandInterface>{};
-        interfaces.reserve(rmgo_core::io_state_interfaces::referee_command_interfaces.size());
-        for (std::size_t index = 0;
-             index < rmgo_core::io_state_interfaces::referee_command_interfaces.size(); ++index) {
-            const auto split = split_interface_name(
-                rmgo_core::io_state_interfaces::referee_command_interfaces[index]);
-            if (!split.has_value()) {
-                continue;
-            }
-            interfaces.emplace_back(split->prefix, split->name, &command_values_[index]);
-        }
-        return interfaces;
+        return export_scalar_command_interfaces(command_interfaces_, command_values_);
     }
 
     hardware_interface::CallbackReturn
@@ -763,6 +728,10 @@ private:
     std::array<double, std::to_underlying(StateIndex::count)> state_values_{};
     std::array<double, std::to_underlying(CommandIndex::count)> command_values_{};
     std::array<double, std::to_underlying(CommandIndex::count)> previous_command_values_{};
+    std::vector<rmgo_utility::ScalarInterface> state_interfaces_ =
+        make_scalar_interfaces(rmgo_core::io_state_interfaces::referee_state_interfaces);
+    std::vector<rmgo_utility::ScalarInterface> command_interfaces_ =
+        make_scalar_interfaces(rmgo_core::io_state_interfaces::referee_command_interfaces);
     RefereeSnapshot latest_snapshot_;
     AtomicRefereeSnapshot snapshot_store_;
     rmgo_core::referee::RefereeFrameParser parser_;

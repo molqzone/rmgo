@@ -1,10 +1,8 @@
-#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
 #include <map>
 #include <memory>
-#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -25,12 +23,14 @@
 #include "rmgo_core/referee/referee_protocol.hpp"
 #include "rmgo_core/referee/referee_transfer_registry.hpp"
 #include "rmgo_utility/node_mixin.hpp"
+#include "rmgo_utility/scalar_interface_mixin.hpp"
 
 namespace rmgo_core::interface {
 
 class RefereeGzSystemInterface final
     : public gz_ros2_control::GazeboSimSystemInterface
-    , public rmgo_utility::NodeMixin {
+    , public rmgo_utility::NodeMixin
+    , public rmgo_utility::ScalarInterfaceMixin {
     class Endpoint;
 
 public:
@@ -63,25 +63,11 @@ public:
     }
 
     std::vector<hardware_interface::StateInterface> export_state_interfaces() override {
-        auto interfaces = std::vector<hardware_interface::StateInterface>{};
-        interfaces.reserve(referee_interfaces_.size());
-        for (const auto& referee_interface : referee_interfaces_) {
-            interfaces.emplace_back(
-                referee_interface.prefix, referee_interface.name,
-                &states_[referee_interface.index]);
-        }
-        return interfaces;
+        return export_scalar_state_interfaces(referee_interfaces_, states_);
     }
 
     std::vector<hardware_interface::CommandInterface> export_command_interfaces() override {
-        auto interfaces = std::vector<hardware_interface::CommandInterface>{};
-        interfaces.reserve(command_interfaces_.size());
-        for (const auto& command_interface : command_interfaces_) {
-            interfaces.emplace_back(
-                command_interface.prefix, command_interface.name,
-                &commands_[command_interface.index]);
-        }
-        return interfaces;
+        return export_scalar_command_interfaces(command_interfaces_, commands_);
     }
 
     hardware_interface::CallbackReturn
@@ -140,17 +126,6 @@ private:
     static constexpr std::size_t command_count =
         rmgo_core::io_state_interfaces::referee_command_interfaces.size();
 
-    struct InterfaceName {
-        std::string prefix;
-        std::string name;
-    };
-
-    struct RefereeInterface {
-        std::string prefix;
-        std::string name;
-        std::size_t index = 0;
-    };
-
     class Endpoint final : public rmgo_core::referee::RefereeTransferEndpoint {
     public:
         explicit Endpoint(RefereeGzSystemInterface& owner)
@@ -177,58 +152,8 @@ private:
         RefereeGzSystemInterface& owner_;
     };
 
-    static std::optional<InterfaceName> split_interface_name(std::string_view full_name) {
-        const auto slash = full_name.rfind('/');
-        if (slash == std::string_view::npos || slash == 0 || slash == full_name.size() - 1) {
-            return std::nullopt;
-        }
-        return InterfaceName{
-            .prefix = std::string{full_name.substr(0, slash)},
-            .name = std::string{full_name.substr(slash + 1)},
-        };
-    }
-
-    static std::vector<RefereeInterface> make_referee_interfaces() {
-        return make_interfaces(rmgo_core::io_state_interfaces::referee_state_interfaces);
-    }
-
-    static std::vector<RefereeInterface> make_command_interfaces() {
-        return make_interfaces(rmgo_core::io_state_interfaces::referee_command_interfaces);
-    }
-
-    template <typename Names>
-    static std::vector<RefereeInterface> make_interfaces(const Names& names) {
-        auto interfaces = std::vector<RefereeInterface>{};
-        interfaces.reserve(names.size());
-        for (std::string_view full_name : names) {
-            const auto split_name = split_interface_name(full_name);
-            if (!split_name.has_value()) {
-                continue;
-            }
-            interfaces.push_back(
-                RefereeInterface{
-                    .prefix = split_name->prefix,
-                    .name = split_name->name,
-                    .index = interfaces.size(),
-                });
-        }
-        return interfaces;
-    }
-
     void set_state(std::string_view name, double value) {
-        const auto split_name = split_interface_name(name);
-        if (!split_name.has_value()) {
-            return;
-        }
-
-        const auto referee_interface = std::find_if(
-            referee_interfaces_.begin(), referee_interfaces_.end(),
-            [&](const RefereeInterface& candidate) {
-                return candidate.prefix == split_name->prefix && candidate.name == split_name->name;
-            });
-        if (referee_interface != referee_interfaces_.end()) {
-            states_[referee_interface->index] = value;
-        }
+        (void)set_scalar_interface_value(referee_interfaces_, states_, name, value);
     }
 
     void update_mock_states() {
@@ -272,8 +197,10 @@ private:
     std::array<double, state_count> states_{};
     std::array<double, command_count> commands_{};
     std::array<double, command_count> previous_commands_{};
-    std::vector<RefereeInterface> referee_interfaces_ = make_referee_interfaces();
-    std::vector<RefereeInterface> command_interfaces_ = make_command_interfaces();
+    std::vector<rmgo_utility::ScalarInterface> referee_interfaces_ =
+        make_scalar_interfaces(rmgo_core::io_state_interfaces::referee_state_interfaces);
+    std::vector<rmgo_utility::ScalarInterface> command_interfaces_ =
+        make_scalar_interfaces(rmgo_core::io_state_interfaces::referee_command_interfaces);
     rclcpp::Node::SharedPtr node_;
     std::string transfer_path_{rmgo_core::referee::default_transfer_path};
     std::shared_ptr<Endpoint> endpoint_;

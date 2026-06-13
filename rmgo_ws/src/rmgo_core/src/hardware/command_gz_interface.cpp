@@ -1,8 +1,5 @@
 #include <array>
 #include <map>
-#include <optional>
-#include <string>
-#include <string_view>
 #include <vector>
 
 #include <gz/sim/EntityComponentManager.hh>
@@ -18,12 +15,14 @@
 
 #include "rmgo_core/interface/command_state_interfaces.hpp"
 #include "rmgo_utility/node_mixin.hpp"
+#include "rmgo_utility/scalar_interface_mixin.hpp"
 
 namespace rmgo_core::interface {
 
 class CommandGzInterface final
     : public gz_ros2_control::GazeboSimSystemInterface
-    , public rmgo_utility::NodeMixin {
+    , public rmgo_utility::NodeMixin
+    , public rmgo_utility::ScalarInterfaceMixin {
 public:
     bool initSim(
         rclcpp::Node::SharedPtr& model_nh, std::map<std::string, gz::sim::Entity>& /*joints*/,
@@ -50,25 +49,11 @@ public:
     }
 
     std::vector<hardware_interface::StateInterface> export_state_interfaces() override {
-        auto interfaces = std::vector<hardware_interface::StateInterface>{};
-        interfaces.reserve(command_interfaces_.size());
-        for (const auto& command_interface : command_interfaces_) {
-            interfaces.emplace_back(
-                command_interface.prefix, command_interface.name,
-                &states_[command_interface.index]);
-        }
-        return interfaces;
+        return export_scalar_state_interfaces(command_interfaces_, states_);
     }
 
     std::vector<hardware_interface::CommandInterface> export_command_interfaces() override {
-        auto interfaces = std::vector<hardware_interface::CommandInterface>{};
-        interfaces.reserve(command_interfaces_.size());
-        for (const auto& command_interface : command_interfaces_) {
-            interfaces.emplace_back(
-                command_interface.prefix, command_interface.name,
-                &commands_[command_interface.index]);
-        }
-        return interfaces;
+        return export_scalar_command_interfaces(command_interfaces_, commands_);
     }
 
     hardware_interface::CallbackReturn
@@ -107,48 +92,10 @@ private:
     static constexpr std::size_t command_state_count =
         rmgo_core::command_state_interfaces::all_interfaces.size();
 
-    struct InterfaceName {
-        std::string prefix;
-        std::string name;
-    };
-
-    struct BusInterface {
-        std::string prefix;
-        std::string name;
-        std::size_t index = 0;
-    };
-
-    static std::optional<InterfaceName> split_interface_name(std::string_view full_name) {
-        const auto slash = full_name.rfind('/');
-        if (slash == std::string_view::npos || slash == 0 || slash == full_name.size() - 1) {
-            return std::nullopt;
-        }
-        return InterfaceName{
-            .prefix = std::string{full_name.substr(0, slash)},
-            .name = std::string{full_name.substr(slash + 1)},
-        };
-    }
-
-    static std::vector<BusInterface> make_command_interfaces() {
-        auto interfaces = std::vector<BusInterface>{};
-        interfaces.reserve(rmgo_core::command_state_interfaces::all_interfaces.size());
-        for (std::string_view full_name : rmgo_core::command_state_interfaces::all_interfaces) {
-            const auto split_name = split_interface_name(full_name);
-            if (!split_name.has_value()) {
-                continue;
-            }
-            interfaces.push_back(BusInterface{
-                .prefix = split_name->prefix,
-                .name = split_name->name,
-                .index = interfaces.size(),
-            });
-        }
-        return interfaces;
-    }
-
     std::array<double, command_state_count> commands_{};
     std::array<double, command_state_count> states_{};
-    std::vector<BusInterface> command_interfaces_ = make_command_interfaces();
+    std::vector<rmgo_utility::ScalarInterface> command_interfaces_ =
+        make_scalar_interfaces(rmgo_core::command_state_interfaces::all_interfaces);
     rclcpp::Node::SharedPtr node_;
 };
 
