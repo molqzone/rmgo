@@ -89,8 +89,8 @@ add_library(
   src/hardware/refere/referee_protocol.cpp
   src/hardware/refere/referee_system_interface.cpp
   src/hardware/refere/referee_transfer_registry.cpp
-  src/hardware/refere/referee_ui.cpp
-  src/hardware/refere/referee_ui_profile.cpp
+  src/referee/ui/profile.cpp
+  src/referee/ui/referee_ui.cpp
 )
 
 target_compile_features(rmgo_chassis_controller PUBLIC cxx_std_23)
