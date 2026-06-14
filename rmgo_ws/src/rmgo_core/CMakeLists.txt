@@ -86,6 +86,7 @@ add_library(
   src/hardware/command_endpoint_gz_interface.cpp
   src/hardware/omni_infantry/omni_infantry_gz_interface.cpp
   src/hardware/refere/referee_gz_system_interface.cpp
+  src/hardware/refere/referee_interaction.cpp
   src/hardware/refere/referee_protocol.cpp
   src/hardware/refere/referee_system_interface.cpp
   src/hardware/refere/referee_transfer_registry.cpp

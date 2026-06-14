@@ -4,31 +4,43 @@
 
 namespace rmgo_core::io_state_interfaces {
 
-inline constexpr const char* remote_dr16_ch0 = "remote/dr16/ch0";
-inline constexpr const char* remote_dr16_ch1 = "remote/dr16/ch1";
-inline constexpr const char* remote_dr16_ch2 = "remote/dr16/ch2";
-inline constexpr const char* remote_dr16_ch3 = "remote/dr16/ch3";
-inline constexpr const char* remote_dr16_s1 = "remote/dr16/s1";
-inline constexpr const char* remote_dr16_s2 = "remote/dr16/s2";
-inline constexpr const char* remote_dr16_online = "remote/dr16/online";
+inline constexpr const char *remote_dr16_ch0 = "remote/dr16/ch0";
+inline constexpr const char *remote_dr16_ch1 = "remote/dr16/ch1";
+inline constexpr const char *remote_dr16_ch2 = "remote/dr16/ch2";
+inline constexpr const char *remote_dr16_ch3 = "remote/dr16/ch3";
+inline constexpr const char *remote_dr16_s1 = "remote/dr16/s1";
+inline constexpr const char *remote_dr16_s2 = "remote/dr16/s2";
+inline constexpr const char *remote_dr16_online = "remote/dr16/online";
 
 inline constexpr std::array remote_state_interfaces{
     remote_dr16_ch0, remote_dr16_ch1, remote_dr16_ch2,    remote_dr16_ch3,
     remote_dr16_s1,  remote_dr16_s2,  remote_dr16_online,
 };
 
-inline constexpr const char* gimbal_imu_orientation_w = "gimbal/imu/orientation.w";
-inline constexpr const char* gimbal_imu_orientation_x = "gimbal/imu/orientation.x";
-inline constexpr const char* gimbal_imu_orientation_y = "gimbal/imu/orientation.y";
-inline constexpr const char* gimbal_imu_orientation_z = "gimbal/imu/orientation.z";
-inline constexpr const char* gimbal_imu_angular_velocity_x = "gimbal/imu/angular_velocity.x";
-inline constexpr const char* gimbal_imu_angular_velocity_y = "gimbal/imu/angular_velocity.y";
-inline constexpr const char* gimbal_imu_angular_velocity_z = "gimbal/imu/angular_velocity.z";
-inline constexpr const char* gimbal_imu_linear_acceleration_x = "gimbal/imu/linear_acceleration.x";
-inline constexpr const char* gimbal_imu_linear_acceleration_y = "gimbal/imu/linear_acceleration.y";
-inline constexpr const char* gimbal_imu_linear_acceleration_z = "gimbal/imu/linear_acceleration.z";
-inline constexpr const char* gimbal_yaw_velocity_imu = "gimbal/yaw/velocity_imu";
-inline constexpr const char* gimbal_pitch_velocity_imu = "gimbal/pitch/velocity_imu";
+inline constexpr const char *gimbal_imu_orientation_w =
+    "gimbal/imu/orientation.w";
+inline constexpr const char *gimbal_imu_orientation_x =
+    "gimbal/imu/orientation.x";
+inline constexpr const char *gimbal_imu_orientation_y =
+    "gimbal/imu/orientation.y";
+inline constexpr const char *gimbal_imu_orientation_z =
+    "gimbal/imu/orientation.z";
+inline constexpr const char *gimbal_imu_angular_velocity_x =
+    "gimbal/imu/angular_velocity.x";
+inline constexpr const char *gimbal_imu_angular_velocity_y =
+    "gimbal/imu/angular_velocity.y";
+inline constexpr const char *gimbal_imu_angular_velocity_z =
+    "gimbal/imu/angular_velocity.z";
+inline constexpr const char *gimbal_imu_linear_acceleration_x =
+    "gimbal/imu/linear_acceleration.x";
+inline constexpr const char *gimbal_imu_linear_acceleration_y =
+    "gimbal/imu/linear_acceleration.y";
+inline constexpr const char *gimbal_imu_linear_acceleration_z =
+    "gimbal/imu/linear_acceleration.z";
+inline constexpr const char *gimbal_yaw_velocity_imu =
+    "gimbal/yaw/velocity_imu";
+inline constexpr const char *gimbal_pitch_velocity_imu =
+    "gimbal/pitch/velocity_imu";
 
 // This quaternion represents the transform from PitchLink to OdomImu.
 inline constexpr std::array gimbal_imu_orientation_state_interfaces{
@@ -47,20 +59,49 @@ inline constexpr std::array gimbal_imu_state_interfaces{
     gimbal_yaw_velocity_imu,          gimbal_pitch_velocity_imu,
 };
 
-inline constexpr const char* referee_online = "referee/online";
-inline constexpr const char* referee_id = "referee/id";
-inline constexpr const char* referee_game_stage = "referee/game/stage";
-inline constexpr const char* referee_game_stage_remain_time = "referee/game/stage_remain_time";
-inline constexpr const char* referee_hp = "referee/hp";
-inline constexpr const char* referee_max_hp = "referee/max_hp";
-inline constexpr const char* referee_shooter_cooling = "referee/shooter/cooling";
-inline constexpr const char* referee_shooter_heat_limit = "referee/shooter/heat_limit";
-inline constexpr const char* referee_shooter_bullet_allowance = "referee/shooter/bullet_allowance";
-inline constexpr const char* referee_shooter_1_heat = "referee/shooter/1/heat";
-inline constexpr const char* referee_shooter_2_heat = "referee/shooter/2/heat";
-inline constexpr const char* referee_chassis_power_limit = "referee/chassis/power_limit";
-inline constexpr const char* referee_chassis_power = "referee/chassis/power";
-inline constexpr const char* referee_chassis_buffer_energy = "referee/chassis/buffer_energy";
+inline constexpr const char *referee_online = "referee/online";
+inline constexpr const char *referee_id = "referee/id";
+inline constexpr const char *referee_game_stage = "referee/game/stage";
+inline constexpr const char *referee_game_stage_remain_time =
+    "referee/game/stage_remain_time";
+inline constexpr const char *referee_hp = "referee/hp";
+inline constexpr const char *referee_max_hp = "referee/max_hp";
+inline constexpr const char *referee_shooter_cooling =
+    "referee/shooter/cooling";
+inline constexpr const char *referee_shooter_heat_limit =
+    "referee/shooter/heat_limit";
+inline constexpr const char *referee_shooter_bullet_allowance =
+    "referee/shooter/bullet_allowance";
+inline constexpr const char *referee_shooter_1_heat = "referee/shooter/1/heat";
+inline constexpr const char *referee_shooter_2_heat = "referee/shooter/2/heat";
+inline constexpr const char *referee_chassis_power_limit =
+    "referee/chassis/power_limit";
+inline constexpr const char *referee_chassis_power = "referee/chassis/power";
+inline constexpr const char *referee_chassis_buffer_energy =
+    "referee/chassis/buffer_energy";
+inline constexpr const char *referee_radar_mark_hero =
+    "referee/radar/mark/hero";
+inline constexpr const char *referee_radar_mark_engineer =
+    "referee/radar/mark/engineer";
+inline constexpr const char *referee_radar_mark_infantry_3 =
+    "referee/radar/mark/infantry_3";
+inline constexpr const char *referee_radar_mark_infantry_4 =
+    "referee/radar/mark/infantry_4";
+inline constexpr const char *referee_radar_mark_infantry_5 =
+    "referee/radar/mark/infantry_5";
+inline constexpr const char *referee_radar_mark_sentry =
+    "referee/radar/mark/sentry";
+inline constexpr const char *referee_radar_double_effect_chance =
+    "referee/radar/double_effect/chance";
+inline constexpr const char *referee_radar_double_effect_active =
+    "referee/radar/double_effect/active";
+inline constexpr const char *referee_dart_remaining_time =
+    "referee/dart/remaining_time";
+inline constexpr const char *referee_dart_latest_hit_target =
+    "referee/dart/latest_hit_target";
+inline constexpr const char *referee_dart_hit_count = "referee/dart/hit_count";
+inline constexpr const char *referee_dart_selected_target =
+    "referee/dart/selected_target";
 
 inline constexpr std::array chassis_power_state_interfaces{
     referee_chassis_power,
@@ -83,11 +124,26 @@ inline constexpr std::array referee_state_interfaces{
     referee_chassis_power_limit,
     referee_chassis_power,
     referee_chassis_buffer_energy,
+    referee_radar_mark_hero,
+    referee_radar_mark_engineer,
+    referee_radar_mark_infantry_3,
+    referee_radar_mark_infantry_4,
+    referee_radar_mark_infantry_5,
+    referee_radar_mark_sentry,
+    referee_radar_double_effect_chance,
+    referee_radar_double_effect_active,
+    referee_dart_remaining_time,
+    referee_dart_latest_hit_target,
+    referee_dart_hit_count,
+    referee_dart_selected_target,
 };
 
-inline constexpr const char* referee_command_ui_clear_layer = "referee/command/ui/clear_layer";
-inline constexpr const char* referee_command_ui_clear_all = "referee/command/ui/clear_all";
-inline constexpr const char* referee_command_sequence = "referee/command/sequence";
+inline constexpr const char *referee_command_ui_clear_layer =
+    "referee/command/ui/clear_layer";
+inline constexpr const char *referee_command_ui_clear_all =
+    "referee/command/ui/clear_all";
+inline constexpr const char *referee_command_sequence =
+    "referee/command/sequence";
 
 inline constexpr std::array referee_command_interfaces{
     referee_command_ui_clear_layer,
