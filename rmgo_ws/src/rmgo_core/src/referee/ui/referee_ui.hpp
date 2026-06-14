@@ -9,7 +9,7 @@
 #include <string_view>
 #include <vector>
 
-#include "rmgo_core/referee/referee_transfer_registry.hpp"
+#include "referee/transfer_registry.hpp"
 
 namespace rmgo_core::referee::ui {
 

@@ -1,5 +1,4 @@
 #include <array>
-#include <chrono>
 #include <cstddef>
 #include <map>
 #include <memory>
@@ -20,8 +19,8 @@
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "rmgo_core/interface/io_state_interfaces.hpp"
-#include "rmgo_core/referee/referee_protocol.hpp"
-#include "rmgo_core/referee/referee_transfer_registry.hpp"
+#include "referee/protocol.hpp"
+#include "referee/transfer_registry.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 #include "rmgo_utility/scalar_interface_mixin.hpp"
 
@@ -138,12 +137,10 @@ private:
 
   class Endpoint final : public rmgo_core::referee::RefereeTransferEndpoint {
   public:
-    explicit Endpoint(RefereeGzSystemInterface &owner) : owner_(owner) {}
+    explicit Endpoint(RefereeGzSystemInterface & /*owner*/) {}
 
-    bool read_snapshot(
-        rmgo_core::referee::RefereeSnapshot &out) const noexcept override {
-      out = owner_.mock_snapshot();
-      return true;
+    std::uint16_t self_robot_id() const noexcept override {
+      return static_cast<std::uint16_t>(robot_id);
     }
 
     rmgo_core::referee::RefereeTransferResult
@@ -161,8 +158,6 @@ private:
                        : rmgo_core::referee::RefereeTransferResult::Accepted;
     }
 
-  private:
-    RefereeGzSystemInterface &owner_;
   };
 
   void set_state(std::string_view name, double value) {
@@ -197,26 +192,6 @@ private:
     set_state(referee_dart_hit_count, 0.0);
     set_state(referee_dart_selected_target, 0.0);
     set_state(referee_online, mock_online);
-  }
-
-  static rmgo_core::referee::RefereeSnapshot mock_snapshot() noexcept {
-    return rmgo_core::referee::RefereeSnapshot{
-        .online = true,
-        .robot_id = robot_id,
-        .game_progress = game_progress,
-        .stage_remain_time = stage_remain_time,
-        .self_hp = robot_hp,
-        .max_hp = robot_max_hp,
-        .chassis_power_limit = chassis_power_limit,
-        .chassis_power = chassis_power,
-        .chassis_power_buffer = chassis_power_buffer,
-        .shooter_heat_17mm_1 = shooter_heat,
-        .shooter_heat_17mm_2 = 0.0,
-        .heat_limit_17mm = shooter_heat_limit,
-        .cooling_rate_17mm = shooter_cooling,
-        .projectile_allowance_17mm = projectile_allowance_17mm,
-        .last_update = std::chrono::steady_clock::now(),
-    };
   }
 
   std::array<double, state_count> states_{};

@@ -6,8 +6,8 @@
 #include <optional>
 #include <span>
 
-#include "rmgo_core/referee/referee_protocol.hpp"
-#include "rmgo_core/referee/referee_transfer_registry.hpp"
+#include "referee/protocol.hpp"
+#include "referee/transfer_registry.hpp"
 
 namespace rmgo_core::referee {
 
@@ -45,7 +45,7 @@ void write_float_le(std::span<std::byte> buffer, std::size_t &written,
                     float value) noexcept;
 
 std::optional<InteractiveHeader> make_client_interactive_header(
-    const RefereeSnapshot &snapshot,
+    std::uint16_t robot_id,
     InteractiveDataCommandId data_command_id) noexcept;
 std::optional<InteractiveHeader> make_client_interactive_header(
     RefereeTransferEndpoint &endpoint,

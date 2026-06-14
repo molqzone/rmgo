@@ -1,6 +1,7 @@
-#include "rmgo_core/referee/referee_protocol.hpp"
+#include "referee/protocol.hpp"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <chrono>
 #include <cstring>
@@ -13,6 +14,41 @@ namespace {
 constexpr std::size_t header_size = referee_frame_header_size;
 constexpr std::size_t command_id_size = referee_frame_command_id_size;
 constexpr std::size_t frame_crc_size = referee_frame_crc_size;
+using Field = RefereeStatusField;
+
+constexpr std::array game_robot_hp_fields{
+    Field::robots_hp_red_1,  Field::robots_hp_red_2,
+    Field::robots_hp_red_3,  Field::robots_hp_red_4,
+    Field::robots_hp_red_5,  Field::robots_hp_red_7,
+    Field::robots_hp_red_outpost, Field::robots_hp_red_base,
+    Field::robots_hp_blue_1, Field::robots_hp_blue_2,
+    Field::robots_hp_blue_3, Field::robots_hp_blue_4,
+    Field::robots_hp_blue_5, Field::robots_hp_blue_7,
+    Field::robots_hp_blue_outpost, Field::robots_hp_blue_base,
+};
+
+constexpr std::array ally_robot_position_fields{
+    Field::ally_hero_position_x,       Field::ally_hero_position_y,
+    Field::ally_engineer_position_x,   Field::ally_engineer_position_y,
+    Field::ally_infantry_3_position_x, Field::ally_infantry_3_position_y,
+    Field::ally_infantry_4_position_x, Field::ally_infantry_4_position_y,
+    Field::ally_infantry_5_position_x, Field::ally_infantry_5_position_y,
+};
+
+constexpr std::array opponent_map_robot_position_fields{
+    Field::opponent_hero_position_x,       Field::opponent_hero_position_y,
+    Field::opponent_engineer_position_x,   Field::opponent_engineer_position_y,
+    Field::opponent_infantry_3_position_x, Field::opponent_infantry_3_position_y,
+    Field::opponent_infantry_4_position_x, Field::opponent_infantry_4_position_y,
+    Field::opponent_uav_position_x,        Field::opponent_uav_position_y,
+    Field::opponent_sentry_position_x,     Field::opponent_sentry_position_y,
+};
+
+constexpr std::array radar_mark_fields{
+    Field::radar_mark_hero,       Field::radar_mark_engineer,
+    Field::radar_mark_infantry_3, Field::radar_mark_infantry_4,
+    Field::radar_mark_infantry_5, Field::radar_mark_sentry,
+};
 
 std::uint8_t byte_value(std::byte value) noexcept {
   return static_cast<std::uint8_t>(value);
@@ -24,38 +60,41 @@ std::uint16_t read_u16(std::span<const std::byte> data,
          static_cast<std::uint16_t>(byte_value(data[offset + 1]) << 8U);
 }
 
+std::uint32_t read_u32(std::span<const std::byte> data,
+                       std::size_t offset) noexcept {
+  return static_cast<std::uint32_t>(byte_value(data[offset])) |
+         (static_cast<std::uint32_t>(byte_value(data[offset + 1])) << 8U) |
+         (static_cast<std::uint32_t>(byte_value(data[offset + 2])) << 16U) |
+         (static_cast<std::uint32_t>(byte_value(data[offset + 3])) << 24U);
+}
+
+std::uint64_t read_u64(std::span<const std::byte> data,
+                       std::size_t offset) noexcept {
+  return static_cast<std::uint64_t>(read_u32(data, offset)) |
+         (static_cast<std::uint64_t>(read_u32(data, offset + 4)) << 32U);
+}
+
 std::uint8_t read_u8(std::span<const std::byte> data,
                      std::size_t offset) noexcept {
   return byte_value(data[offset]);
 }
 
 float read_float(std::span<const std::byte> data, std::size_t offset) noexcept {
-  std::uint32_t raw =
-      static_cast<std::uint32_t>(byte_value(data[offset])) |
-      (static_cast<std::uint32_t>(byte_value(data[offset + 1])) << 8U) |
-      (static_cast<std::uint32_t>(byte_value(data[offset + 2])) << 16U) |
-      (static_cast<std::uint32_t>(byte_value(data[offset + 3])) << 24U);
+  std::uint32_t raw = read_u32(data, offset);
   return std::bit_cast<float>(raw);
 }
 
-void mark_online(RefereeSnapshot &snapshot) noexcept {
-  snapshot.online = true;
-  snapshot.last_update = std::chrono::steady_clock::now();
+void mark_online(RefereeStatusSink &status) noexcept {
+  const auto now = std::chrono::steady_clock::now();
+  status.set(Field::online, 1.0);
+  status.mark_online(now);
 }
 
 } // namespace
 
-std::uint8_t crc8(std::span<const std::byte> bytes) noexcept {
-  return rmgo_utility::utility::crc8_dji(bytes);
-}
-
-std::uint16_t crc16(std::span<const std::byte> bytes) noexcept {
-  return rmgo_utility::utility::crc16_dji(bytes);
-}
-
 bool has_valid_header_crc(std::span<const std::byte> header) noexcept {
   return header.size() == header_size &&
-         crc8(header.first<header_size - 1>()) ==
+         rmgo_utility::utility::crc8_dji(header.first<header_size - 1>()) ==
              byte_value(header[header_size - 1]);
 }
 
@@ -64,7 +103,7 @@ bool has_valid_frame_crc(std::span<const std::byte> frame) noexcept {
     return false;
   }
   const std::uint16_t expected = read_u16(frame, frame.size() - frame_crc_size);
-  return crc16(frame.first(frame.size() - frame_crc_size)) == expected;
+  return rmgo_utility::utility::crc16_dji(frame.first(frame.size() - frame_crc_size)) == expected;
 }
 
 std::vector<std::byte> pack_frame(std::uint8_t sequence,
@@ -104,13 +143,13 @@ pack_frame(std::span<std::byte> output, std::uint8_t sequence,
   frame[2] = static_cast<std::byte>((payload_size >> 8U) & 0xFFU);
   frame[3] = static_cast<std::byte>(sequence);
   frame[4] = static_cast<std::byte>(
-      crc8(std::span<const std::byte>{frame}.first<4>()));
+      rmgo_utility::utility::crc8_dji(std::span<const std::byte>{frame}.first<4>()));
   frame[5] = static_cast<std::byte>(command_id & 0xFFU);
   frame[6] = static_cast<std::byte>((command_id >> 8U) & 0xFFU);
   std::copy(payload.begin(), payload.end(),
             frame.begin() + header_size + command_id_size);
 
-  const std::uint16_t frame_crc = crc16(
+  const std::uint16_t frame_crc = rmgo_utility::utility::crc16_dji(
       std::span<const std::byte>{frame}.first(frame.size() - frame_crc_size));
   frame[frame.size() - 2] = static_cast<std::byte>(frame_crc & 0xFFU);
   frame[frame.size() - 1] = static_cast<std::byte>((frame_crc >> 8U) & 0xFFU);
@@ -127,87 +166,189 @@ std::uint16_t client_id_from_robot_id(std::uint16_t robot_id) noexcept {
   return static_cast<std::uint16_t>(robot_id + 0x0100);
 }
 
-bool apply_frame_to_snapshot(const RefereeFrame &frame,
-                             RefereeSnapshot &snapshot) noexcept {
+bool apply_frame_to_status(const RefereeFrame &frame,
+                           RefereeStatusSink &status) noexcept {
   const auto data = std::span<const std::byte>{frame.payload};
-  mark_online(snapshot);
+  mark_online(status);
 
   switch (static_cast<CommandId>(frame.command_id)) {
   case CommandId::game_status:
     if (data.size() >= 3) {
-      snapshot.game_progress =
-          static_cast<double>((read_u8(data, 0) >> 4U) & 0x0FU);
-      snapshot.stage_remain_time = static_cast<double>(read_u16(data, 1));
+      status.set(Field::game_stage,
+                 static_cast<double>((read_u8(data, 0) >> 4U) & 0x0FU));
+      status.set(Field::game_stage_remain_time,
+                 static_cast<double>(read_u16(data, 1)));
+      if (data.size() >= 11) {
+        status.set(Field::game_sync_timestamp,
+                   static_cast<double>(read_u64(data, 3)));
+      }
     }
     return true;
   case CommandId::game_robot_hp:
-    if (data.size() >= snapshot.game_robot_hp.size() * sizeof(std::uint16_t)) {
-      for (std::size_t index = 0; index < snapshot.game_robot_hp.size();
-           ++index) {
-        snapshot.game_robot_hp[index] =
-            static_cast<double>(read_u16(data, index * 2));
+    if (data.size() >= game_robot_hp_fields.size() * sizeof(std::uint16_t)) {
+      for (std::size_t index = 0; index < game_robot_hp_fields.size(); ++index) {
+        status.set(game_robot_hp_fields[index],
+                   static_cast<double>(read_u16(data, index * 2)));
       }
+    }
+    return true;
+  case CommandId::event_data:
+    if (data.size() >= 4) {
+      const auto event_data = read_u32(data, 0);
+      status.set(Field::event_ally_small_energy_activation_status,
+                 static_cast<double>((event_data >> 3U) & 0x03U));
+      status.set(Field::event_ally_big_energy_activation_status,
+                 static_cast<double>((event_data >> 5U) & 0x03U));
+      status.set(Field::event_ally_fortress_occupation_status,
+                 static_cast<double>((event_data >> 25U) & 0x03U));
     }
     return true;
   case CommandId::dart_status:
     if (data.size() >= 3) {
       const auto dart_info = read_u16(data, 1);
-      snapshot.dart_remaining_time = static_cast<double>(read_u8(data, 0));
-      snapshot.dart_latest_hit_target = static_cast<double>(dart_info & 0x03U);
-      snapshot.dart_hit_count = static_cast<double>((dart_info >> 2U) & 0x07U);
-      snapshot.dart_selected_target =
-          static_cast<double>((dart_info >> 5U) & 0x03U);
+      status.set(Field::dart_remaining_time,
+                 static_cast<double>(read_u8(data, 0)));
+      status.set(Field::dart_latest_hit_target,
+                 static_cast<double>(dart_info & 0x03U));
+      status.set(Field::dart_hit_count,
+                 static_cast<double>((dart_info >> 3U) & 0x07U));
+      status.set(Field::dart_selected_target,
+                 static_cast<double>((dart_info >> 6U) & 0x03U));
     }
     return true;
   case CommandId::robot_status:
     if (data.size() >= 12) {
-      snapshot.robot_id = static_cast<double>(read_u8(data, 0));
-      snapshot.self_hp = static_cast<double>(read_u16(data, 2));
-      snapshot.max_hp = static_cast<double>(read_u16(data, 4));
-      snapshot.cooling_rate_17mm = static_cast<double>(read_u16(data, 6));
-      snapshot.heat_limit_17mm = static_cast<double>(read_u16(data, 8));
-      snapshot.chassis_power_limit = static_cast<double>(read_u16(data, 10));
+      status.set(Field::id, static_cast<double>(read_u8(data, 0)));
+      status.set(Field::hp, static_cast<double>(read_u16(data, 2)));
+      status.set(Field::max_hp, static_cast<double>(read_u16(data, 4)));
+      status.set(Field::shooter_cooling,
+                 static_cast<double>(read_u16(data, 6)));
+      status.set(Field::shooter_heat_limit,
+                 static_cast<double>(read_u16(data, 8)));
+      status.set(Field::chassis_power_limit,
+                 static_cast<double>(read_u16(data, 10)));
+      if (data.size() >= 13) {
+        status.set(Field::chassis_output_status,
+                   static_cast<double>((read_u8(data, 12) >> 1U) & 0x01U));
+      }
     }
     return true;
   case CommandId::power_heat:
     if (data.size() >= 14) {
-      snapshot.chassis_power = static_cast<double>(read_float(data, 4));
-      snapshot.chassis_power_buffer = static_cast<double>(read_u16(data, 8));
-      snapshot.shooter_heat_17mm_1 = static_cast<double>(read_u16(data, 10));
-      snapshot.shooter_heat_17mm_2 = static_cast<double>(read_u16(data, 12));
+      status.set(Field::chassis_power,
+                 static_cast<double>(read_float(data, 4)));
+      status.set(Field::chassis_buffer_energy,
+                 static_cast<double>(read_u16(data, 8)));
+      status.set(Field::shooter_1_heat,
+                 static_cast<double>(read_u16(data, 10)));
+      status.set(Field::shooter_2_heat,
+                 static_cast<double>(read_u16(data, 12)));
       if (data.size() >= 16) {
-        snapshot.shooter_heat_42mm = static_cast<double>(read_u16(data, 14));
+        // There is no exported 42mm heat interface yet; keep parity with the
+        // existing public interface surface rather than inventing one here.
       }
     }
     return true;
   case CommandId::projectile_allowance:
     if (data.size() >= 6) {
-      snapshot.projectile_allowance_17mm =
-          static_cast<double>(read_u16(data, 0));
-      snapshot.projectile_allowance_42mm =
-          static_cast<double>(read_u16(data, 2));
-      snapshot.remaining_gold_coin = static_cast<double>(read_u16(data, 4));
+      status.set(Field::shooter_bullet_allowance,
+                 static_cast<double>(read_u16(data, 0)));
+      status.set(Field::shooter_42mm_bullet_allowance,
+                 static_cast<double>(read_u16(data, 2)));
+      status.set(Field::remaining_gold_coin,
+                 static_cast<double>(read_u16(data, 4)));
+      if (data.size() >= 8) {
+        status.set(Field::shooter_fortress_17mm_bullet_allowance,
+                   static_cast<double>(read_u16(data, 6)));
+      }
     } else if (data.size() >= 2) {
-      snapshot.projectile_allowance_17mm =
-          static_cast<double>(read_u16(data, 0));
+      status.set(Field::shooter_bullet_allowance,
+                 static_cast<double>(read_u16(data, 0)));
+    }
+    return true;
+  case CommandId::game_robot_position:
+    if (data.size() >= ally_robot_position_fields.size() * sizeof(float)) {
+      for (std::size_t index = 0; index < ally_robot_position_fields.size();
+           ++index) {
+        status.set(ally_robot_position_fields[index],
+                   static_cast<double>(read_float(data, index * sizeof(float))));
+      }
     }
     return true;
   case CommandId::radar_mark_progress:
-    if (data.size() >= snapshot.radar_mark_progress.size()) {
-      for (std::size_t index = 0; index < snapshot.radar_mark_progress.size();
-           ++index) {
-        snapshot.radar_mark_progress[index] =
-            static_cast<double>(read_u8(data, index));
+    if (data.size() >= radar_mark_fields.size()) {
+      for (std::size_t index = 0; index < radar_mark_fields.size(); ++index) {
+        status.set(radar_mark_fields[index],
+                   static_cast<double>(read_u8(data, index)));
       }
     }
     return true;
   case CommandId::radar_info:
     if (!data.empty()) {
       const auto radar_info = read_u8(data, 0);
-      snapshot.radar_double_effect_chance =
-          static_cast<double>(radar_info & 0x03U);
-      snapshot.radar_double_effect_active =
-          static_cast<double>((radar_info >> 2U) & 0x01U);
+      status.set(Field::radar_double_effect_chance,
+                 static_cast<double>(radar_info & 0x03U));
+      status.set(Field::radar_double_effect_active,
+                 static_cast<double>((radar_info >> 2U) & 0x01U));
+    }
+    return true;
+  case CommandId::sentry_info:
+    if (data.size() >= 6) {
+      const auto sentry_info = read_u32(data, 0);
+      const auto sentry_info_2 = read_u16(data, 4);
+      status.set(Field::sentry_exchanged_bullet_allowance,
+                 static_cast<double>(sentry_info & 0x07FFU));
+      status.set(Field::sentry_remote_bullet_exchange_count,
+                 static_cast<double>((sentry_info >> 11U) & 0x0FU));
+      status.set(Field::sentry_can_confirm_free_revive,
+                 static_cast<double>((sentry_info >> 19U) & 0x01U));
+      status.set(Field::sentry_can_exchange_instant_revive,
+                 static_cast<double>((sentry_info >> 20U) & 0x01U));
+      status.set(Field::sentry_instant_revive_cost,
+                 static_cast<double>((sentry_info >> 21U) & 0x03FFU));
+      status.set(Field::sentry_exchangeable_bullet_allowance,
+                 static_cast<double>((sentry_info_2 >> 1U) & 0x07FFU));
+      status.set(Field::sentry_mode,
+                 static_cast<double>((sentry_info_2 >> 12U) & 0x03U));
+      status.set(Field::sentry_energy_mechanism_activatable,
+                 static_cast<double>((sentry_info_2 >> 14U) & 0x01U));
+    }
+    return true;
+  case CommandId::map_command:
+    if (data.size() >= 12) {
+      const auto previous_x = status.get(Field::map_command_target_position_x);
+      const auto previous_y = status.get(Field::map_command_target_position_y);
+      const auto previous_keyboard = status.get(Field::map_command_keyboard);
+      const auto previous_target = status.get(Field::map_command_target_robot_id);
+      const auto previous_source = status.get(Field::map_command_source);
+      const auto target_x = static_cast<double>(read_float(data, 0));
+      const auto target_y = static_cast<double>(read_float(data, 4));
+      const auto keyboard = static_cast<double>(read_u8(data, 8));
+      const auto target = static_cast<double>(read_u8(data, 9));
+      const auto source = static_cast<double>(read_u16(data, 10));
+      status.set(Field::map_command_target_position_x, target_x);
+      status.set(Field::map_command_target_position_y, target_y);
+      status.set(Field::map_command_keyboard, keyboard);
+      status.set(Field::map_command_target_robot_id, target);
+      status.set(Field::map_command_source, source);
+      if (target_x != previous_x || target_y != previous_y ||
+          keyboard != previous_keyboard || target != previous_target ||
+          source != previous_source) {
+        status.set(Field::map_command_sequence,
+                   status.get(Field::map_command_sequence) + 1.0);
+      }
+    }
+    return true;
+  case CommandId::radar_map_robot_data:
+    if (data.size() >=
+        opponent_map_robot_position_fields.size() * sizeof(std::uint16_t)) {
+      constexpr double centimeter_to_meter = 0.01;
+      for (std::size_t index = 0;
+           index < opponent_map_robot_position_fields.size(); ++index) {
+        status.set(opponent_map_robot_position_fields[index],
+                   static_cast<double>(read_u16(data, index * 2)) *
+                       centimeter_to_meter);
+      }
     }
     return true;
   case CommandId::student_interactive:

@@ -129,8 +129,10 @@ target_link_libraries(
 )
 
 target_include_directories(
-  rmgo_chassis_controller PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-                                 $<INSTALL_INTERFACE:include>
+  rmgo_chassis_controller
+  PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+         $<INSTALL_INTERFACE:include>
+  PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
 )
 
 install(TARGETS rmgo_chassis_controller DESTINATION lib/${PROJECT_NAME})

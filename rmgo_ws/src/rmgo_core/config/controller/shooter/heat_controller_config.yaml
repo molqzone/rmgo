@@ -11,7 +11,7 @@ heat_controller:
       gt<>: [0.0]
   extra_heat_per_shot:
     type: double
-    description: "Additional RMCS-style conservative heat margin added per shot."
+    description: "Additional conservative heat margin added per shot."
     validation:
       gt_eq<>: [0.0]
   reserved_heat:

@@ -130,8 +130,7 @@ private:
     static constexpr std::size_t wheel_count = 4;
 
     // ros2_control exchanges scalar reference interfaces, but the three values
-    // are semantically a BaseLink-frame chassis velocity command, matching the
-    // RMCS BaseLink::DirectionVector convention at this controller boundary.
+    // are semantically a BaseLink-frame chassis velocity command.
     static constexpr std::array<const char*, 3> base_link_velocity_suffixes = {
         "linear/x/velocity",
         "linear/y/velocity",

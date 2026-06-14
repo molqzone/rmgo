@@ -7,8 +7,6 @@
 #include <string>
 #include <string_view>
 
-#include "rmgo_core/referee/referee_snapshot.hpp"
-
 namespace rmgo_core::referee {
 
 inline constexpr std::string_view default_transfer_path = "/referee/serial";
@@ -25,7 +23,7 @@ class RefereeTransferEndpoint {
 public:
     virtual ~RefereeTransferEndpoint() = default;
 
-    virtual bool read_snapshot(RefereeSnapshot& out) const noexcept = 0;
+    virtual std::uint16_t self_robot_id() const noexcept = 0;
     virtual RefereeTransferResult
         send_frame(std::uint16_t command_id, std::span<const std::byte> payload) noexcept = 0;
     virtual RefereeTransferResult clear_ui(std::uint8_t layer) noexcept = 0;

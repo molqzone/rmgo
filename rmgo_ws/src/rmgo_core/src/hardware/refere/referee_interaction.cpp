@@ -1,4 +1,4 @@
-#include "rmgo_core/referee/referee_interaction.hpp"
+#include "referee/interaction.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -26,9 +26,8 @@ void write_float_le(std::span<std::byte> buffer, std::size_t &written,
 }
 
 std::optional<InteractiveHeader> make_client_interactive_header(
-    const RefereeSnapshot &snapshot,
+    std::uint16_t robot_id,
     InteractiveDataCommandId data_command_id) noexcept {
-  const auto robot_id = static_cast<std::uint16_t>(snapshot.robot_id);
   const auto client_id = client_id_from_robot_id(robot_id);
   if (robot_id == 0 || client_id == 0) {
     return std::nullopt;
@@ -44,11 +43,7 @@ std::optional<InteractiveHeader> make_client_interactive_header(
 std::optional<InteractiveHeader> make_client_interactive_header(
     RefereeTransferEndpoint &endpoint,
     InteractiveDataCommandId data_command_id) noexcept {
-  auto snapshot = RefereeSnapshot{};
-  if (!endpoint.read_snapshot(snapshot)) {
-    return std::nullopt;
-  }
-  return make_client_interactive_header(snapshot, data_command_id);
+  return make_client_interactive_header(endpoint.self_robot_id(), data_command_id);
 }
 
 std::optional<std::size_t>

@@ -3,7 +3,7 @@
 #include <memory>
 #include <string_view>
 
-#include "rmgo_core/referee/referee_ui.hpp"
+#include "referee/ui/referee_ui.hpp"
 
 namespace rmgo_core::referee::ui {
 

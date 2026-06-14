@@ -7,9 +7,9 @@
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "rmgo_core/interface/io_state_interfaces.hpp"
-#include "rmgo_core/referee/referee_transfer_registry.hpp"
-#include "rmgo_core/referee/referee_ui.hpp"
-#include "rmgo_core/referee/ui/profile.hpp"
+#include "referee/transfer_registry.hpp"
+#include "referee/ui/profile.hpp"
+#include "referee/ui/referee_ui.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 

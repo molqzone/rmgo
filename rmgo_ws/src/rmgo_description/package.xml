@@ -2,7 +2,7 @@
 <package format="3">
   <name>rmgo_description</name>
   <version>0.0.0</version>
-  <description>RMGO robot description assets derived from the RMCS omni infantry model.</description>
+  <description>RMGO robot description assets for the omni infantry model.</description>
   <maintainer email="todo@rmgo.local">rmgo</maintainer>
   <license>GPL-3.0-only</license>
 

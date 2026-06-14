@@ -1,4 +1,4 @@
-#include "rmgo_core/referee/referee_transfer_registry.hpp"
+#include "referee/transfer_registry.hpp"
 
 #include <mutex>
 #include <unordered_map>

@@ -1,4 +1,4 @@
-#include "rmgo_core/referee/ui/profile.hpp"
+#include "referee/ui/profile.hpp"
 
 #include <cmath>
 #include <cstdint>
