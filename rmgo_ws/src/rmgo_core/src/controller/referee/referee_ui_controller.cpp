@@ -1,4 +1,3 @@
-#include <cmath>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -10,6 +9,7 @@
 #include "rmgo_core/interface/io_state_interfaces.hpp"
 #include "rmgo_core/referee/referee_transfer_registry.hpp"
 #include "rmgo_core/referee/referee_ui.hpp"
+#include "rmgo_core/referee/ui/profile.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 
@@ -24,6 +24,7 @@ public:
         auto node = get_node();
         transfer_path_ = node->declare_parameter<std::string>(
             "transfer_path", std::string{rmgo_core::referee::default_transfer_path});
+        profile_name_ = node->declare_parameter<std::string>("profile", "infantry");
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
@@ -41,6 +42,13 @@ public:
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
         get_node()->get_parameter("transfer_path", transfer_path_);
+        get_node()->get_parameter("profile", profile_name_);
+        ui_profile_ = rmgo_core::referee::ui::make_ui_profile(profile_name_, ui_scheduler_);
+        if (ui_profile_ == nullptr) {
+            RCLCPP_ERROR(
+                get_node()->get_logger(), "Unknown referee UI profile '%s'", profile_name_.c_str());
+            return controller_interface::CallbackReturn::ERROR;
+        }
         transfer_endpoint_ = {};
         return controller_interface::CallbackReturn::SUCCESS;
     }
@@ -51,15 +59,18 @@ public:
         ui_scheduler_.reset_remote_state();
         last_game_stage_ = unknown_game_stage;
         last_online_ = false;
-        chassis_power_ui_.set_visible(true);
-        chassis_power_limit_ui_.set_visible(true);
+        if (ui_profile_ == nullptr) {
+            return controller_interface::CallbackReturn::ERROR;
+        }
+        ui_profile_->on_activate();
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
     controller_interface::CallbackReturn
         on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        chassis_power_ui_.set_visible(false);
-        chassis_power_limit_ui_.set_visible(false);
+        if (ui_profile_ != nullptr) {
+            ui_profile_->on_deactivate();
+        }
         if (auto endpoint = refresh_endpoint(); endpoint != nullptr) {
             (void)ui_scheduler_.update(*endpoint);
         }
@@ -80,14 +91,14 @@ public:
         last_online_ = online;
         last_game_stage_ = game_stage;
 
-        chassis_power_ui_.set_visible(online);
-        chassis_power_limit_ui_.set_visible(online);
-        if (online) {
-            chassis_power_ui_.set_value(
-                static_cast<std::int32_t>(std::lround(read_state(StateIndex::chassis_power))));
-            chassis_power_limit_ui_.set_value(
-                static_cast<std::int32_t>(
-                    std::lround(read_state(StateIndex::chassis_power_limit))));
+        if (ui_profile_ != nullptr) {
+            ui_profile_->update(
+                rmgo_core::referee::ui::RefereeUiState{
+                    .online = online,
+                    .game_stage = game_stage,
+                    .chassis_power_limit = read_state(StateIndex::chassis_power_limit),
+                    .chassis_power = read_state(StateIndex::chassis_power),
+                });
         }
         if (auto endpoint = refresh_endpoint(); endpoint != nullptr) {
             (void)ui_scheduler_.update(*endpoint);
@@ -117,26 +128,12 @@ private:
     }
 
     std::string transfer_path_{rmgo_core::referee::default_transfer_path};
+    std::string profile_name_{"infantry"};
     std::weak_ptr<rmgo_core::referee::RefereeTransferEndpoint> transfer_endpoint_;
     double last_game_stage_ = unknown_game_stage;
     bool last_online_ = false;
     rmgo_core::referee::ui::UiScheduler ui_scheduler_;
-    rmgo_core::referee::ui::Integer chassis_power_ui_{
-        ui_scheduler_,
-        rmgo_core::referee::ui::Color::white,
-        15,
-        2,
-        rmgo_core::referee::ui::x_center,
-        100,
-        0};
-    rmgo_core::referee::ui::Integer chassis_power_limit_ui_{
-        ui_scheduler_,
-        rmgo_core::referee::ui::Color::white,
-        15,
-        2,
-        rmgo_core::referee::ui::x_center,
-        150,
-        0};
+    std::unique_ptr<rmgo_core::referee::ui::UiProfile> ui_profile_;
 
     static constexpr double unknown_game_stage = 0.0;
     static constexpr double preparation_game_stage = 1.0;
