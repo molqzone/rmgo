@@ -5,6 +5,8 @@
   <xacro:arg name="referee_hardware_plugin" default="rmgo_core/RefereeSystemInterface"/>
   <xacro:arg name="controllers_file" default="$(find rmgo_description)/config/omni_infantry_controllers.yaml"/>
 
+  <xacro:include filename="$(find rmgo_description)/urdf/command_endpoints.xacro"/>
+
   <xacro:property name="wheel_distance_x" value="0.31794"/>
   <xacro:property name="wheel_distance_y" value="0.31794"/>
   <xacro:property name="gimbal_center_height" value="0.32059"/>
@@ -268,46 +270,12 @@
     </joint>
   </ros2_control>
 
-  <ros2_control name="CommandEndpointGz" type="system">
-    <hardware>
-      <plugin>$(arg command_hardware_plugin)</plugin>
-    </hardware>
-
-    <gpio name="command/chassis/linear/x">
-      <command_interface name="velocity"/>
-      <state_interface name="velocity"/>
-    </gpio>
-    <gpio name="command/chassis/linear/y">
-      <command_interface name="velocity"/>
-      <state_interface name="velocity"/>
-    </gpio>
-    <gpio name="command/chassis/angular/z">
-      <command_interface name="velocity"/>
-      <state_interface name="velocity"/>
-    </gpio>
-    <gpio name="command/chassis">
-      <command_interface name="mode"/>
-      <state_interface name="mode"/>
-    </gpio>
-    <gpio name="command/gimbal/yaw">
-      <command_interface name="velocity"/>
-      <state_interface name="velocity"/>
-    </gpio>
-    <gpio name="command/gimbal/pitch">
-      <command_interface name="velocity"/>
-      <state_interface name="velocity"/>
-    </gpio>
-    <gpio name="command/gimbal">
-      <command_interface name="enabled"/>
-      <state_interface name="enabled"/>
-    </gpio>
-    <gpio name="command/shooter">
-      <command_interface name="mode"/>
-      <command_interface name="sequence"/>
-      <state_interface name="mode"/>
-      <state_interface name="sequence"/>
-    </gpio>
-  </ros2_control>
+  <xacro:command_endpoint_system
+    name="CommandEndpointGz"
+    plugin="$(arg command_hardware_plugin)"
+    chassis="true"
+    gimbal="true"
+    shooter="true"/>
 
   <ros2_control name="Referee" type="system">
     <hardware>
