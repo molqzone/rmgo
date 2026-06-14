@@ -22,7 +22,7 @@
 
 namespace rmgo_core::interface {
 
-class CommandGzInterface final
+class CommandEndpointGzInterface final
     : public gz_ros2_control::GazeboSimSystemInterface
     , public rmgo_utility::NodeMixin
     , public rmgo_utility::ScalarInterfaceMixin {
@@ -50,9 +50,9 @@ public:
         state_interfaces_.clear();
         state_to_command_indices_.clear();
 
-        for (const auto& gpio : get_hardware_info().gpios) {
-            append_gpio_command_interfaces(gpio);
-            append_gpio_state_interfaces(gpio);
+        for (const auto& endpoint : get_hardware_info().gpios) {
+            append_endpoint_command_interfaces(endpoint);
+            append_endpoint_state_interfaces(endpoint);
         }
 
         commands_.assign(command_interfaces_.size(), 0.0);
@@ -130,17 +130,17 @@ private:
         return command == command_interfaces_.end() ? npos : command->index;
     }
 
-    void append_gpio_command_interfaces(const hardware_interface::ComponentInfo& gpio) {
-        for (const auto& command_interface : gpio.command_interfaces) {
+    void append_endpoint_command_interfaces(const hardware_interface::ComponentInfo& endpoint) {
+        for (const auto& command_interface : endpoint.command_interfaces) {
             command_interfaces_.push_back(make_scalar_interface(
-                gpio.name, command_interface.name, command_interfaces_.size()));
+                endpoint.name, command_interface.name, command_interfaces_.size()));
         }
     }
 
-    void append_gpio_state_interfaces(const hardware_interface::ComponentInfo& gpio) {
-        for (const auto& state_interface : gpio.state_interfaces) {
-            auto scalar_interface =
-                make_scalar_interface(gpio.name, state_interface.name, state_interfaces_.size());
+    void append_endpoint_state_interfaces(const hardware_interface::ComponentInfo& endpoint) {
+        for (const auto& state_interface : endpoint.state_interfaces) {
+            auto scalar_interface = make_scalar_interface(
+                endpoint.name, state_interface.name, state_interfaces_.size());
             state_to_command_indices_.push_back(find_command_index_for_state(scalar_interface));
             state_interfaces_.push_back(std::move(scalar_interface));
         }
@@ -159,4 +159,4 @@ private:
 } // namespace rmgo_core::interface
 
 PLUGINLIB_EXPORT_CLASS(
-    rmgo_core::interface::CommandGzInterface, gz_ros2_control::GazeboSimSystemInterface)
+    rmgo_core::interface::CommandEndpointGzInterface, gz_ros2_control::GazeboSimSystemInterface)

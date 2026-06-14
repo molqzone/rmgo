@@ -1,7 +1,7 @@
 <library path="rmgo_chassis_controller">
   <class
-    name="rmgo_core/CommandGzInterface"
-    type="rmgo_core::interface::CommandGzInterface"
+    name="rmgo_core/CommandEndpointGzInterface"
+    type="rmgo_core::interface::CommandEndpointGzInterface"
     base_class_type="gz_ros2_control::GazeboSimSystemInterface">
     <description>
       Gazebo ros2_control loopback system for declared scalar GPIO command interfaces.

@@ -83,7 +83,7 @@ add_library(
   src/controller/shooter/bullet_feeder_controller_17mm.cpp
   src/controller/shooter/friction_wheel_controller.cpp
   src/controller/shooter/heat_controller.cpp
-  src/hardware/command_gz_interface.cpp
+  src/hardware/command_endpoint_gz_interface.cpp
   src/hardware/omni_infantry/omni_infantry_gz_interface.cpp
   src/hardware/refere/referee_gz_system_interface.cpp
   src/hardware/refere/referee_protocol.cpp

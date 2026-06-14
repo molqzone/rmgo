@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <robot name="omni_infantry" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:arg name="hardware_plugin" default="rmgo_core/OmniInfantryGzInterface"/>
-  <xacro:arg name="command_hardware_plugin" default="rmgo_core/CommandGzInterface"/>
+  <xacro:arg name="command_hardware_plugin" default="rmgo_core/CommandEndpointGzInterface"/>
   <xacro:arg name="referee_hardware_plugin" default="rmgo_core/RefereeSystemInterface"/>
   <xacro:arg name="controllers_file" default="$(find rmgo_description)/config/omni_infantry_controllers.yaml"/>
 
@@ -268,7 +268,7 @@
     </joint>
   </ros2_control>
 
-  <ros2_control name="CommandGz" type="system">
+  <ros2_control name="CommandEndpointGz" type="system">
     <hardware>
       <plugin>$(arg command_hardware_plugin)</plugin>
     </hardware>
