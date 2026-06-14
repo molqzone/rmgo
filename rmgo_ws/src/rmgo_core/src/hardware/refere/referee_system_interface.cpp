@@ -129,16 +129,6 @@ speed_t baud_constant(int baudrate) {
     }
 }
 
-std::uint16_t client_id_from_robot_id(std::uint16_t robot_id) noexcept {
-    if (robot_id == 0) {
-        return 0;
-    }
-    if (robot_id > 100) {
-        return static_cast<std::uint16_t>(robot_id - 101 + 0x0165);
-    }
-    return static_cast<std::uint16_t>(robot_id + 0x0100);
-}
-
 class AtomicRefereeSnapshot {
 public:
     void store(const RefereeSnapshot& snapshot) noexcept {
@@ -425,7 +415,7 @@ private:
         }
 
         const std::uint16_t robot_id = robot_id_.load(std::memory_order_acquire);
-        const std::uint16_t client_id = client_id_from_robot_id(robot_id);
+        const std::uint16_t client_id = rmgo_core::referee::client_id_from_robot_id(robot_id);
         if (robot_id == 0 || client_id == 0) {
             return RefereeTransferResult::Inactive;
         }
@@ -661,6 +651,7 @@ private:
 
     void tx_loop(std::stop_token stop_token, int fd) {
         auto tx_frame = TxFrame{};
+        auto packed = std::array<std::byte, rmgo_core::referee::max_referee_frame_size>{};
         while (!stop_token.stop_requested()) {
             if (tx_queue_ == nullptr || !tx_queue_->pop_front([&](TxFrame&& frame) noexcept {
                     tx_frame = std::move(frame);
@@ -671,9 +662,13 @@ private:
 
             const auto payload =
                 std::span<const std::byte>{tx_frame.payload}.first(tx_frame.payload_size);
-            const auto packed =
-                rmgo_core::referee::pack_frame(next_tx_sequence_++, tx_frame.command_id, payload);
-            if (!write_all(stop_token, fd, packed) && !stop_token.stop_requested()) {
+            const auto packed_size = rmgo_core::referee::pack_frame(
+                packed, next_tx_sequence_++, tx_frame.command_id, payload);
+            if (!packed_size.has_value()) {
+                continue;
+            }
+            if (!write_all(stop_token, fd, std::span<const std::byte>{packed}.first(*packed_size))
+                && !stop_token.stop_requested()) {
                 mark_transport_fault();
                 return;
             }

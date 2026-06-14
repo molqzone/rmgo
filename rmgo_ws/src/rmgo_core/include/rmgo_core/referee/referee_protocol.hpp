@@ -12,6 +12,12 @@ namespace rmgo_core::referee {
 
 inline constexpr std::byte frame_sof{0xA5};
 inline constexpr std::size_t max_referee_payload_size = 1024;
+inline constexpr std::size_t referee_frame_header_size = 5;
+inline constexpr std::size_t referee_frame_command_id_size = 2;
+inline constexpr std::size_t referee_frame_crc_size = 2;
+inline constexpr std::size_t max_referee_frame_size =
+    referee_frame_header_size + referee_frame_command_id_size + max_referee_payload_size
+    + referee_frame_crc_size;
 
 enum class CommandId : std::uint16_t {
     game_status = 0x0001,
@@ -34,6 +40,11 @@ bool has_valid_frame_crc(std::span<const std::byte> frame) noexcept;
 
 std::vector<std::byte>
     pack_frame(std::uint8_t sequence, std::uint16_t command_id, std::span<const std::byte> payload);
+std::optional<std::size_t> pack_frame(
+    std::span<std::byte> output, std::uint8_t sequence, std::uint16_t command_id,
+    std::span<const std::byte> payload) noexcept;
+
+std::uint16_t client_id_from_robot_id(std::uint16_t robot_id) noexcept;
 
 bool apply_frame_to_snapshot(const RefereeFrame& frame, RefereeSnapshot& snapshot) noexcept;
 

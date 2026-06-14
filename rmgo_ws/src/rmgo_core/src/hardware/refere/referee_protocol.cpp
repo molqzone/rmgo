@@ -10,9 +10,9 @@
 namespace rmgo_core::referee {
 namespace {
 
-constexpr std::size_t header_size = 5;
-constexpr std::size_t command_id_size = 2;
-constexpr std::size_t frame_crc_size = 2;
+constexpr std::size_t header_size = referee_frame_header_size;
+constexpr std::size_t command_id_size = referee_frame_command_id_size;
+constexpr std::size_t frame_crc_size = referee_frame_crc_size;
 
 std::uint8_t byte_value(std::byte value) noexcept { return static_cast<std::uint8_t>(value); }
 
@@ -63,9 +63,30 @@ bool has_valid_frame_crc(std::span<const std::byte> frame) noexcept {
 
 std::vector<std::byte> pack_frame(
     std::uint8_t sequence, std::uint16_t command_id, std::span<const std::byte> payload) {
+    if (command_id == 0 || payload.size() > max_referee_payload_size) {
+        return {};
+    }
     const std::size_t frame_size = header_size + command_id_size + payload.size() + frame_crc_size;
     auto frame = std::vector<std::byte>(frame_size);
+    if (!pack_frame(std::span<std::byte>{frame}, sequence, command_id, payload).has_value()) {
+        return {};
+    }
+    return frame;
+}
 
+std::optional<std::size_t> pack_frame(
+    std::span<std::byte> output, std::uint8_t sequence, std::uint16_t command_id,
+    std::span<const std::byte> payload) noexcept {
+    if (command_id == 0 || payload.size() > max_referee_payload_size) {
+        return std::nullopt;
+    }
+
+    const std::size_t frame_size = header_size + command_id_size + payload.size() + frame_crc_size;
+    if (output.size() < frame_size) {
+        return std::nullopt;
+    }
+
+    auto frame = output.first(frame_size);
     frame[0] = frame_sof;
     const auto payload_size = static_cast<std::uint16_t>(payload.size());
     frame[1] = static_cast<std::byte>(payload_size & 0xFFU);
@@ -80,7 +101,17 @@ std::vector<std::byte> pack_frame(
         crc16(std::span<const std::byte>{frame}.first(frame.size() - frame_crc_size));
     frame[frame.size() - 2] = static_cast<std::byte>(frame_crc & 0xFFU);
     frame[frame.size() - 1] = static_cast<std::byte>((frame_crc >> 8U) & 0xFFU);
-    return frame;
+    return frame_size;
+}
+
+std::uint16_t client_id_from_robot_id(std::uint16_t robot_id) noexcept {
+    if (robot_id == 0) {
+        return 0;
+    }
+    if (robot_id > 100) {
+        return static_cast<std::uint16_t>(robot_id - 101 + 0x0165);
+    }
+    return static_cast<std::uint16_t>(robot_id + 0x0100);
 }
 
 bool apply_frame_to_snapshot(const RefereeFrame& frame, RefereeSnapshot& snapshot) noexcept {

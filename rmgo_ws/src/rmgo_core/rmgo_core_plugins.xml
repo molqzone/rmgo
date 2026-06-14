@@ -79,4 +79,12 @@
       RMCS-style 17mm bullet feeder controller for single, automatic, and eject modes.
     </description>
   </class>
+  <class
+    name="rmgo_core/RefereeUiController"
+    type="rmgo_core::controller::referee::RefereeUiController"
+    base_class_type="controller_interface::ControllerInterface">
+    <description>
+      RMCS-style referee UI object synchronizer for low-rate client display widgets.
+    </description>
+  </class>
 </library>

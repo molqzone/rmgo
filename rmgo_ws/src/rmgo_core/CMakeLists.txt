@@ -62,8 +62,7 @@ generate_parameter_library(
 )
 
 generate_parameter_library(
-  heat_controller_config
-  config/controller/shooter/heat_controller_config.yaml
+  heat_controller_config config/controller/shooter/heat_controller_config.yaml
 )
 
 generate_parameter_library(
@@ -80,15 +79,17 @@ add_library(
   src/controller/pid/error_pid_controller.cpp
   src/controller/pid/joint_velocity_pid_controller.cpp
   src/controller/remote/teleop_remote_controller.cpp
+  src/controller/referee/referee_ui_controller.cpp
   src/controller/shooter/bullet_feeder_controller_17mm.cpp
   src/controller/shooter/friction_wheel_controller.cpp
   src/controller/shooter/heat_controller.cpp
   src/hardware/command_gz_interface.cpp
-  src/hardware/omni_infantry_gz_interface.cpp
-  src/hardware/referee_gz_system_interface.cpp
-  src/hardware/referee_system_interface.cpp
-  src/referee/referee_protocol.cpp
-  src/referee/referee_transfer_registry.cpp
+  src/hardware/omni_infantry/omni_infantry_gz_interface.cpp
+  src/hardware/refere/referee_gz_system_interface.cpp
+  src/hardware/refere/referee_protocol.cpp
+  src/hardware/refere/referee_system_interface.cpp
+  src/hardware/refere/referee_transfer_registry.cpp
+  src/hardware/refere/referee_ui.cpp
 )
 
 target_compile_features(rmgo_chassis_controller PUBLIC cxx_std_23)
