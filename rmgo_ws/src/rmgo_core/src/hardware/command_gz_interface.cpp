@@ -1,5 +1,9 @@
-#include <array>
+#include <algorithm>
+#include <cstddef>
+#include <limits>
 #include <map>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include <gz/sim/EntityComponentManager.hh>
@@ -13,7 +17,6 @@
 #include <rclcpp/time.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
-#include "rmgo_core/interface/command_state_interfaces.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 #include "rmgo_utility/scalar_interface_mixin.hpp"
 
@@ -43,13 +46,22 @@ public:
             return hardware_interface::CallbackReturn::ERROR;
         }
 
-        commands_.fill(0.0);
-        states_.fill(0.0);
+        command_interfaces_.clear();
+        state_interfaces_.clear();
+        state_to_command_indices_.clear();
+
+        for (const auto& gpio : get_hardware_info().gpios) {
+            append_gpio_command_interfaces(gpio);
+            append_gpio_state_interfaces(gpio);
+        }
+
+        commands_.assign(command_interfaces_.size(), 0.0);
+        states_.assign(state_interfaces_.size(), 0.0);
         return hardware_interface::CallbackReturn::SUCCESS;
     }
 
     std::vector<hardware_interface::StateInterface> export_state_interfaces() override {
-        return export_scalar_state_interfaces(command_interfaces_, states_);
+        return export_scalar_state_interfaces(state_interfaces_, states_);
     }
 
     std::vector<hardware_interface::CommandInterface> export_command_interfaces() override {
@@ -84,19 +96,64 @@ public:
 
     hardware_interface::return_type
         write(const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
-        states_ = commands_;
+        for (std::size_t state_index = 0; state_index < state_to_command_indices_.size();
+             ++state_index) {
+            const auto command_index = state_to_command_indices_[state_index];
+            if (command_index != npos) {
+                states_[state_index] = commands_[command_index];
+            }
+        }
         return hardware_interface::return_type::OK;
     }
 
 private:
-    static constexpr std::size_t command_state_count =
-        rmgo_core::command_state_interfaces::all_interfaces.size();
+    static rmgo_utility::ScalarInterface make_scalar_interface(
+        const std::string& prefix, const std::string& name, std::size_t index) {
+        return rmgo_utility::ScalarInterface{
+            .prefix = prefix,
+            .name = name,
+            .index = index,
+        };
+    }
 
-    std::array<double, command_state_count> commands_{};
-    std::array<double, command_state_count> states_{};
-    std::vector<rmgo_utility::ScalarInterface> command_interfaces_ =
-        make_scalar_interfaces(rmgo_core::command_state_interfaces::all_interfaces);
+    static bool same_scalar_interface(
+        const rmgo_utility::ScalarInterface& lhs, const rmgo_utility::ScalarInterface& rhs) {
+        return lhs.prefix == rhs.prefix && lhs.name == rhs.name;
+    }
+
+    std::size_t find_command_index_for_state(const rmgo_utility::ScalarInterface& state) const {
+        const auto command = std::find_if(
+            command_interfaces_.begin(), command_interfaces_.end(),
+            [&](const rmgo_utility::ScalarInterface& candidate) {
+                return same_scalar_interface(candidate, state);
+            });
+        return command == command_interfaces_.end() ? npos : command->index;
+    }
+
+    void append_gpio_command_interfaces(const hardware_interface::ComponentInfo& gpio) {
+        for (const auto& command_interface : gpio.command_interfaces) {
+            command_interfaces_.push_back(make_scalar_interface(
+                gpio.name, command_interface.name, command_interfaces_.size()));
+        }
+    }
+
+    void append_gpio_state_interfaces(const hardware_interface::ComponentInfo& gpio) {
+        for (const auto& state_interface : gpio.state_interfaces) {
+            auto scalar_interface =
+                make_scalar_interface(gpio.name, state_interface.name, state_interfaces_.size());
+            state_to_command_indices_.push_back(find_command_index_for_state(scalar_interface));
+            state_interfaces_.push_back(std::move(scalar_interface));
+        }
+    }
+
+    std::vector<double> commands_;
+    std::vector<double> states_;
+    std::vector<std::size_t> state_to_command_indices_;
+    std::vector<rmgo_utility::ScalarInterface> command_interfaces_;
+    std::vector<rmgo_utility::ScalarInterface> state_interfaces_;
     rclcpp::Node::SharedPtr node_;
+
+    static constexpr auto npos = std::numeric_limits<std::size_t>::max();
 };
 
 } // namespace rmgo_core::interface

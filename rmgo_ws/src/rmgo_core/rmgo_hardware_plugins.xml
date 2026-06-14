@@ -4,7 +4,7 @@
     type="rmgo_core::interface::CommandGzInterface"
     base_class_type="gz_ros2_control::GazeboSimSystemInterface">
     <description>
-      Gazebo ros2_control loopback system for upper-level command interfaces.
+      Gazebo ros2_control loopback system for declared scalar GPIO command interfaces.
     </description>
   </class>
   <class
