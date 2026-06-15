@@ -1,5 +1,8 @@
 CompileFlags:
   CompilationDatabase: rmgo_ws/build/rmgo_core
+  Add:
+    - -I/workspaces/rmgo/rmgo_ws/src/rmgo_core/src
+    - -I/workspaces/rmgo/rmgo_ws/src/rmgo_utility/include
 
 Index:
   Background: Build

@@ -1,0 +1,284 @@
+#include "referee/ui/ui_internal.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <utility>
+
+#include "referee/interaction.hpp"
+
+namespace rmgo_core::referee::ui {
+namespace {
+
+constexpr std::size_t interaction_header_size = 6;
+
+std::pair<InteractiveDataCommandId, std::size_t> draw_command_for_count(std::size_t count) {
+    if (count <= 1) {
+        return {InteractiveDataCommandId::client_draw_one, 1};
+    }
+    if (count == 2) {
+        return {InteractiveDataCommandId::client_draw_two, 2};
+    }
+    if (count <= 5) {
+        return {InteractiveDataCommandId::client_draw_five, 5};
+    }
+    return {InteractiveDataCommandId::client_draw_seven, 7};
+}
+
+} // namespace
+
+InteractionUi::InteractionUi(std::chrono::milliseconds interaction_period)
+    : interaction_period_(interaction_period) {}
+
+InteractionUi::~InteractionUi() = default;
+
+std::optional<RefereeTransferResult> InteractionUi::update(
+    std::string_view transfer_path, std::chrono::steady_clock::time_point now) {
+    const auto endpoint = get_referee_transfer_endpoint(transfer_path);
+    if (endpoint == nullptr) {
+        return RefereeTransferResult::Inactive;
+    }
+    return update(*endpoint, now);
+}
+
+std::optional<RefereeTransferResult> InteractionUi::update(
+    RefereeTransferEndpoint& endpoint, std::chrono::steady_clock::time_point now) {
+    if (now < next_interaction_send_) {
+        return std::nullopt;
+    }
+
+    if (pending_clear_all_count_ != 0) {
+        const auto result = clear_all(endpoint);
+        if (result == RefereeTransferResult::Accepted) {
+            --pending_clear_all_count_;
+            const auto frame_size = interaction_header_size + 2 + 9;
+            const auto budget_period = std::chrono::duration<double>{
+                static_cast<double>(frame_size) / serial_budget_bytes_per_second_};
+            next_interaction_send_ =
+                now
+                + std::max(
+                    interaction_period_,
+                    std::chrono::duration_cast<std::chrono::milliseconds>(budget_period));
+        }
+        return result;
+    }
+
+    if (cfs_scheduler_.empty()) {
+        return std::nullopt;
+    }
+
+    auto selected = std::array<Shape*, 7>{};
+    auto operations = std::array<Operation, 7>{};
+    auto ignored = std::array<Shape*, 256>{};
+    std::size_t ignored_count = 0;
+    std::size_t selected_count = 0;
+    std::size_t operation_count = 0;
+    auto payload = std::array<
+        std::byte, interaction_header_size + 7 * graphic_description_size + text_content_size>{};
+    std::size_t payload_size = interaction_header_size;
+    std::optional<FrameKind> frame_kind;
+    while (auto* shape = cfs_scheduler_.next(
+               std::nullopt, std::span<Shape* const>{ignored}.first(ignored_count))) {
+        if (shape->predict_update() == Operation::none) {
+            if (ignored_count == ignored.size()) {
+                break;
+            }
+            ignored[ignored_count++] = shape;
+            continue;
+        }
+        cfs_scheduler_.select(*shape);
+        if (!shape->write_update(payload, payload_size, operations[operation_count])) {
+            continue;
+        }
+        frame_kind = shape->frame_kind();
+        selected[selected_count++] = shape;
+        ++operation_count;
+        break;
+    }
+
+    if (frame_kind == FrameKind::graphics) {
+        while (selected_count < selected.size()) {
+            auto* shape = cfs_scheduler_.next(
+                FrameKind::graphics, std::span<Shape* const>{ignored}.first(ignored_count));
+            if (shape == nullptr) {
+                break;
+            }
+
+            if (shape->predict_update() == Operation::none) {
+                if (ignored_count == ignored.size()) {
+                    break;
+                }
+                ignored[ignored_count++] = shape;
+                continue;
+            }
+            cfs_scheduler_.select(*shape);
+            if (!shape->write_update(payload, payload_size, operations[operation_count])) {
+                continue;
+            }
+            selected[selected_count++] = shape;
+            ++operation_count;
+        }
+    }
+
+    if (operation_count == 0) {
+        return std::nullopt;
+    }
+
+    const auto [draw_command, target_count] =
+        frame_kind == FrameKind::text
+            ? std::pair{InteractiveDataCommandId::client_draw_text, std::size_t{1}}
+            : draw_command_for_count(operation_count);
+    const auto header = make_client_interactive_header(endpoint, draw_command);
+    if (!header.has_value()) {
+        requeue_selected(std::span<Shape* const>{selected}.first(selected_count));
+        return RefereeTransferResult::Inactive;
+    }
+    if (!pack_interactive_payload(payload, *header, std::span<const std::byte>{}).has_value()) {
+        requeue_selected(std::span<Shape* const>{selected}.first(selected_count));
+        return RefereeTransferResult::InvalidFrame;
+    }
+    if (frame_kind == FrameKind::graphics) {
+        for (std::size_t index = operation_count; index < target_count; ++index) {
+            Shape::write_no_operation_description(payload, payload_size);
+        }
+    }
+
+    const auto result = endpoint.send_frame(
+        static_cast<std::uint16_t>(CommandId::student_interactive),
+        std::span<const std::byte>{payload}.first(payload_size));
+    if (result != RefereeTransferResult::Accepted) {
+        requeue_selected(std::span<Shape* const>{selected}.first(selected_count));
+        return result;
+    }
+
+    for (std::size_t index = 0; index < selected_count; ++index) {
+        selected[index]->mark_sent(operations[index]);
+    }
+
+    const auto frame_size = payload_size + 9;
+    const auto budget_period = std::chrono::duration<double>{
+        static_cast<double>(frame_size) / serial_budget_bytes_per_second_};
+    next_interaction_send_ =
+        now
+        + std::max(
+            interaction_period_,
+            std::chrono::duration_cast<std::chrono::milliseconds>(budget_period));
+    return result;
+}
+
+RefereeTransferResult InteractionUi::clear_all(RefereeTransferEndpoint& endpoint) const {
+    auto payload = std::array<std::byte, interaction_header_size + 2>{};
+    const auto header =
+        make_client_interactive_header(endpoint, InteractiveDataCommandId::client_delete);
+    if (!header.has_value()) {
+        return RefereeTransferResult::Inactive;
+    }
+    if (!pack_interactive_payload(payload, *header, std::span<const std::byte>{}).has_value()) {
+        return RefereeTransferResult::InvalidFrame;
+    }
+    std::size_t payload_size = interaction_header_size;
+    payload[payload_size++] = std::byte{2};
+    payload[payload_size++] = std::byte{0};
+    return endpoint.send_frame(
+        static_cast<std::uint16_t>(CommandId::student_interactive),
+        std::span<const std::byte>{payload}.first(payload_size));
+}
+
+RefereeTransferResult
+    InteractionUi::clear_layer(RefereeTransferEndpoint& endpoint, std::uint8_t layer) const {
+    if (layer > 9) {
+        return RefereeTransferResult::InvalidFrame;
+    }
+    auto payload = std::array<std::byte, interaction_header_size + 2>{};
+    const auto header =
+        make_client_interactive_header(endpoint, InteractiveDataCommandId::client_delete);
+    if (!header.has_value()) {
+        return RefereeTransferResult::Inactive;
+    }
+    if (!pack_interactive_payload(payload, *header, std::span<const std::byte>{}).has_value()) {
+        return RefereeTransferResult::InvalidFrame;
+    }
+    std::size_t payload_size = interaction_header_size;
+    payload[payload_size++] = std::byte{1};
+    payload[payload_size++] = static_cast<std::byte>(layer);
+    return endpoint.send_frame(
+        static_cast<std::uint16_t>(CommandId::student_interactive),
+        std::span<const std::byte>{payload}.first(payload_size));
+}
+
+RefereeTransferResult
+    InteractionUi::clear_remote_state(RefereeTransferEndpoint& endpoint, std::size_t repeat_count) {
+    auto result = RefereeTransferResult::Accepted;
+    for (std::size_t count = 0; count < repeat_count; ++count) {
+        result = clear_all(endpoint);
+        if (result != RefereeTransferResult::Accepted) {
+            return result;
+        }
+    }
+
+    cfs_scheduler_.clear();
+    remote_shapes_.reset_ids();
+    pending_clear_all_count_ = 0;
+    next_interaction_send_ = {};
+    for (auto* shape : remote_shapes_.shapes()) {
+        shape->queued_ = false;
+        shape->reusable_id_ = false;
+        shape->forget_remote_state();
+    }
+    return result;
+}
+
+void InteractionUi::set_serial_budget(double bytes_per_second) noexcept {
+    if (std::isfinite(bytes_per_second) && bytes_per_second > 0.0) {
+        serial_budget_bytes_per_second_ = bytes_per_second;
+    }
+}
+
+void InteractionUi::register_shape(Shape& shape) { remote_shapes_.register_shape(shape); }
+
+void InteractionUi::mark_modified(Shape& shape) { run_queue_insert(shape); }
+
+void InteractionUi::remove(Shape& shape) noexcept {
+    remote_shapes_.unregister_shape(shape);
+    run_queue_erase(shape);
+}
+
+void InteractionUi::reset_remote_state() {
+    cfs_scheduler_.clear();
+    remote_shapes_.reset_ids();
+    pending_clear_all_count_ = 4;
+    for (auto* shape : remote_shapes_.shapes()) {
+        shape->queued_ = false;
+        shape->reusable_id_ = false;
+        shape->forget_remote_state();
+    }
+}
+
+bool InteractionUi::assign_or_reuse_id(Shape& shape) {
+    return remote_shapes_.assign_or_reuse_id(shape);
+}
+
+bool InteractionUi::predict_assign_id(
+    const Shape& shape, std::uint8_t& existence_confidence) const {
+    return remote_shapes_.predict_assign_id(shape, existence_confidence);
+}
+
+void InteractionUi::disable_id_reuse(Shape& shape) noexcept {
+    remote_shapes_.disable_id_reuse(shape);
+}
+
+void InteractionUi::enable_id_reuse(Shape& shape) { remote_shapes_.enable_id_reuse(shape); }
+
+void InteractionUi::run_queue_insert(Shape& shape) { cfs_scheduler_.insert(shape); }
+
+void InteractionUi::run_queue_erase(Shape& shape) noexcept { cfs_scheduler_.erase(shape); }
+
+void InteractionUi::unmark_modified(Shape& shape) noexcept { run_queue_erase(shape); }
+
+void InteractionUi::requeue_selected(std::span<Shape* const> selected) {
+    for (auto* shape : selected) {
+        mark_modified(*shape);
+    }
+}
+
+} // namespace rmgo_core::referee::ui

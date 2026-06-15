@@ -79,19 +79,20 @@ add_library(
   src/controller/pid/error_pid_controller.cpp
   src/controller/pid/joint_velocity_pid_controller.cpp
   src/controller/remote/teleop_remote_controller.cpp
-  src/controller/referee/referee_ui_controller.cpp
+  src/referee/controller/referee_ui_controller.cpp
+  src/referee/hardware/referee_gz_system_interface.cpp
+  src/referee/hardware/referee_system_interface.cpp
+  src/referee/interaction.cpp
+  src/referee/protocol.cpp
+  src/referee/transfer_registry.cpp
+  src/referee/ui/interaction_ui.cpp
+  src/referee/ui/profile.cpp
+  src/referee/ui/shape.cpp
   src/controller/shooter/bullet_feeder_controller_17mm.cpp
   src/controller/shooter/friction_wheel_controller.cpp
   src/controller/shooter/heat_controller.cpp
   src/hardware/command_endpoint_gz_interface.cpp
   src/hardware/omni_infantry/omni_infantry_gz_interface.cpp
-  src/hardware/refere/referee_gz_system_interface.cpp
-  src/hardware/refere/referee_interaction.cpp
-  src/hardware/refere/referee_protocol.cpp
-  src/hardware/refere/referee_system_interface.cpp
-  src/hardware/refere/referee_transfer_registry.cpp
-  src/referee/ui/profile.cpp
-  src/referee/ui/referee_ui.cpp
 )
 
 target_compile_features(rmgo_chassis_controller PUBLIC cxx_std_23)
@@ -146,6 +147,8 @@ install(FILES rmgo_core_plugins.xml rmgo_hardware_plugins.xml
 )
 
 install(DIRECTORY include/ DESTINATION include)
+
+ament_export_include_directories(include)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

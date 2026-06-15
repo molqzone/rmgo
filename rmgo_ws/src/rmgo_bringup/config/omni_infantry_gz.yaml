@@ -47,6 +47,9 @@ controller_manager:
     teleop_remote_controller:
       type: rmgo_core/TeleopRemoteController
 
+    referee_ui_controller:
+      type: rmgo_core/RefereeUiController
+
 chassis_controller:
   ros__parameters:
     target_controller_name: chassis_power_controller
@@ -102,6 +105,10 @@ teleop_remote_controller:
     mode_topic: /cmd_chassis_mode
     shooter_mode_topic: /cmd_shooter_mode
     command_timeout: 2.0
+
+referee_ui_controller:
+  ros__parameters:
+    profile: omni_infantry
 
 simple_gimbal_controller:
   ros__parameters:

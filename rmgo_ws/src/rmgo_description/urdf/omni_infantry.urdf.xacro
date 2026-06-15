@@ -2,7 +2,7 @@
 <robot name="omni_infantry" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:arg name="hardware_plugin" default="rmgo_core/OmniInfantryGzInterface"/>
   <xacro:arg name="command_hardware_plugin" default="rmgo_core/CommandEndpointGzInterface"/>
-  <xacro:arg name="referee_hardware_plugin" default="rmgo_core/RefereeSystemInterface"/>
+  <xacro:arg name="referee_hardware_plugin" default="rmgo_core/RefereeGzSystemInterface"/>
   <xacro:arg name="controllers_file" default="$(find rmgo_description)/config/omni_infantry_controllers.yaml"/>
 
   <xacro:include filename="$(find rmgo_description)/urdf/command_endpoints.xacro"/>

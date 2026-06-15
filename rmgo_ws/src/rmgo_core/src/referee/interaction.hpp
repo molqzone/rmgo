@@ -17,6 +17,7 @@ enum class InteractiveDataCommandId : std::uint16_t {
   client_draw_two = 0x0102,
   client_draw_five = 0x0103,
   client_draw_seven = 0x0104,
+  client_draw_text = 0x0110,
   radar_double_effect_decision = 0x0121,
   sentry_alert = 0x0201,
   sentry_field = 0x0202,
