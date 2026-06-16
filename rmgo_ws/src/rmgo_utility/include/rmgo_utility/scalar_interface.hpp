@@ -1,11 +1,13 @@
 #pragma once
 
+#include <concepts>
 #include <cstddef>
 #include <optional>
 #include <ranges>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include <hardware_interface/handle.hpp>
@@ -21,8 +23,8 @@ struct Interface {
 namespace detail {
 
 struct Name {
-    std::string prefix;
-    std::string name;
+    std::string_view prefix;
+    std::string_view name;
 };
 
 inline std::optional<Name> split_name(std::string_view full_name) {
@@ -31,8 +33,8 @@ inline std::optional<Name> split_name(std::string_view full_name) {
         return std::nullopt;
     }
     return Name{
-        .prefix = std::string{full_name.substr(0, slash)},
-        .name = std::string{full_name.substr(slash + 1)},
+        .prefix = full_name.substr(0, slash),
+        .name = full_name.substr(slash + 1),
     };
 }
 
@@ -47,16 +49,19 @@ auto* value_pointer(Values& values, std::size_t index) {
 } // namespace detail
 
 template <std::ranges::sized_range Names>
+requires std::is_reference_v<std::ranges::range_reference_t<Names>>
+         && std::convertible_to<std::ranges::range_reference_t<Names>, std::string_view>
 std::vector<Interface> make_interfaces(const Names& names) {
     auto interfaces = std::vector<Interface>{};
     interfaces.reserve(std::ranges::size(names));
     auto index = std::size_t{0};
-    for (std::string_view full_name : names) {
+    for (const auto& raw_name : names) {
+        const auto full_name = std::string_view{raw_name};
         const auto split = detail::split_name(full_name);
         if (split.has_value()) {
             interfaces.push_back(Interface{
-                .prefix = split->prefix,
-                .name = split->name,
+                .prefix = std::string{split->prefix},
+                .name = std::string{split->name},
                 .index = index,
             });
         }
