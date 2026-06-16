@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstddef>
+#include <expected>
 #include <limits>
 #include <map>
 #include <string>
@@ -18,7 +19,6 @@
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "rmgo_utility/node_mixin.hpp"
-#include "rmgo_utility/scalar_interface.hpp"
 
 namespace rmgo_core::interface {
 
@@ -56,15 +56,20 @@ public:
 
         commands_.assign(command_interfaces_.size(), 0.0);
         states_.assign(state_interfaces_.size(), 0.0);
+        const auto validation = validate_endpoint_interfaces();
+        if (!validation.has_value()) {
+            this->error("Invalid command endpoint Gazebo interfaces: {}", validation.error());
+            return hardware_interface::CallbackReturn::ERROR;
+        }
         return hardware_interface::CallbackReturn::SUCCESS;
     }
 
     std::vector<hardware_interface::StateInterface> export_state_interfaces() override {
-        return rmgo_utility::scalar_interface::export_state_interfaces(state_interfaces_, states_);
+        return export_interfaces<hardware_interface::StateInterface>(state_interfaces_, states_);
     }
 
     std::vector<hardware_interface::CommandInterface> export_command_interfaces() override {
-        return rmgo_utility::scalar_interface::export_command_interfaces(
+        return export_interfaces<hardware_interface::CommandInterface>(
             command_interfaces_, commands_);
     }
 
@@ -107,29 +112,73 @@ public:
     }
 
 private:
-    static rmgo_utility::scalar_interface::Interface make_scalar_interface(
-        const std::string& prefix, const std::string& name, std::size_t index) {
-        return rmgo_utility::scalar_interface::Interface{
+    struct ScalarInterface {
+        std::string prefix;
+        std::string name;
+        std::size_t index = 0;
+    };
+
+    static ScalarInterface
+        make_scalar_interface(const std::string& prefix, const std::string& name, std::size_t index) {
+        return ScalarInterface{
             .prefix = prefix,
             .name = name,
             .index = index,
         };
     }
 
-    static bool same_scalar_interface(
-        const rmgo_utility::scalar_interface::Interface& lhs,
-        const rmgo_utility::scalar_interface::Interface& rhs) {
+    static bool same_scalar_interface(const ScalarInterface& lhs, const ScalarInterface& rhs) {
         return lhs.prefix == rhs.prefix && lhs.name == rhs.name;
     }
 
-    std::size_t
-        find_command_index_for_state(const rmgo_utility::scalar_interface::Interface& state) const {
+    std::size_t find_command_index_for_state(const ScalarInterface& state) const {
         const auto command = std::find_if(
             command_interfaces_.begin(), command_interfaces_.end(),
-            [&](const rmgo_utility::scalar_interface::Interface& candidate) {
+            [&](const ScalarInterface& candidate) {
                 return same_scalar_interface(candidate, state);
             });
         return command == command_interfaces_.end() ? npos : command->index;
+    }
+
+    template <typename InterfaceType>
+    static std::vector<InterfaceType>
+        export_interfaces(const std::vector<ScalarInterface>& interfaces, std::vector<double>& values) {
+        if (interfaces.size() != values.size()) {
+            return {};
+        }
+
+        auto exported = std::vector<InterfaceType>{};
+        exported.reserve(interfaces.size());
+        for (const auto& interface : interfaces) {
+            if (interface.index >= values.size()) {
+                return {};
+            }
+            exported.emplace_back(interface.prefix, interface.name, &values[interface.index]);
+        }
+        return exported;
+    }
+
+    std::expected<void, std::string> validate_endpoint_interfaces() const {
+        if (command_interfaces_.size() != commands_.size()) {
+            return std::unexpected{
+                std::string{"command interface count does not match command value count"}};
+        }
+        if (state_interfaces_.size() != states_.size()) {
+            return std::unexpected{
+                std::string{"state interface count does not match state value count"}};
+        }
+
+        for (const auto& interface : command_interfaces_) {
+            if (interface.index >= commands_.size()) {
+                return std::unexpected{std::string{"command interface index out of range"}};
+            }
+        }
+        for (const auto& interface : state_interfaces_) {
+            if (interface.index >= states_.size()) {
+                return std::unexpected{std::string{"state interface index out of range"}};
+            }
+        }
+        return {};
     }
 
     void append_endpoint_command_interfaces(const hardware_interface::ComponentInfo& endpoint) {
@@ -151,8 +200,8 @@ private:
     std::vector<double> commands_;
     std::vector<double> states_;
     std::vector<std::size_t> state_to_command_indices_;
-    std::vector<rmgo_utility::scalar_interface::Interface> command_interfaces_;
-    std::vector<rmgo_utility::scalar_interface::Interface> state_interfaces_;
+    std::vector<ScalarInterface> command_interfaces_;
+    std::vector<ScalarInterface> state_interfaces_;
     rclcpp::Node::SharedPtr node_;
 
     static constexpr auto npos = std::numeric_limits<std::size_t>::max();

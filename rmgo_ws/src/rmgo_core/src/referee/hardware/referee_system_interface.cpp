@@ -166,7 +166,7 @@ public:
 
     std::vector<hardware_interface::StateInterface> export_state_interfaces() override {
         return rmgo_utility::scalar_interface::export_state_interfaces(
-            state_interfaces_, state_values_);
+            rmgo_core::io_state_interfaces::referee_state_interfaces, state_values_);
     }
 
     std::vector<hardware_interface::CommandInterface> export_command_interfaces() override {
@@ -523,9 +523,6 @@ private:
     std::array<double, rmgo_core::referee::to_index(RefereeStatusField::count)> state_values_{};
     std::array<std::atomic<double>, rmgo_core::referee::to_index(RefereeStatusField::count)>
         status_values_{};
-    std::vector<rmgo_utility::scalar_interface::Interface> state_interfaces_ =
-        rmgo_utility::scalar_interface::make_interfaces(
-            rmgo_core::io_state_interfaces::referee_state_interfaces);
     std::atomic<std::int64_t> last_update_ns_{0};
     rmgo_core::referee::RefereeFrameParser parser_;
     std::unique_ptr<rmgo_utility::utility::RingBuffer<TxFrame>> tx_queue_;

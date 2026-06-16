@@ -55,6 +55,12 @@ public:
         transfer_path_ = transfer_path == get_hardware_info().hardware_parameters.end()
                            ? std::string{rmgo_core::referee::default_transfer_path}
                            : transfer_path->second;
+        const auto validation = rmgo_utility::scalar_interface::validate_interfaces(
+            rmgo_core::io_state_interfaces::referee_state_interfaces, states_);
+        if (!validation.has_value()) {
+            this->error("Invalid referee Gazebo state interfaces: {}", validation.error());
+            return hardware_interface::CallbackReturn::ERROR;
+        }
         endpoint_ = std::make_shared<Endpoint>(*this);
         update_mock_states();
         return hardware_interface::CallbackReturn::SUCCESS;
@@ -62,7 +68,7 @@ public:
 
     std::vector<hardware_interface::StateInterface> export_state_interfaces() override {
         return rmgo_utility::scalar_interface::export_state_interfaces(
-            referee_interfaces_, states_);
+            rmgo_core::io_state_interfaces::referee_state_interfaces, states_);
     }
 
     std::vector<hardware_interface::CommandInterface> export_command_interfaces() override {
@@ -138,18 +144,11 @@ private:
         }
     };
 
-    static bool interface_matches_full_name(
-        const rmgo_utility::scalar_interface::Interface& interface, std::string_view name) {
-        const auto prefix_size = interface.prefix.size();
-        return name.size() == prefix_size + 1 + interface.name.size()
-            && name.substr(0, prefix_size) == interface.prefix && name[prefix_size] == '/'
-            && name.substr(prefix_size + 1) == interface.name;
-    }
-
     void set_state(std::string_view name, double value) {
-        for (const auto& interface : referee_interfaces_) {
-            if (interface_matches_full_name(interface, name)) {
-                states_[interface.index] = value;
+        const auto& interfaces = rmgo_core::io_state_interfaces::referee_state_interfaces;
+        for (std::size_t index = 0; index < interfaces.size(); ++index) {
+            if (std::string_view{interfaces[index]} == name) {
+                states_[index] = value;
                 return;
             }
         }
@@ -186,9 +185,6 @@ private:
     }
 
     std::array<double, state_count> states_{};
-    std::vector<rmgo_utility::scalar_interface::Interface> referee_interfaces_ =
-        rmgo_utility::scalar_interface::make_interfaces(
-            rmgo_core::io_state_interfaces::referee_state_interfaces);
     rclcpp::Node::SharedPtr node_;
     std::string transfer_path_{rmgo_core::referee::default_transfer_path};
     std::shared_ptr<Endpoint> endpoint_;
