@@ -68,15 +68,6 @@ public:
     std::optional<RefereeTransferResult> update(
         RefereeTransferEndpoint& endpoint,
         std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
-    std::optional<RefereeTransferResult> update(
-        std::string_view transfer_path = default_transfer_path,
-        std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
-
-    RefereeTransferResult clear_all(RefereeTransferEndpoint& endpoint) const;
-    RefereeTransferResult clear_layer(RefereeTransferEndpoint& endpoint, std::uint8_t layer) const;
-    RefereeTransferResult
-        clear_remote_state(RefereeTransferEndpoint& endpoint, std::size_t repeat_count = 4);
-
     void set_serial_budget(double bytes_per_second) noexcept;
     void reset_remote_state();
 

@@ -25,6 +25,29 @@ std::pair<InteractiveDataCommandId, std::size_t> draw_command_for_count(std::siz
     return {InteractiveDataCommandId::client_draw_seven, 7};
 }
 
+RefereeTransferResult send_clear_all(RefereeTransferEndpoint& endpoint) {
+    auto payload = std::array<std::byte, interaction_header_size + 2>{};
+    const auto header =
+        make_client_interactive_header(endpoint, InteractiveDataCommandId::client_delete);
+    if (!header.has_value()) {
+        return RefereeTransferResult::Inactive;
+    }
+    if (!pack_interactive_payload(payload, *header, std::span<const std::byte>{}).has_value()) {
+        return RefereeTransferResult::InvalidFrame;
+    }
+    std::size_t payload_size = interaction_header_size;
+    payload[payload_size++] = std::byte{2};
+    payload[payload_size++] = std::byte{0};
+    return endpoint.send_frame(
+        static_cast<std::uint16_t>(CommandId::student_interactive),
+        std::span<const std::byte>{payload}.first(payload_size));
+}
+
+std::chrono::milliseconds frame_budget_period(std::size_t frame_size, double bytes_per_second) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::duration<double>{static_cast<double>(frame_size) / bytes_per_second});
+}
+
 } // namespace
 
 InteractionUi::InteractionUi(std::chrono::milliseconds interaction_period)
@@ -33,32 +56,21 @@ InteractionUi::InteractionUi(std::chrono::milliseconds interaction_period)
 InteractionUi::~InteractionUi() = default;
 
 std::optional<RefereeTransferResult> InteractionUi::update(
-    std::string_view transfer_path, std::chrono::steady_clock::time_point now) {
-    const auto endpoint = get_referee_transfer_endpoint(transfer_path);
-    if (endpoint == nullptr) {
-        return RefereeTransferResult::Inactive;
-    }
-    return update(*endpoint, now);
-}
-
-std::optional<RefereeTransferResult> InteractionUi::update(
     RefereeTransferEndpoint& endpoint, std::chrono::steady_clock::time_point now) {
     if (now < next_interaction_send_) {
         return std::nullopt;
     }
 
     if (pending_clear_all_count_ != 0) {
-        const auto result = clear_all(endpoint);
+        const auto result = send_clear_all(endpoint);
         if (result == RefereeTransferResult::Accepted) {
             --pending_clear_all_count_;
             const auto frame_size = interaction_header_size + 2 + 9;
-            const auto budget_period = std::chrono::duration<double>{
-                static_cast<double>(frame_size) / serial_budget_bytes_per_second_};
             next_interaction_send_ =
                 now
                 + std::max(
                     interaction_period_,
-                    std::chrono::duration_cast<std::chrono::milliseconds>(budget_period));
+                    frame_budget_period(frame_size, serial_budget_bytes_per_second_));
         }
         return result;
     }
@@ -156,75 +168,11 @@ std::optional<RefereeTransferResult> InteractionUi::update(
     }
 
     const auto frame_size = payload_size + 9;
-    const auto budget_period = std::chrono::duration<double>{
-        static_cast<double>(frame_size) / serial_budget_bytes_per_second_};
     next_interaction_send_ =
         now
         + std::max(
             interaction_period_,
-            std::chrono::duration_cast<std::chrono::milliseconds>(budget_period));
-    return result;
-}
-
-RefereeTransferResult InteractionUi::clear_all(RefereeTransferEndpoint& endpoint) const {
-    auto payload = std::array<std::byte, interaction_header_size + 2>{};
-    const auto header =
-        make_client_interactive_header(endpoint, InteractiveDataCommandId::client_delete);
-    if (!header.has_value()) {
-        return RefereeTransferResult::Inactive;
-    }
-    if (!pack_interactive_payload(payload, *header, std::span<const std::byte>{}).has_value()) {
-        return RefereeTransferResult::InvalidFrame;
-    }
-    std::size_t payload_size = interaction_header_size;
-    payload[payload_size++] = std::byte{2};
-    payload[payload_size++] = std::byte{0};
-    return endpoint.send_frame(
-        static_cast<std::uint16_t>(CommandId::student_interactive),
-        std::span<const std::byte>{payload}.first(payload_size));
-}
-
-RefereeTransferResult
-    InteractionUi::clear_layer(RefereeTransferEndpoint& endpoint, std::uint8_t layer) const {
-    if (layer > 9) {
-        return RefereeTransferResult::InvalidFrame;
-    }
-    auto payload = std::array<std::byte, interaction_header_size + 2>{};
-    const auto header =
-        make_client_interactive_header(endpoint, InteractiveDataCommandId::client_delete);
-    if (!header.has_value()) {
-        return RefereeTransferResult::Inactive;
-    }
-    if (!pack_interactive_payload(payload, *header, std::span<const std::byte>{}).has_value()) {
-        return RefereeTransferResult::InvalidFrame;
-    }
-    std::size_t payload_size = interaction_header_size;
-    payload[payload_size++] = std::byte{1};
-    payload[payload_size++] = static_cast<std::byte>(layer);
-    return endpoint.send_frame(
-        static_cast<std::uint16_t>(CommandId::student_interactive),
-        std::span<const std::byte>{payload}.first(payload_size));
-}
-
-RefereeTransferResult
-    InteractionUi::clear_remote_state(RefereeTransferEndpoint& endpoint, std::size_t repeat_count) {
-    auto result = RefereeTransferResult::Accepted;
-    for (std::size_t count = 0; count < repeat_count; ++count) {
-        result = clear_all(endpoint);
-        if (result != RefereeTransferResult::Accepted) {
-            return result;
-        }
-    }
-
-    cfs_scheduler_.clear();
-    remote_shapes_.reset_ids();
-    pending_clear_all_count_ = 0;
-    next_interaction_send_ = {};
-    for (auto* shape : remote_shapes_.shapes()) {
-        shape->queued_ = false;
-        shape->reusable_id_ = false;
-        shape->forget_remote_state();
-    }
+            frame_budget_period(frame_size, serial_budget_bytes_per_second_));
     return result;
 }
 

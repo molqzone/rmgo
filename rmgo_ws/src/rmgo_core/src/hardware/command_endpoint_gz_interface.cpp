@@ -18,14 +18,13 @@
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "rmgo_utility/node_mixin.hpp"
-#include "rmgo_utility/scalar_interface_mixin.hpp"
+#include "rmgo_utility/scalar_interface.hpp"
 
 namespace rmgo_core::interface {
 
 class CommandEndpointGzInterface final
     : public gz_ros2_control::GazeboSimSystemInterface
-    , public rmgo_utility::NodeMixin
-    , public rmgo_utility::ScalarInterfaceMixin {
+    , public rmgo_utility::NodeMixin {
 public:
     bool initSim(
         rclcpp::Node::SharedPtr& model_nh, std::map<std::string, gz::sim::Entity>& /*joints*/,
@@ -61,11 +60,12 @@ public:
     }
 
     std::vector<hardware_interface::StateInterface> export_state_interfaces() override {
-        return export_scalar_state_interfaces(state_interfaces_, states_);
+        return rmgo_utility::scalar_interface::export_state_interfaces(state_interfaces_, states_);
     }
 
     std::vector<hardware_interface::CommandInterface> export_command_interfaces() override {
-        return export_scalar_command_interfaces(command_interfaces_, commands_);
+        return rmgo_utility::scalar_interface::export_command_interfaces(
+            command_interfaces_, commands_);
     }
 
     hardware_interface::CallbackReturn
@@ -107,9 +107,9 @@ public:
     }
 
 private:
-    static rmgo_utility::ScalarInterface make_scalar_interface(
+    static rmgo_utility::scalar_interface::Interface make_scalar_interface(
         const std::string& prefix, const std::string& name, std::size_t index) {
-        return rmgo_utility::ScalarInterface{
+        return rmgo_utility::scalar_interface::Interface{
             .prefix = prefix,
             .name = name,
             .index = index,
@@ -117,14 +117,16 @@ private:
     }
 
     static bool same_scalar_interface(
-        const rmgo_utility::ScalarInterface& lhs, const rmgo_utility::ScalarInterface& rhs) {
+        const rmgo_utility::scalar_interface::Interface& lhs,
+        const rmgo_utility::scalar_interface::Interface& rhs) {
         return lhs.prefix == rhs.prefix && lhs.name == rhs.name;
     }
 
-    std::size_t find_command_index_for_state(const rmgo_utility::ScalarInterface& state) const {
+    std::size_t
+        find_command_index_for_state(const rmgo_utility::scalar_interface::Interface& state) const {
         const auto command = std::find_if(
             command_interfaces_.begin(), command_interfaces_.end(),
-            [&](const rmgo_utility::ScalarInterface& candidate) {
+            [&](const rmgo_utility::scalar_interface::Interface& candidate) {
                 return same_scalar_interface(candidate, state);
             });
         return command == command_interfaces_.end() ? npos : command->index;
@@ -149,8 +151,8 @@ private:
     std::vector<double> commands_;
     std::vector<double> states_;
     std::vector<std::size_t> state_to_command_indices_;
-    std::vector<rmgo_utility::ScalarInterface> command_interfaces_;
-    std::vector<rmgo_utility::ScalarInterface> state_interfaces_;
+    std::vector<rmgo_utility::scalar_interface::Interface> command_interfaces_;
+    std::vector<rmgo_utility::scalar_interface::Interface> state_interfaces_;
     rclcpp::Node::SharedPtr node_;
 
     static constexpr auto npos = std::numeric_limits<std::size_t>::max();

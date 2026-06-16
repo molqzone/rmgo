@@ -60,16 +60,4 @@ std::optional<std::size_t>
 pack_radar_map_robot_data(std::span<std::byte> output,
                           const MapRobotPositions &positions) noexcept;
 
-RefereeTransferResult
-send_interactive_data(RefereeTransferEndpoint &endpoint,
-                      const InteractiveHeader &header,
-                      std::span<const std::byte> user_data) noexcept;
-RefereeTransferResult
-send_radar_map_robot_data(RefereeTransferEndpoint &endpoint,
-                          const MapRobotPositions &positions) noexcept;
-RefereeTransferResult
-send_radar_double_effect_decision(RefereeTransferEndpoint &endpoint,
-                                  std::uint16_t sender_id,
-                                  std::uint16_t times) noexcept;
-
 } // namespace rmgo_core::referee

@@ -300,9 +300,6 @@
       <state_interface name="chassis/power_limit"/>
       <state_interface name="chassis/power"/>
       <state_interface name="chassis/buffer_energy"/>
-      <command_interface name="command/ui/clear_layer"/>
-      <command_interface name="command/ui/clear_all"/>
-      <command_interface name="command/sequence"/>
     </gpio>
   </ros2_control>
 

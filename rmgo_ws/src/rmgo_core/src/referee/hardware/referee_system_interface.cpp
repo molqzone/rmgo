@@ -3,14 +3,12 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <exception>
 #include <fcntl.h>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <poll.h>
 #include <span>
@@ -32,11 +30,11 @@
 #include <rclcpp/logging.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
-#include "rmgo_core/interface/io_state_interfaces.hpp"
 #include "referee/protocol.hpp"
 #include "referee/status_sink.hpp"
 #include "referee/transfer_registry.hpp"
-#include "rmgo_utility/scalar_interface_mixin.hpp"
+#include "rmgo_core/interface/io_state_interfaces.hpp"
+#include "rmgo_utility/scalar_interface.hpp"
 #include "rmgo_utility/utility/ring_buffer.hpp"
 
 namespace rmgo_core::interface {
@@ -133,8 +131,7 @@ speed_t baud_constant(int baudrate) {
 
 class RefereeSystemInterface final
     : public hardware_interface::SystemInterface
-    , public rmgo_core::referee::RefereeStatusSink
-    , public rmgo_utility::ScalarInterfaceMixin {
+    , public rmgo_core::referee::RefereeStatusSink {
     class Endpoint;
 
 public:
@@ -157,24 +154,23 @@ public:
         rx_buffer_size_ = config.rx_buffer_size;
         online_timeout_ = config.online_timeout;
         transfer_path_ = config.transfer_path;
-        tx_queue_ = std::make_unique<rmgo_utility::utility::RingBuffer<TxFrame>>(
-            config.tx_queue_capacity);
+        tx_queue_ =
+            std::make_unique<rmgo_utility::utility::RingBuffer<TxFrame>>(config.tx_queue_capacity);
         parser_ = rmgo_core::referee::RefereeFrameParser{rx_buffer_size_};
 
         state_values_.fill(0.0);
-        command_values_.fill(0.0);
-        previous_command_values_.fill(0.0);
         reset_status_values();
         endpoint_ = std::make_shared<Endpoint>(*this);
         return hardware_interface::CallbackReturn::SUCCESS;
     }
 
     std::vector<hardware_interface::StateInterface> export_state_interfaces() override {
-        return export_scalar_state_interfaces(state_interfaces_, state_values_);
+        return rmgo_utility::scalar_interface::export_state_interfaces(
+            state_interfaces_, state_values_);
     }
 
     std::vector<hardware_interface::CommandInterface> export_command_interfaces() override {
-        return export_scalar_command_interfaces(command_interfaces_, command_values_);
+        return {};
     }
 
     hardware_interface::CallbackReturn
@@ -213,37 +209,24 @@ public:
             state_values_[index] = status_values_[index].load(std::memory_order_relaxed);
         }
         const auto online_index = rmgo_core::referee::to_index(RefereeStatusField::online);
-        state_values_[online_index] =
-            state_values_[online_index] > 0.5 && is_fresh() ? 1.0 : 0.0;
+        state_values_[online_index] = state_values_[online_index] > 0.5 && is_fresh() ? 1.0 : 0.0;
         return hardware_interface::return_type::OK;
     }
 
     hardware_interface::return_type
         write(const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
         try_start_transport();
-        consume_command_interfaces();
         return hardware_interface::return_type::OK;
     }
 
 private:
-    enum class CommandIndex : std::size_t {
-        clear_layer = 0,
-        clear_all,
-        sequence,
-        count,
-    };
-
     static constexpr int invalid_fd = -1;
     static constexpr int poll_timeout_ms = 100;
     static constexpr auto serial_retry_interval = 1s;
-    static constexpr std::size_t to_index(CommandIndex index) { return std::to_underlying(index); }
 
     static_assert(
         rmgo_core::referee::to_index(RefereeStatusField::count)
         == rmgo_core::io_state_interfaces::referee_state_interfaces.size());
-    static_assert(
-        std::to_underlying(CommandIndex::count)
-        == rmgo_core::io_state_interfaces::referee_command_interfaces.size());
 
     class Endpoint final : public rmgo_core::referee::RefereeTransferEndpoint {
     public:
@@ -259,25 +242,19 @@ private:
             return owner_.enqueue_tx(command_id, payload);
         }
 
-        RefereeTransferResult clear_ui(std::uint8_t layer) noexcept override {
-            return owner_.enqueue_clear_ui(layer);
-        }
-
     private:
         RefereeSystemInterface& owner_;
     };
 
     void set(RefereeStatusField field, double value) noexcept override {
-        status_values_[rmgo_core::referee::to_index(field)].store(
-            value, std::memory_order_relaxed);
+        status_values_[rmgo_core::referee::to_index(field)].store(value, std::memory_order_relaxed);
         if (field == RefereeStatusField::id) {
             robot_id_.store(static_cast<std::uint16_t>(value), std::memory_order_release);
         }
     }
 
     double get(RefereeStatusField field) const noexcept override {
-        return status_values_[rmgo_core::referee::to_index(field)].load(
-            std::memory_order_relaxed);
+        return status_values_[rmgo_core::referee::to_index(field)].load(std::memory_order_relaxed);
     }
 
     void mark_online(std::chrono::steady_clock::time_point time) noexcept override {
@@ -322,104 +299,9 @@ private:
             .payload = {},
         };
         std::copy(payload.begin(), payload.end(), frame.payload.begin());
-        const auto lock = std::scoped_lock{tx_producer_mutex_};
         return tx_queue_ != nullptr && tx_queue_->push_back(std::move(frame))
                  ? RefereeTransferResult::Accepted
                  : RefereeTransferResult::QueueFull;
-    }
-
-    RefereeTransferResult enqueue_clear_ui(std::uint8_t layer) noexcept {
-        if (layer > 9) {
-            return RefereeTransferResult::InvalidFrame;
-        }
-        return enqueue_clear_ui_operation(1, layer);
-    }
-
-    RefereeTransferResult enqueue_clear_all_ui() noexcept {
-        return enqueue_clear_ui_operation(2, 0);
-    }
-
-    RefereeTransferResult
-        enqueue_clear_ui_operation(std::uint8_t operation_type, std::uint8_t layer) noexcept {
-        if (operation_type != 1 && operation_type != 2) {
-            return RefereeTransferResult::InvalidFrame;
-        }
-
-        const std::uint16_t robot_id = robot_id_.load(std::memory_order_acquire);
-        const std::uint16_t client_id = rmgo_core::referee::client_id_from_robot_id(robot_id);
-        if (robot_id == 0 || client_id == 0) {
-            return RefereeTransferResult::Inactive;
-        }
-
-        const std::array payload{
-            std::byte{0x00},
-            std::byte{0x01},
-            static_cast<std::byte>(robot_id & 0xFFU),
-            static_cast<std::byte>((robot_id >> 8U) & 0xFFU),
-            static_cast<std::byte>(client_id & 0xFFU),
-            static_cast<std::byte>((client_id >> 8U) & 0xFFU),
-            static_cast<std::byte>(operation_type),
-            static_cast<std::byte>(layer),
-        };
-        return enqueue_tx(
-            static_cast<std::uint16_t>(rmgo_core::referee::CommandId::student_interactive),
-            std::span<const std::byte>{payload});
-    }
-
-    void consume_command_interfaces() noexcept {
-        const bool sequence_changed = command_changed(CommandIndex::sequence);
-        const bool clear_all_rising =
-            command_values_[to_index(CommandIndex::clear_all)] > 0.5
-            && previous_command_values_[to_index(CommandIndex::clear_all)] <= 0.5;
-        const bool clear_layer_changed = command_changed(CommandIndex::clear_layer);
-        auto result = std::optional<RefereeTransferResult>{};
-
-        if (sequence_changed) {
-            result = enqueue_selected_ui_command();
-        } else if (clear_all_rising) {
-            result = enqueue_clear_all_ui();
-        } else if (clear_layer_changed) {
-            result = enqueue_selected_clear_layer();
-        } else {
-            previous_command_values_ = command_values_;
-            return;
-        }
-
-        if (!result.has_value() || *result == RefereeTransferResult::Accepted
-            || *result == RefereeTransferResult::InvalidFrame) {
-            previous_command_values_ = command_values_;
-        }
-    }
-
-    bool command_changed(CommandIndex index) const noexcept {
-        const auto raw_index = to_index(index);
-        return command_values_[raw_index] != previous_command_values_[raw_index];
-    }
-
-    std::optional<RefereeTransferResult> enqueue_selected_ui_command() noexcept {
-        if (command_values_[to_index(CommandIndex::clear_all)] > 0.5) {
-            return enqueue_clear_all_ui();
-        }
-        return enqueue_selected_clear_layer();
-    }
-
-    std::optional<RefereeTransferResult> enqueue_selected_clear_layer() noexcept {
-        const auto layer = command_layer(command_values_[to_index(CommandIndex::clear_layer)]);
-        if (layer.has_value()) {
-            return enqueue_clear_ui(*layer);
-        }
-        return std::nullopt;
-    }
-
-    static std::optional<std::uint8_t> command_layer(double value) noexcept {
-        if (!std::isfinite(value)) {
-            return std::nullopt;
-        }
-        const auto rounded = std::lround(value);
-        if (rounded < 0 || rounded > 9) {
-            return std::nullopt;
-        }
-        return static_cast<std::uint8_t>(rounded);
     }
 
     bool try_open_serial() {
@@ -641,16 +523,12 @@ private:
     std::array<double, rmgo_core::referee::to_index(RefereeStatusField::count)> state_values_{};
     std::array<std::atomic<double>, rmgo_core::referee::to_index(RefereeStatusField::count)>
         status_values_{};
-    std::array<double, std::to_underlying(CommandIndex::count)> command_values_{};
-    std::array<double, std::to_underlying(CommandIndex::count)> previous_command_values_{};
-    std::vector<rmgo_utility::ScalarInterface> state_interfaces_ =
-        make_scalar_interfaces(rmgo_core::io_state_interfaces::referee_state_interfaces);
-    std::vector<rmgo_utility::ScalarInterface> command_interfaces_ =
-        make_scalar_interfaces(rmgo_core::io_state_interfaces::referee_command_interfaces);
+    std::vector<rmgo_utility::scalar_interface::Interface> state_interfaces_ =
+        rmgo_utility::scalar_interface::make_interfaces(
+            rmgo_core::io_state_interfaces::referee_state_interfaces);
     std::atomic<std::int64_t> last_update_ns_{0};
     rmgo_core::referee::RefereeFrameParser parser_;
     std::unique_ptr<rmgo_utility::utility::RingBuffer<TxFrame>> tx_queue_;
-    std::mutex tx_producer_mutex_;
     std::shared_ptr<Endpoint> endpoint_;
     std::jthread rx_thread_;
     std::jthread tx_thread_;

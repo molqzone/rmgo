@@ -78,9 +78,7 @@ public:
         if (ui_profile_ != nullptr) {
             ui_profile_->on_deactivate();
         }
-        if (auto endpoint = refresh_endpoint(); endpoint != nullptr) {
-            (void)interaction_ui_.clear_remote_state(*endpoint);
-        }
+        interaction_ui_.reset_remote_state();
         return controller_interface::CallbackReturn::SUCCESS;
     }
 

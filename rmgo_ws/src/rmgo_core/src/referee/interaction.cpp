@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <bit>
-#include <cstring>
 
 namespace rmgo_core::referee {
 
@@ -80,52 +79,6 @@ pack_radar_map_robot_data(std::span<std::byte> output,
     write_u16_le(output, written, position.y_cm);
   }
   return written;
-}
-
-RefereeTransferResult
-send_interactive_data(RefereeTransferEndpoint &endpoint,
-                      const InteractiveHeader &header,
-                      std::span<const std::byte> user_data) noexcept {
-  auto payload = std::array<std::byte, max_referee_payload_size>{};
-  const auto payload_size =
-      pack_interactive_payload(payload, header, user_data);
-  if (!payload_size.has_value()) {
-    return RefereeTransferResult::InvalidFrame;
-  }
-  return endpoint.send_frame(
-      static_cast<std::uint16_t>(CommandId::student_interactive),
-      std::span<const std::byte>{payload}.first(*payload_size));
-}
-
-RefereeTransferResult
-send_radar_map_robot_data(RefereeTransferEndpoint &endpoint,
-                          const MapRobotPositions &positions) noexcept {
-  auto payload = std::array<std::byte, 24>{};
-  const auto payload_size = pack_radar_map_robot_data(payload, positions);
-  if (!payload_size.has_value()) {
-    return RefereeTransferResult::InvalidFrame;
-  }
-  return endpoint.send_frame(
-      static_cast<std::uint16_t>(CommandId::radar_map_robot_data),
-      std::span<const std::byte>{payload}.first(*payload_size));
-}
-
-RefereeTransferResult
-send_radar_double_effect_decision(RefereeTransferEndpoint &endpoint,
-                                  std::uint16_t sender_id,
-                                  std::uint16_t times) noexcept {
-  auto user_data = std::array<std::byte, 2>{};
-  std::size_t written = 0;
-  write_u16_le(user_data, written, times);
-  return send_interactive_data(
-      endpoint,
-      InteractiveHeader{
-          .data_command_id = static_cast<std::uint16_t>(
-              InteractiveDataCommandId::radar_double_effect_decision),
-          .sender_id = sender_id,
-          .receiver_id = 0x8080,
-      },
-      user_data);
 }
 
 } // namespace rmgo_core::referee

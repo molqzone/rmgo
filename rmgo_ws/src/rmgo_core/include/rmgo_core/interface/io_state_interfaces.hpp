@@ -304,17 +304,4 @@ inline constexpr std::array referee_state_interfaces{
     referee_sentry_energy_mechanism_activatable,
 };
 
-inline constexpr const char *referee_command_ui_clear_layer =
-    "referee/command/ui/clear_layer";
-inline constexpr const char *referee_command_ui_clear_all =
-    "referee/command/ui/clear_all";
-inline constexpr const char *referee_command_sequence =
-    "referee/command/sequence";
-
-inline constexpr std::array referee_command_interfaces{
-    referee_command_ui_clear_layer,
-    referee_command_ui_clear_all,
-    referee_command_sequence,
-};
-
 } // namespace rmgo_core::io_state_interfaces
