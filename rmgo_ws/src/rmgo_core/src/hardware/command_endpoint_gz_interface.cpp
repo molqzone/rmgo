@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <expected>
 #include <limits>
@@ -143,16 +144,14 @@ private:
     template <typename InterfaceType>
     static std::vector<InterfaceType>
         export_interfaces(const std::vector<ScalarInterface>& interfaces, std::vector<double>& values) {
-        if (interfaces.size() != values.size()) {
-            return {};
-        }
+        assert(
+            interfaces.size() == values.size()
+            && "command endpoint export_interfaces requires matching sizes");
 
         auto exported = std::vector<InterfaceType>{};
         exported.reserve(interfaces.size());
         for (const auto& interface : interfaces) {
-            if (interface.index >= values.size()) {
-                return {};
-            }
+            assert(interface.index < values.size() && "command endpoint interface index out of range");
             exported.emplace_back(interface.prefix, interface.name, &values[interface.index]);
         }
         return exported;
