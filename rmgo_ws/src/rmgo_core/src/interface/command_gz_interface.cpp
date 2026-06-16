@@ -51,12 +51,12 @@ public:
 
     std::vector<hardware_interface::StateInterface> export_state_interfaces() override {
         return rmgo_utility::scalar_interface::export_state_interfaces(
-            command_interfaces_, states_);
+            rmgo_core::command_state_interfaces::all_interfaces, states_);
     }
 
     std::vector<hardware_interface::CommandInterface> export_command_interfaces() override {
         return rmgo_utility::scalar_interface::export_command_interfaces(
-            command_interfaces_, commands_);
+            rmgo_core::command_state_interfaces::all_interfaces, commands_);
     }
 
     hardware_interface::CallbackReturn
@@ -97,9 +97,6 @@ private:
 
     std::array<double, command_state_count> commands_{};
     std::array<double, command_state_count> states_{};
-    std::vector<rmgo_utility::scalar_interface::Interface> command_interfaces_ =
-        rmgo_utility::scalar_interface::make_interfaces(
-            rmgo_core::command_state_interfaces::all_interfaces);
     rclcpp::Node::SharedPtr node_;
 };
 

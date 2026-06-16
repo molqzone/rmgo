@@ -2,7 +2,6 @@
 
 #include <concepts>
 #include <cstddef>
-#include <optional>
 #include <ranges>
 #include <stdexcept>
 #include <string>
@@ -14,84 +13,52 @@
 
 namespace rmgo_utility::scalar_interface {
 
-struct Interface {
-    std::string prefix;
-    std::string name;
-    std::size_t index = 0;
-};
-
 namespace detail {
 
-struct Name {
-    std::string_view prefix;
-    std::string_view name;
-};
-
-inline std::optional<Name> split_name(std::string_view full_name) {
+inline std::size_t split_position(std::string_view full_name) {
     const auto slash = full_name.rfind('/');
     if (slash == std::string_view::npos || slash == 0 || slash == full_name.size() - 1) {
-        return std::nullopt;
+        throw std::invalid_argument{"scalar interface name must be '<prefix>/<name>'"};
     }
-    return Name{
-        .prefix = full_name.substr(0, slash),
-        .name = full_name.substr(slash + 1),
-    };
-}
-
-template <std::ranges::sized_range Values>
-auto* value_pointer(Values& values, std::size_t index) {
-    if (index >= std::ranges::size(values)) {
-        throw std::out_of_range{"scalar interface index out of range"};
-    }
-    return &values[index];
+    return slash;
 }
 
 } // namespace detail
 
-template <std::ranges::sized_range Names>
+template <typename InterfaceType, std::ranges::sized_range Names, std::ranges::sized_range Values>
 requires std::is_reference_v<std::ranges::range_reference_t<Names>>
          && std::convertible_to<std::ranges::range_reference_t<Names>, std::string_view>
-std::vector<Interface> make_interfaces(const Names& names) {
-    auto interfaces = std::vector<Interface>{};
-    interfaces.reserve(std::ranges::size(names));
-    auto index = std::size_t{0};
+         && std::is_lvalue_reference_v<std::ranges::range_reference_t<Values>>
+std::vector<InterfaceType> export_interfaces(const Names& names, Values& values) {
+    if (std::ranges::size(names) != std::ranges::size(values)) {
+        throw std::invalid_argument{"scalar interface names and values size mismatch"};
+    }
+
+    auto exported = std::vector<InterfaceType>{};
+    exported.reserve(std::ranges::size(names));
+    auto value = std::ranges::begin(values);
     for (const auto& raw_name : names) {
         const auto full_name = std::string_view{raw_name};
-        const auto split = detail::split_name(full_name);
-        if (split.has_value()) {
-            interfaces.push_back(Interface{
-                .prefix = std::string{split->prefix},
-                .name = std::string{split->name},
-                .index = index,
-            });
-        }
-        ++index;
+        const auto slash = detail::split_position(full_name);
+        exported.emplace_back(
+            std::string{full_name.substr(0, slash)},
+            std::string{full_name.substr(slash + 1)},
+            &(*value));
+        ++value;
     }
-    return interfaces;
+    return exported;
 }
 
-template <std::ranges::sized_range Interfaces, typename Values>
+template <std::ranges::sized_range Names, std::ranges::sized_range Values>
 std::vector<hardware_interface::StateInterface>
-    export_state_interfaces(const Interfaces& interfaces, Values& values) {
-    auto exported = std::vector<hardware_interface::StateInterface>{};
-    exported.reserve(std::ranges::size(interfaces));
-    for (const auto& interface : interfaces) {
-        exported.emplace_back(
-            interface.prefix, interface.name, detail::value_pointer(values, interface.index));
-    }
-    return exported;
+    export_state_interfaces(const Names& names, Values& values) {
+    return export_interfaces<hardware_interface::StateInterface>(names, values);
 }
 
-template <std::ranges::sized_range Interfaces, typename Values>
+template <std::ranges::sized_range Names, std::ranges::sized_range Values>
 std::vector<hardware_interface::CommandInterface>
-    export_command_interfaces(const Interfaces& interfaces, Values& values) {
-    auto exported = std::vector<hardware_interface::CommandInterface>{};
-    exported.reserve(std::ranges::size(interfaces));
-    for (const auto& interface : interfaces) {
-        exported.emplace_back(
-            interface.prefix, interface.name, detail::value_pointer(values, interface.index));
-    }
-    return exported;
+    export_command_interfaces(const Names& names, Values& values) {
+    return export_interfaces<hardware_interface::CommandInterface>(names, values);
 }
 
 } // namespace rmgo_utility::scalar_interface
