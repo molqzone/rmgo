@@ -47,9 +47,6 @@ controller_manager:
     teleop_remote_controller:
       type: rmgo_core/TeleopRemoteController
 
-    referee_ui_controller:
-      type: rmgo_core/RefereeUiController
-
 chassis_controller:
   ros__parameters:
     target_controller_name: chassis_power_controller
@@ -67,6 +64,7 @@ chassis_controller:
 chassis_power_controller:
   ros__parameters:
     target_controller_name: omni_wheel_controller
+    referee_status_topic: /referee/status
     buffer_threshold: 30.0
     power_gain: 0.5
     max_power_limit: 95.0
@@ -104,11 +102,15 @@ teleop_remote_controller:
     cmd_gimbal_topic: /cmd_gimbal
     mode_topic: /cmd_chassis_mode
     shooter_mode_topic: /cmd_shooter_mode
+    shooter_fire_topic: /cmd_shooter_fire
+    bullet_feeder_controller_name: bullet_feeder_controller
     command_timeout: 2.0
 
-referee_ui_controller:
+referee:
   ros__parameters:
+    mock: true
     profile: omni_infantry
+    status_topic: /referee/status
 
 simple_gimbal_controller:
   ros__parameters:
@@ -189,6 +191,7 @@ friction_wheel_controller:
 heat_controller:
   ros__parameters:
     target_bullet_feeder_controller_name: bullet_feeder_controller
+    referee_status_topic: /referee/status
     heat_per_shot: 10000.0
     extra_heat_per_shot: 10.0
     reserved_heat: 10000.0

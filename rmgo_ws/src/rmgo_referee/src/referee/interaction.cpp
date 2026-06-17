@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <bit>
 
-namespace rmgo_core::referee {
+namespace rmgo_referee {
 
 void write_u16_le(std::span<std::byte> buffer, std::size_t &written,
                   std::uint16_t value) noexcept {
@@ -81,4 +81,4 @@ pack_radar_map_robot_data(std::span<std::byte> output,
   return written;
 }
 
-} // namespace rmgo_core::referee
+} // namespace rmgo_referee

@@ -7,7 +7,7 @@
 
 #include "referee/interaction.hpp"
 
-namespace rmgo_core::referee::ui {
+namespace rmgo_referee::ui {
 namespace {
 
 constexpr std::size_t interaction_header_size = 6;
@@ -229,4 +229,4 @@ void InteractionUi::requeue_selected(std::span<Shape* const> selected) {
     }
 }
 
-} // namespace rmgo_core::referee::ui
+} // namespace rmgo_referee::ui

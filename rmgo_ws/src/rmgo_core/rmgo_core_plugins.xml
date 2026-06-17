@@ -2,7 +2,7 @@
   <class
     name="rmgo_core/ChassisController"
     type="rmgo_core::controller::chassis::ChassisController"
-    base_class_type="controller_interface::ControllerInterface">
+    base_class_type="controller_interface::ChainableControllerInterface">
     <description>
       Command-bus chassis controller for RMGO.
     </description>
@@ -34,7 +34,7 @@
   <class
     name="rmgo_core/SimpleGimbalController"
     type="rmgo_core::controller::gimbal::SimpleGimbalController"
-    base_class_type="controller_interface::ControllerInterface">
+    base_class_type="controller_interface::ChainableControllerInterface">
     <description>
       Simple gimbal controller that keeps yaw/pitch actively commanded.
     </description>
@@ -58,7 +58,7 @@
   <class
     name="rmgo_core/FrictionWheelController"
     type="rmgo_core::controller::shooter::FrictionWheelController"
-    base_class_type="controller_interface::ControllerInterface">
+    base_class_type="controller_interface::ChainableControllerInterface">
     <description>
       Friction wheel controller that drives shooter readiness chain signals.
     </description>
@@ -77,14 +77,6 @@
     base_class_type="controller_interface::ChainableControllerInterface">
     <description>
       17mm bullet feeder controller for single, automatic, and eject modes.
-    </description>
-  </class>
-  <class
-    name="rmgo_core/RefereeUiController"
-    type="rmgo_core::controller::referee::RefereeUiController"
-    base_class_type="controller_interface::ControllerInterface">
-    <description>
-      Referee UI object synchronizer for low-rate client display widgets.
     </description>
   </class>
 </library>

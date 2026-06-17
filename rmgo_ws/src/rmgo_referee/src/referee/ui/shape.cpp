@@ -6,7 +6,7 @@
 
 #include "referee/interaction.hpp"
 
-namespace rmgo_core::referee::ui {
+namespace rmgo_referee::ui {
 
 void CfsScheduler::clear() noexcept {
   run_queue_.clear();
@@ -618,4 +618,4 @@ void Text::write_invisible_description(std::span<std::byte> payload,
 }
 
 
-} // namespace rmgo_core::referee::ui
+} // namespace rmgo_referee::ui

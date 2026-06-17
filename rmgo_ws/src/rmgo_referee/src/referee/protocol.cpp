@@ -8,7 +8,7 @@
 
 #include "rmgo_utility/utility/crc.hpp"
 
-namespace rmgo_core::referee {
+namespace rmgo_referee {
 namespace {
 
 constexpr std::size_t header_size = referee_frame_header_size;
@@ -419,4 +419,4 @@ std::optional<RefereeFrame> RefereeFrameParser::try_parse() {
   return frame;
 }
 
-} // namespace rmgo_core::referee
+} // namespace rmgo_referee

@@ -7,9 +7,9 @@
 #include <span>
 
 #include "referee/protocol.hpp"
-#include "referee/transfer_registry.hpp"
+#include "referee/transfer.hpp"
 
-namespace rmgo_core::referee {
+namespace rmgo_referee {
 
 enum class InteractiveDataCommandId : std::uint16_t {
   client_delete = 0x0100,
@@ -60,4 +60,4 @@ std::optional<std::size_t>
 pack_radar_map_robot_data(std::span<std::byte> output,
                           const MapRobotPositions &positions) noexcept;
 
-} // namespace rmgo_core::referee
+} // namespace rmgo_referee

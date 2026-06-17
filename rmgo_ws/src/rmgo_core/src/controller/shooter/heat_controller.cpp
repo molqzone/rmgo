@@ -7,10 +7,12 @@
 
 #include <controller_interface/chainable_controller_interface.hpp>
 #include <pluginlib/class_list_macros.hpp>
+#include <rclcpp/qos.hpp>
 #include <rclcpp_lifecycle/state.hpp>
+#include <realtime_tools/realtime_buffer.hpp>
 
 #include "rmgo_core/heat_controller_config.hpp"
-#include "rmgo_core/interface/io_state_interfaces.hpp"
+#include "rmgo_msg/msg/referee_status.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 
@@ -23,6 +25,7 @@ class HeatController
 public:
     controller_interface::CallbackReturn on_init() override {
         init_parameters(param_listener_, params_);
+        referee_status_buffer_.initRT(BufferedRefereeStatus{});
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
@@ -32,12 +35,10 @@ public:
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        using namespace rmgo_core::io_state_interfaces;
-        return build_individual_config(
-            std::array{
-                std::string{referee_shooter_cooling},
-                std::string{referee_shooter_heat_limit},
-            });
+        return {
+            controller_interface::interface_configuration_type::NONE,
+            {},
+        };
     }
 
     std::vector<hardware_interface::CommandInterface::SharedPtr>
@@ -49,6 +50,22 @@ public:
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
         update_parameters(param_listener_, params_);
+        if (referee_status_topic_ != params_.referee_status_topic) {
+            referee_status_subscriber_.reset();
+        }
+        referee_status_topic_ = params_.referee_status_topic;
+        if (!referee_status_subscriber_) {
+            referee_status_subscriber_ =
+                get_node()->create_subscription<rmgo_msg::msg::RefereeStatus>(
+                    referee_status_topic_, rclcpp::SystemDefaultsQoS(),
+                    [this](const rmgo_msg::msg::RefereeStatus& msg) {
+                        referee_status_buffer_.writeFromNonRT(BufferedRefereeStatus{
+                            .cooling = msg.shooter_cooling,
+                            .heat_limit = msg.shooter_heat_limit,
+                            .online = msg.online,
+                        });
+                    });
+        }
         reset();
         return controller_interface::CallbackReturn::SUCCESS;
     }
@@ -77,8 +94,9 @@ public:
 
     controller_interface::return_type update_and_write_commands(
         const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
-        const double cooling = read_state(cooling_index);
-        const double heat_limit = read_state(heat_limit_index);
+        const auto referee = *referee_status_buffer_.readFromRT();
+        const double cooling = referee.online ? referee.cooling : 0.0;
+        const double heat_limit = referee.online ? referee.heat_limit : 0.0;
         heat_ = std::max(0.0, heat_ - std::max(0.0, cooling) * std::max(0.0, period.seconds()));
 
         const bool bullet_fired = reference_[0] > 0.5;
@@ -98,12 +116,12 @@ private:
     static constexpr std::array<const char*, 1> bullet_allowance_suffixes = {
         "control_bullet_allowance/limited_by_heat",
     };
-    static constexpr std::size_t cooling_index = 0;
-    static constexpr std::size_t heat_limit_index = 1;
 
-    double read_state(std::size_t index) const {
-        return read_interface_value(state_interfaces_, index);
-    }
+    struct BufferedRefereeStatus {
+        double cooling = 0.0;
+        double heat_limit = 0.0;
+        bool online = false;
+    };
 
     void reset() {
         reset_references(reference_);
@@ -119,6 +137,9 @@ private:
     }
 
     std::array<double, 1> reference_{0.0};
+    std::string referee_status_topic_{"/referee/status"};
+    realtime_tools::RealtimeBuffer<BufferedRefereeStatus> referee_status_buffer_;
+    rclcpp::Subscription<rmgo_msg::msg::RefereeStatus>::SharedPtr referee_status_subscriber_;
     double heat_ = 0.0;
     bool last_bullet_fired_ = false;
     std::shared_ptr<::heat_controller::ParamListener> param_listener_;

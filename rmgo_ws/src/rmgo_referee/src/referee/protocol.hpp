@@ -8,7 +8,7 @@
 
 #include "referee/status_sink.hpp"
 
-namespace rmgo_core::referee {
+namespace rmgo_referee {
 
 inline constexpr std::byte frame_sof{0xA5};
 inline constexpr std::size_t max_referee_payload_size = 1024;
@@ -75,4 +75,4 @@ private:
   std::size_t max_payload_size_ = max_referee_payload_size;
 };
 
-} // namespace rmgo_core::referee
+} // namespace rmgo_referee

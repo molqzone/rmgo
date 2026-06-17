@@ -14,7 +14,7 @@
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "rmgo_core/bullet_feeder_controller_17mm_config.hpp"
-#include "rmgo_core/interface/command_state_interfaces.hpp"
+#include "rmgo_core/interface/reference_interfaces.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 
@@ -36,11 +36,11 @@ public:
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        auto config = build_individual_config(std::array{
-            params_.bullet_feeder_joint_name + "/" + params_.feeder_velocity_state_interface_name,
-        });
-        append_interface_names(
-            config.names, rmgo_core::command_state_interfaces::shooter_interfaces);
+        auto config = build_individual_config(
+            std::array{
+                params_.bullet_feeder_joint_name + "/"
+                    + params_.feeder_velocity_state_interface_name,
+            });
         return config;
     }
 
@@ -117,13 +117,13 @@ private:
         friction_ready = 0,
         bullet_fired,
         heat_allowance,
+        mode,
+        sequence,
         count,
     };
 
     enum class StateInterfaceIndex : std::size_t {
         feeder_velocity = 0,
-        command_mode,
-        command_sequence,
         count,
     };
 
@@ -147,6 +147,8 @@ private:
             "friction_ready",
             "bullet_fired",
             "control_bullet_allowance/limited_by_heat",
+            rmgo_core::reference_interfaces::shooter_mode,
+            rmgo_core::reference_interfaces::shooter_request_sequence,
         };
     static constexpr std::array<const char*, 1> control_velocity_suffixes = {"control_velocity"};
 
@@ -175,31 +177,21 @@ private:
     }
 
     bool bind_state_interfaces() {
-        using namespace rmgo_core::command_state_interfaces;
         state_indexes_.fill(invalid_index);
         return bind_prefixed_interface_indexes(
-                   state_interfaces_,
-                   {
-                       {&state_indexes_[to_index(StateInterfaceIndex::feeder_velocity)],
-                        params_.bullet_feeder_joint_name,
-                        params_.feeder_velocity_state_interface_name},
-                   },
-                   "bullet feeder state interface")
-            && bind_interface_indexes(
-                   state_interfaces_,
-                   {
-                       {&state_indexes_[to_index(StateInterfaceIndex::command_mode)], shooter_mode},
-                       {&state_indexes_[to_index(StateInterfaceIndex::command_sequence)],
-                        shooter_sequence},
-                   },
-                   "bullet feeder command state interface");
+            state_interfaces_,
+            {
+                {&state_indexes_[to_index(StateInterfaceIndex::feeder_velocity)],
+                 params_.bullet_feeder_joint_name, params_.feeder_velocity_state_interface_name},
+            },
+            "bullet feeder state interface");
     }
 
     StateSnapshot read_state_snapshot() const {
         return StateSnapshot{
             .feeder_velocity = read_state(StateInterfaceIndex::feeder_velocity),
-            .mode = read_state(StateInterfaceIndex::command_mode),
-            .sequence = read_state(StateInterfaceIndex::command_sequence),
+            .mode = reference_[to_index(ReferenceIndex::mode)],
+            .sequence = reference_[to_index(ReferenceIndex::sequence)],
         };
     }
 
@@ -217,10 +209,10 @@ private:
     }
 
     void update_mode_events(Mode mode, std::uint64_t sequence, bool bullet_fired) {
-        const bool command_event = sequence != 0 && sequence != last_command_sequence_;
+        const bool reference_event = sequence != 0 && sequence != last_reference_sequence_;
         const bool mode_changed = mode != last_mode_;
-        if (command_event) {
-            last_command_sequence_ = sequence;
+        if (reference_event) {
+            last_reference_sequence_ = sequence;
         }
 
         if (mode != Mode::single) {
@@ -234,7 +226,7 @@ private:
             eject_remaining_time_ = 0.0;
         }
 
-        if (!command_event && !mode_changed) {
+        if (!reference_event && !mode_changed) {
             return;
         }
 
@@ -344,7 +336,7 @@ private:
         single_shot_elapsed_ = 0.0;
         last_feeder_command_ = 0.0;
         last_mode_ = Mode::disabled;
-        last_command_sequence_ = 0;
+        last_reference_sequence_ = 0;
     }
 
     bool write_feeder_command(double value) {
@@ -368,7 +360,7 @@ private:
     double single_shot_elapsed_ = 0.0;
     double last_feeder_command_ = 0.0;
     Mode last_mode_ = Mode::disabled;
-    std::uint64_t last_command_sequence_ = 0;
+    std::uint64_t last_reference_sequence_ = 0;
     std::shared_ptr<::bullet_feeder_controller_17mm::ParamListener> param_listener_;
     ::bullet_feeder_controller_17mm::Params params_;
 };

@@ -1,34 +1,10 @@
 <library path="rmgo_chassis_controller">
   <class
-    name="rmgo_core/CommandEndpointGzInterface"
-    type="rmgo_core::interface::CommandEndpointGzInterface"
-    base_class_type="gz_ros2_control::GazeboSimSystemInterface">
-    <description>
-      Gazebo ros2_control loopback system for declared scalar GPIO command interfaces.
-    </description>
-  </class>
-  <class
     name="rmgo_core/OmniInfantryGzInterface"
     type="rmgo_core::interface::OmniInfantryGzInterface"
     base_class_type="gz_ros2_control::GazeboSimSystemInterface">
     <description>
       Gazebo whole-robot I/O interface for OmniInfantry controller-chain development.
-    </description>
-  </class>
-  <class
-    name="rmgo_core/RefereeGzSystemInterface"
-    type="rmgo_core::interface::RefereeGzSystemInterface"
-    base_class_type="gz_ros2_control::GazeboSimSystemInterface">
-    <description>
-      Gazebo referee mock state source for controller-chain development.
-    </description>
-  </class>
-  <class
-    name="rmgo_core/RefereeSystemInterface"
-    type="rmgo_core::interface::RefereeSystemInterface"
-    base_class_type="hardware_interface::SystemInterface">
-    <description>
-      ROS 2 control referee transport interface with realtime scalar state exports.
     </description>
   </class>
 </library>

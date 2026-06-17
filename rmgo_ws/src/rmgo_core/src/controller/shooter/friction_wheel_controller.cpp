@@ -8,20 +8,20 @@
 #include <utility>
 #include <vector>
 
-#include <controller_interface/controller_interface.hpp>
+#include <controller_interface/chainable_controller_interface.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "rmgo_core/friction_wheel_controller_config.hpp"
-#include "rmgo_core/interface/command_state_interfaces.hpp"
+#include "rmgo_core/interface/reference_interfaces.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 
 namespace rmgo_core::controller::shooter {
 
 class FrictionWheelController
-    : public controller_interface::ControllerInterface
+    : public controller_interface::ChainableControllerInterface
     , public rmgo_utility::ControllerInterfaceMixin
     , public rmgo_utility::NodeMixin {
 public:
@@ -45,18 +45,25 @@ public:
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        auto config = build_individual_config(std::array{
-            params_.left_friction_joint_name + "/" + params_.friction_state_interface_name,
-            params_.right_friction_joint_name + "/" + params_.friction_state_interface_name,
-        });
-        append_interface_names(
-            config.names, rmgo_core::command_state_interfaces::shooter_interfaces);
+        auto config = build_individual_config(
+            std::array{
+                params_.left_friction_joint_name + "/" + params_.friction_state_interface_name,
+                params_.right_friction_joint_name + "/" + params_.friction_state_interface_name,
+            });
         return config;
+    }
+
+    std::vector<hardware_interface::CommandInterface::SharedPtr>
+        on_export_reference_interfaces_list() override {
+        reset_references(shooter_reference_);
+        return make_reference_interfaces(
+            rmgo_core::reference_interfaces::shooter_mode_interfaces, shooter_reference_);
     }
 
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
         update_parameters(param_listener_, params_);
+        reset_references(shooter_reference_);
         reset_internal_state();
         return controller_interface::CallbackReturn::SUCCESS;
     }
@@ -66,6 +73,7 @@ public:
         if (!bind_state_interfaces()) {
             return controller_interface::CallbackReturn::ERROR;
         }
+        reset_references(shooter_reference_);
         reset_internal_state();
         return write_outputs({0.0, 0.0}, false, false)
                  ? controller_interface::CallbackReturn::SUCCESS
@@ -80,8 +88,16 @@ public:
                  : controller_interface::CallbackReturn::ERROR;
     }
 
-    controller_interface::return_type
-        update(const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
+    controller_interface::return_type update_reference_from_subscribers(
+        const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
+        if (!is_in_chained_mode()) {
+            reset_references(shooter_reference_);
+        }
+        return controller_interface::return_type::OK;
+    }
+
+    controller_interface::return_type update_and_write_commands(
+        const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
         const StateSnapshot state = read_state_snapshot();
         const double dt = std::max(0.0, period.seconds());
         const Mode mode = mode_from_value(state.mode);
@@ -113,8 +129,6 @@ private:
     enum class StateInterfaceIndex : std::size_t {
         left_velocity = 0,
         right_velocity,
-        command_mode,
-        command_sequence,
         count,
     };
 
@@ -153,32 +167,23 @@ private:
     }
 
     bool bind_state_interfaces() {
-        using namespace rmgo_core::command_state_interfaces;
         state_indexes_.fill(invalid_index);
         return bind_prefixed_interface_indexes(
-                   state_interfaces_,
-                   {
-                       {&state_indexes_[to_index(StateInterfaceIndex::left_velocity)],
-                        params_.left_friction_joint_name, params_.friction_state_interface_name},
-                       {&state_indexes_[to_index(StateInterfaceIndex::right_velocity)],
-                        params_.right_friction_joint_name, params_.friction_state_interface_name},
-                   },
-                   "friction wheel state interface")
-            && bind_interface_indexes(
-                   state_interfaces_,
-                   {
-                       {&state_indexes_[to_index(StateInterfaceIndex::command_mode)], shooter_mode},
-                       {&state_indexes_[to_index(StateInterfaceIndex::command_sequence)],
-                        shooter_sequence},
-                   },
-                   "friction wheel command state interface");
+            state_interfaces_,
+            {
+                {&state_indexes_[to_index(StateInterfaceIndex::left_velocity)],
+                 params_.left_friction_joint_name, params_.friction_state_interface_name},
+                {&state_indexes_[to_index(StateInterfaceIndex::right_velocity)],
+                 params_.right_friction_joint_name, params_.friction_state_interface_name},
+            },
+            "friction wheel state interface");
     }
 
     StateSnapshot read_state_snapshot() const {
         return StateSnapshot{
             .left_velocity = read_state(StateInterfaceIndex::left_velocity),
             .right_velocity = read_state(StateInterfaceIndex::right_velocity),
-            .mode = read_state(StateInterfaceIndex::command_mode),
+            .mode = shooter_reference_[0],
         };
     }
 
@@ -305,6 +310,8 @@ private:
 
     static constexpr std::size_t invalid_index = std::numeric_limits<std::size_t>::max();
     std::array<std::size_t, std::to_underlying(StateInterfaceIndex::count)> state_indexes_{};
+    std::array<double, rmgo_core::reference_interfaces::shooter_mode_interfaces.size()>
+        shooter_reference_{0.0};
     double friction_scale_ = 0.0;
     double friction_fault_time_ = 0.0;
     bool friction_faulted_ = false;
@@ -318,4 +325,4 @@ private:
 
 PLUGINLIB_EXPORT_CLASS(
     rmgo_core::controller::shooter::FrictionWheelController,
-    controller_interface::ControllerInterface)
+    controller_interface::ChainableControllerInterface)

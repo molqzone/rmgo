@@ -8,9 +8,9 @@
 #include <string_view>
 #include <vector>
 
-#include "referee/transfer_registry.hpp"
+#include "referee/transfer.hpp"
 
-namespace rmgo_core::referee::ui {
+namespace rmgo_referee::ui {
 
 class Shape;
 
@@ -126,4 +126,4 @@ public:
 
 std::unique_ptr<UiProfile> make_ui_profile(std::string_view name, InteractionUi& interaction_ui);
 
-} // namespace rmgo_core::referee::ui
+} // namespace rmgo_referee::ui

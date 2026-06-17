@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace rmgo_core::referee {
+namespace rmgo_referee {
 
 // Indexes mirror io_state_interfaces::referee_state_interfaces. The referee
 // parser writes wire-frame values into these fields instead of owning a large
@@ -112,4 +112,4 @@ public:
   virtual void mark_online(std::chrono::steady_clock::time_point time) noexcept = 0;
 };
 
-} // namespace rmgo_core::referee
+} // namespace rmgo_referee

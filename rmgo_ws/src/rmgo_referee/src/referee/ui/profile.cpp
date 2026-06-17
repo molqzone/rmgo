@@ -10,7 +10,7 @@
 #include <string_view>
 #include <utility>
 
-namespace rmgo_core::referee::ui {
+namespace rmgo_referee::ui {
 
 namespace {
 
@@ -474,4 +474,4 @@ std::unique_ptr<UiProfile> make_ui_profile(std::string_view name, InteractionUi&
     return nullptr;
 }
 
-} // namespace rmgo_core::referee::ui
+} // namespace rmgo_referee::ui

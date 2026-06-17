@@ -1,7 +1,10 @@
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include <controller_interface/controller_interface.hpp>
 #include <geometry_msgs/msg/twist.hpp>
@@ -11,9 +14,10 @@
 #include <rclcpp/time.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 #include <realtime_tools/realtime_buffer.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/u_int8.hpp>
 
-#include "rmgo_core/interface/command_state_interfaces.hpp"
+#include "rmgo_core/interface/reference_interfaces.hpp"
 #include "rmgo_core/teleop_remote_controller_config.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
 #include "rmgo_utility/node_mixin.hpp"
@@ -31,11 +35,12 @@ public:
         gimbal_command_buffer_.initRT(BufferedGimbalCommand{});
         mode_buffer_.initRT(raw_mode);
         shooter_mode_buffer_.initRT(BufferedShooterMode{});
+        shooter_fire_buffer_.initRT(BufferedShooterFire{});
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
     controller_interface::InterfaceConfiguration command_interface_configuration() const override {
-        return build_individual_config(rmgo_core::command_state_interfaces::all_command_interfaces);
+        return build_individual_config(reference_interface_names());
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
@@ -61,11 +66,15 @@ public:
         if (shooter_mode_subscriber_ && shooter_mode_topic_ != params_.shooter_mode_topic) {
             shooter_mode_subscriber_.reset();
         }
+        if (shooter_fire_subscriber_ && shooter_fire_topic_ != params_.shooter_fire_topic) {
+            shooter_fire_subscriber_.reset();
+        }
 
         cmd_vel_topic_ = params_.cmd_vel_topic;
         cmd_gimbal_topic_ = params_.cmd_gimbal_topic;
         mode_topic_ = params_.mode_topic;
         shooter_mode_topic_ = params_.shooter_mode_topic;
+        shooter_fire_topic_ = params_.shooter_fire_topic;
         command_timeout_ = params_.command_timeout;
 
         if (!cmd_vel_subscriber_) {
@@ -109,7 +118,18 @@ public:
                             msg.data,
                             steady_clock_.now(),
                             true,
-                            ++shooter_command_sequence_,
+                        });
+                });
+        }
+        if (!shooter_fire_subscriber_) {
+            shooter_fire_subscriber_ = node_->create_subscription<std_msgs::msg::Bool>(
+                shooter_fire_topic_, rclcpp::SystemDefaultsQoS(),
+                [this](const std_msgs::msg::Bool& msg) {
+                    shooter_fire_buffer_.writeFromNonRT(
+                        BufferedShooterFire{
+                            msg.data,
+                            steady_clock_.now(),
+                            true,
                         });
                 });
         }
@@ -119,11 +139,17 @@ public:
 
     controller_interface::CallbackReturn
         on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override {
+        if (!bind_command_interfaces()) {
+            return controller_interface::CallbackReturn::ERROR;
+        }
         command_buffer_.writeFromNonRT(BufferedCommand{});
         gimbal_command_buffer_.writeFromNonRT(BufferedGimbalCommand{});
         mode_buffer_.writeFromNonRT(raw_mode);
         shooter_mode_buffer_.writeFromNonRT(BufferedShooterMode{});
-        return write_command_bus({
+        shooter_fire_buffer_.writeFromNonRT(BufferedShooterFire{});
+        last_fire_pressed_ = false;
+        shooter_request_sequence_ = 0;
+        return write_reference_interfaces({
                    0.0,
                    0.0,
                    0.0,
@@ -144,19 +170,21 @@ public:
         gimbal_command_buffer_.writeFromNonRT(BufferedGimbalCommand{});
         mode_buffer_.writeFromNonRT(raw_mode);
         shooter_mode_buffer_.writeFromNonRT(BufferedShooterMode{});
-        return write_command_bus({
-                   0.0,
-                   0.0,
-                   0.0,
-                   raw_mode,
-                   0.0,
-                   0.0,
-                   disabled_gimbal,
-                   disabled_shooter,
-                   0.0,
-               })
-                 ? controller_interface::CallbackReturn::SUCCESS
-                 : controller_interface::CallbackReturn::ERROR;
+        shooter_fire_buffer_.writeFromNonRT(BufferedShooterFire{});
+        last_fire_pressed_ = false;
+        const bool wrote_references = write_reference_interfaces({
+            0.0,
+            0.0,
+            0.0,
+            raw_mode,
+            0.0,
+            0.0,
+            disabled_gimbal,
+            disabled_shooter,
+            0.0,
+        });
+        return wrote_references ? controller_interface::CallbackReturn::SUCCESS
+                                : controller_interface::CallbackReturn::ERROR;
     }
 
     controller_interface::return_type
@@ -185,12 +213,12 @@ public:
         const bool shooter_valid = shooter_mode.valid
                                 && (command_timeout_ <= 0.0
                                     || (now - shooter_mode.stamp).seconds() <= command_timeout_);
-        const std::array<double, 2> shooter_values{
+        const std::array<double, 1> shooter_values{
             static_cast<double>(shooter_valid ? shooter_mode.mode : disabled_shooter),
-            static_cast<double>(shooter_valid ? shooter_mode.sequence : 0),
         };
+        const double request_sequence = update_shooter_request_sequence(now, shooter_values[0]);
 
-        return write_command_bus({
+        return write_reference_interfaces({
                    chassis_values[0],
                    chassis_values[1],
                    chassis_values[2],
@@ -199,7 +227,7 @@ public:
                    gimbal_values[1],
                    gimbal_values[2],
                    shooter_values[0],
-                   shooter_values[1],
+                   request_sequence,
                })
                  ? controller_interface::return_type::OK
                  : controller_interface::return_type::ERROR;
@@ -225,22 +253,92 @@ private:
         std::uint8_t mode = 0;
         rclcpp::Time stamp{0, 0, RCL_STEADY_TIME};
         bool valid = false;
-        std::uint64_t sequence = 0;
     };
 
+    struct BufferedShooterFire {
+        bool pressed = false;
+        rclcpp::Time stamp{0, 0, RCL_STEADY_TIME};
+        bool valid = false;
+    };
+
+    static constexpr std::size_t teleop_reference_count =
+        rmgo_core::reference_interfaces::chassis_interfaces.size()
+        + rmgo_core::reference_interfaces::gimbal_interfaces.size()
+        + rmgo_core::reference_interfaces::shooter_mode_interfaces.size()
+        + rmgo_core::reference_interfaces::shooter_trigger_interfaces.size();
     static constexpr std::uint8_t raw_mode = 0;
     static constexpr double disabled_gimbal = 0.0;
     static constexpr double enabled_gimbal = 1.0;
     static constexpr double disabled_shooter = 0.0;
+    static constexpr std::size_t invalid_index = std::numeric_limits<std::size_t>::max();
 
-    bool write_command_bus(
-        const std::array<
-            double, rmgo_core::command_state_interfaces::all_command_interfaces.size()>& values) {
+    std::vector<std::string> reference_interface_names() const {
+        controller_interface::InterfaceConfiguration config;
+        append_prefixed_interface_names(
+            config.names, params_.chassis_controller_name,
+            rmgo_core::reference_interfaces::chassis_interfaces);
+        append_prefixed_interface_names(
+            config.names, params_.gimbal_controller_name,
+            rmgo_core::reference_interfaces::gimbal_interfaces);
+        append_prefixed_interface_names(
+            config.names, params_.shooter_controller_name,
+            rmgo_core::reference_interfaces::shooter_mode_interfaces);
+        append_prefixed_interface_names(
+            config.names, params_.bullet_feeder_controller_name,
+            rmgo_core::reference_interfaces::shooter_trigger_interfaces);
+        return std::move(config.names);
+    }
+
+    double update_shooter_request_sequence(const rclcpp::Time& now, double shooter_mode) {
+        const BufferedShooterFire shooter_fire = *shooter_fire_buffer_.readFromRT();
+        const bool fresh = shooter_fire.valid
+                        && (command_timeout_ <= 0.0
+                            || (now - shooter_fire.stamp).seconds() <= command_timeout_);
+        const bool fire_pressed = fresh && shooter_fire.pressed;
+        const bool rising_edge = fire_pressed && !last_fire_pressed_;
+        last_fire_pressed_ = fire_pressed;
+
+        if (shooter_mode <= disabled_shooter || !rising_edge) {
+            return 0.0;
+        }
+        return static_cast<double>(++shooter_request_sequence_);
+    }
+
+    bool bind_command_interfaces() {
+        command_indexes_.fill(invalid_index);
+        const auto names = reference_interface_names();
+        for (std::size_t target_index = 0; target_index < names.size(); ++target_index) {
+            std::size_t interface_index = 0;
+            bool found = false;
+            for (const auto& interface : command_interfaces_) {
+                if (std::string_view{interface.get_name()} == names[target_index]) {
+                    command_indexes_[target_index] = interface_index;
+                    found = true;
+                    break;
+                }
+                ++interface_index;
+            }
+            if (!found) {
+                logging::error("Missing teleop reference interface '{}'", names[target_index]);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool write_reference_interfaces(
+        const std::array<double, teleop_reference_count>& values) {
+        const auto names = reference_interface_names();
         for (std::size_t index = 0; index < values.size(); ++index) {
-            if (!command_interfaces_[index].set_value(values[index])) [[unlikely]] {
+            const std::size_t command_index = command_indexes_[index];
+            if (command_index >= command_interfaces_.size()) [[unlikely]] {
+                logging::error("Teleop reference interface '{}' is not bound", names[index]);
+                return false;
+            }
+            if (!command_interfaces_[command_index].set_value(values[index])) [[unlikely]] {
                 logging::error(
-                    "Failed to write command bus interface '{}'",
-                    rmgo_core::command_state_interfaces::all_command_interfaces[index]);
+                    "Failed to write reference interface '{}'",
+                    command_interfaces_[command_index].get_name());
                 return false;
             }
         }
@@ -250,13 +348,17 @@ private:
     std::string cmd_gimbal_topic_ = "/cmd_gimbal";
     std::string mode_topic_ = "/cmd_chassis_mode";
     std::string shooter_mode_topic_ = "/cmd_shooter_mode";
+    std::string shooter_fire_topic_ = "/cmd_shooter_fire";
     double command_timeout_ = 0.25;
     rclcpp::Clock steady_clock_{RCL_STEADY_TIME};
     realtime_tools::RealtimeBuffer<BufferedCommand> command_buffer_;
     realtime_tools::RealtimeBuffer<BufferedGimbalCommand> gimbal_command_buffer_;
     realtime_tools::RealtimeBuffer<std::uint8_t> mode_buffer_;
     realtime_tools::RealtimeBuffer<BufferedShooterMode> shooter_mode_buffer_;
-    std::uint64_t shooter_command_sequence_ = 0;
+    realtime_tools::RealtimeBuffer<BufferedShooterFire> shooter_fire_buffer_;
+    std::uint64_t shooter_request_sequence_ = 0;
+    bool last_fire_pressed_ = false;
+    std::array<std::size_t, teleop_reference_count> command_indexes_{};
     std::shared_ptr<::teleop_remote_controller::ParamListener> param_listener_;
     ::teleop_remote_controller::Params params_;
     std::shared_ptr<rclcpp_lifecycle::LifecycleNode> node_;
@@ -264,6 +366,7 @@ private:
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_gimbal_subscriber_;
     rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr mode_subscriber_;
     rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr shooter_mode_subscriber_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr shooter_fire_subscriber_;
 };
 
 } // namespace rmgo_core

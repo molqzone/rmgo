@@ -6,14 +6,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <exception>
 #include <fcntl.h>
 #include <memory>
-#include <optional>
 #include <poll.h>
 #include <span>
 #include <string>
-#include <string_view>
 #include <sys/types.h>
 #include <termios.h>
 #include <thread>
@@ -21,90 +18,23 @@
 #include <utility>
 #include <vector>
 
-#include <hardware_interface/handle.hpp>
-#include <hardware_interface/system_interface.hpp>
-#include <hardware_interface/types/hardware_component_interface_params.hpp>
-#include <hardware_interface/types/hardware_interface_return_values.hpp>
-#include <pluginlib/class_list_macros.hpp>
-#include <rclcpp/logger.hpp>
-#include <rclcpp/logging.hpp>
-#include <rclcpp_lifecycle/state.hpp>
+#include <rclcpp/rclcpp.hpp>
 
 #include "referee/protocol.hpp"
-#include "referee/status_sink.hpp"
-#include "referee/transfer_registry.hpp"
-#include "rmgo_core/interface/io_state_interfaces.hpp"
-#include "rmgo_utility/scalar_interface.hpp"
+#include "referee/transfer.hpp"
+#include "referee/ui/ui.hpp"
+#include "rmgo_msg/msg/referee_status.hpp"
 #include "rmgo_utility/utility/ring_buffer.hpp"
 
-namespace rmgo_core::interface {
+namespace rmgo_referee {
 namespace {
-
-using rmgo_core::referee::RefereeStatusField;
-using rmgo_core::referee::RefereeTransferResult;
 
 using namespace std::chrono_literals;
 
 struct TxFrame {
     std::uint16_t command_id = 0;
     std::uint16_t payload_size = 0;
-    std::array<std::byte, rmgo_core::referee::max_referee_payload_size> payload{};
-};
-
-struct RefereeHardwareConfig {
-    std::string device = "/dev/usbReferee";
-    std::string transfer_path{rmgo_core::referee::default_transfer_path};
-    int baudrate = 115200;
-    std::size_t rx_buffer_size = 1024;
-    std::size_t tx_queue_capacity = 64;
-    double online_timeout = 1.0;
-
-    static RefereeHardwareConfig from(const hardware_interface::HardwareInfo& info) {
-        auto config = RefereeHardwareConfig{};
-        const auto find = [&](std::string_view name) -> const std::string* {
-            const auto parameter = info.hardware_parameters.find(std::string{name});
-            return parameter == info.hardware_parameters.end() ? nullptr : &parameter->second;
-        };
-        const auto parse_double = [&](std::string_view name, double fallback) {
-            const auto* value = find(name);
-            if (value == nullptr) {
-                return fallback;
-            }
-            try {
-                std::size_t parsed = 0;
-                const double result = std::stod(*value, &parsed);
-                return parsed == value->size() ? result : fallback;
-            } catch (const std::exception&) {
-                return fallback;
-            }
-        };
-        const auto parse_size = [&](std::string_view name, std::size_t fallback) {
-            const auto* value = find(name);
-            if (value == nullptr) {
-                return fallback;
-            }
-            try {
-                std::size_t parsed = 0;
-                const auto result = static_cast<std::size_t>(std::stoull(*value, &parsed));
-                return parsed == value->size() ? result : fallback;
-            } catch (const std::exception&) {
-                return fallback;
-            }
-        };
-
-        if (const auto* device = find("device"); device != nullptr) {
-            config.device = *device;
-        }
-        if (const auto* transfer_path = find("transfer_path"); transfer_path != nullptr) {
-            config.transfer_path = *transfer_path;
-        }
-        config.baudrate = static_cast<int>(parse_double("baudrate", config.baudrate));
-        config.rx_buffer_size = parse_size("rx_buffer_size", config.rx_buffer_size);
-        config.tx_queue_capacity =
-            std::max<std::size_t>(parse_size("tx_queue_capacity", config.tx_queue_capacity), 1);
-        config.online_timeout = parse_double("online_timeout", config.online_timeout);
-        return config;
-    }
+    std::array<std::byte, max_referee_payload_size> payload{};
 };
 
 speed_t baud_constant(int baudrate) {
@@ -129,108 +59,72 @@ speed_t baud_constant(int baudrate) {
 
 } // namespace
 
-class RefereeSystemInterface final
-    : public hardware_interface::SystemInterface
-    , public rmgo_core::referee::RefereeStatusSink {
+class RefereeNode final
+    : public rclcpp::Node
+    , public RefereeStatusSink {
     class Endpoint;
 
 public:
-    ~RefereeSystemInterface() override {
-        stop_transport();
-        close_serial();
-        rmgo_core::referee::unregister_referee_transfer_endpoint(transfer_path_, endpoint_.get());
-    }
+    explicit RefereeNode(const rclcpp::NodeOptions& options)
+        : rclcpp::Node("referee", options) {
+        device_ = declare_parameter<std::string>("device", "/dev/usbReferee");
+        baudrate_ = declare_parameter<int>("baudrate", 115200);
+        rx_buffer_size_ = declare_parameter<int>("rx_buffer_size", 1024);
+        tx_queue_capacity_ = declare_parameter<int>("tx_queue_capacity", 64);
+        online_timeout_ = declare_parameter<double>("online_timeout", 1.0);
+        status_topic_ = declare_parameter<std::string>("status_topic", "/referee/status");
+        profile_name_ = declare_parameter<std::string>("profile", "omni_infantry");
+        mock_ = declare_parameter<bool>("mock", false);
+        publish_period_ =
+            std::chrono::duration<double>{declare_parameter<double>("publish_period", 0.02)};
+        ui_period_ = std::chrono::duration<double>{declare_parameter<double>("ui_period", 0.01)};
 
-    hardware_interface::CallbackReturn
-        on_init(const hardware_interface::HardwareComponentInterfaceParams& params) override {
-        if (hardware_interface::SystemInterface::on_init(params)
-            != hardware_interface::CallbackReturn::SUCCESS) {
-            return hardware_interface::CallbackReturn::ERROR;
-        }
-
-        const auto config = RefereeHardwareConfig::from(get_hardware_info());
-        device_ = config.device;
-        baudrate_ = config.baudrate;
-        rx_buffer_size_ = config.rx_buffer_size;
-        online_timeout_ = config.online_timeout;
-        transfer_path_ = config.transfer_path;
-        tx_queue_ =
-            std::make_unique<rmgo_utility::utility::RingBuffer<TxFrame>>(config.tx_queue_capacity);
-        parser_ = rmgo_core::referee::RefereeFrameParser{rx_buffer_size_};
-
-        state_values_.fill(0.0);
         reset_status_values();
+        tx_queue_ = std::make_unique<rmgo_utility::utility::RingBuffer<TxFrame>>(
+            std::max(tx_queue_capacity_, 1));
         endpoint_ = std::make_shared<Endpoint>(*this);
-        return hardware_interface::CallbackReturn::SUCCESS;
+
+        status_publisher_ =
+            create_publisher<rmgo_msg::msg::RefereeStatus>(status_topic_, rclcpp::SystemDefaultsQoS());
+        ui_profile_ = ui::make_ui_profile(profile_name_, interaction_ui_);
+        if (ui_profile_ == nullptr) {
+            RCLCPP_ERROR(get_logger(), "Unknown referee UI profile '%s'", profile_name_.c_str());
+        } else {
+            ui_profile_->on_activate();
+        }
+        update_mock_states();
+
+        publish_timer_ = create_wall_timer(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(publish_period_),
+            [this] { publish_status(); });
+        ui_timer_ = create_wall_timer(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(ui_period_),
+            [this] { update_ui(); });
+
+        if (!mock_) {
+            (void)try_open_serial();
+            try_start_transport();
+        }
     }
 
-    std::vector<hardware_interface::StateInterface> export_state_interfaces() override {
-        return rmgo_utility::scalar_interface::export_state_interfaces(
-            rmgo_core::io_state_interfaces::referee_state_interfaces, state_values_);
-    }
-
-    std::vector<hardware_interface::CommandInterface> export_command_interfaces() override {
-        return {};
-    }
-
-    hardware_interface::CallbackReturn
-        on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        (void)try_open_serial();
-        return hardware_interface::CallbackReturn::SUCCESS;
-    }
-
-    hardware_interface::CallbackReturn
-        on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        rmgo_core::referee::register_referee_transfer_endpoint(transfer_path_, endpoint_);
-        try_start_transport();
-        return hardware_interface::CallbackReturn::SUCCESS;
-    }
-
-    hardware_interface::CallbackReturn
-        on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        stop_transport();
-        rmgo_core::referee::unregister_referee_transfer_endpoint(transfer_path_, endpoint_.get());
-        return hardware_interface::CallbackReturn::SUCCESS;
-    }
-
-    hardware_interface::CallbackReturn
-        on_cleanup(const rclcpp_lifecycle::State& /*previous_state*/) override {
+    ~RefereeNode() override {
         stop_transport();
         close_serial();
-        rmgo_core::referee::unregister_referee_transfer_endpoint(transfer_path_, endpoint_.get());
-        reset_status_values();
-        return hardware_interface::CallbackReturn::SUCCESS;
-    }
-
-    hardware_interface::return_type
-        read(const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
-        try_start_transport();
-        for (std::size_t index = 0; index < state_values_.size(); ++index) {
-            state_values_[index] = status_values_[index].load(std::memory_order_relaxed);
+        if (ui_profile_ != nullptr) {
+            ui_profile_->on_deactivate();
         }
-        const auto online_index = rmgo_core::referee::to_index(RefereeStatusField::online);
-        state_values_[online_index] = state_values_[online_index] > 0.5 && is_fresh() ? 1.0 : 0.0;
-        return hardware_interface::return_type::OK;
-    }
-
-    hardware_interface::return_type
-        write(const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
-        try_start_transport();
-        return hardware_interface::return_type::OK;
     }
 
 private:
     static constexpr int invalid_fd = -1;
     static constexpr int poll_timeout_ms = 100;
     static constexpr auto serial_retry_interval = 1s;
+    static constexpr double unknown_game_stage = 0.0;
+    static constexpr double preparation_game_stage = 1.0;
 
-    static_assert(
-        rmgo_core::referee::to_index(RefereeStatusField::count)
-        == rmgo_core::io_state_interfaces::referee_state_interfaces.size());
-
-    class Endpoint final : public rmgo_core::referee::RefereeTransferEndpoint {
+    class Endpoint final : public RefereeTransferEndpoint {
     public:
-        explicit Endpoint(RefereeSystemInterface& owner)
+        explicit Endpoint(RefereeNode& owner)
             : owner_(owner) {}
 
         std::uint16_t self_robot_id() const noexcept override {
@@ -243,19 +137,17 @@ private:
         }
 
     private:
-        RefereeSystemInterface& owner_;
+        RefereeNode& owner_;
     };
 
     void set(RefereeStatusField field, double value) noexcept override {
-        status_values_[rmgo_core::referee::to_index(field)].store(value, std::memory_order_relaxed);
+        status_values_[to_index(field)].store(value, std::memory_order_relaxed);
         if (field == RefereeStatusField::id) {
             robot_id_.store(static_cast<std::uint16_t>(value), std::memory_order_release);
         }
     }
 
-    double get(RefereeStatusField field) const noexcept override {
-        return status_values_[rmgo_core::referee::to_index(field)].load(std::memory_order_relaxed);
-    }
+    double get(RefereeStatusField field) const noexcept override { return load_status(field); }
 
     void mark_online(std::chrono::steady_clock::time_point time) noexcept override {
         last_update_ns_.store(
@@ -263,13 +155,8 @@ private:
             std::memory_order_release);
     }
 
-    void reset_status_values() noexcept {
-        state_values_.fill(0.0);
-        for (auto& value : status_values_) {
-            value.store(0.0, std::memory_order_relaxed);
-        }
-        last_update_ns_.store(0, std::memory_order_release);
-        robot_id_.store(0, std::memory_order_release);
+    double load_status(RefereeStatusField field) const noexcept {
+        return status_values_[to_index(field)].load(std::memory_order_relaxed);
     }
 
     bool is_fresh() const {
@@ -284,13 +171,121 @@ private:
                    <= std::chrono::duration<double>{online_timeout_};
     }
 
+    void reset_status_values() noexcept {
+        for (auto& value : status_values_) {
+            value.store(0.0, std::memory_order_relaxed);
+        }
+        last_update_ns_.store(0, std::memory_order_release);
+        robot_id_.store(0, std::memory_order_release);
+        last_online_ = false;
+        last_game_stage_ = unknown_game_stage;
+    }
+
+    void update_mock_states() {
+        if (!mock_) {
+            return;
+        }
+        set(RefereeStatusField::online, 1.0);
+        set(RefereeStatusField::id, 3.0);
+        set(RefereeStatusField::game_stage, 4.0);
+        set(RefereeStatusField::game_stage_remain_time, 0.0);
+        set(RefereeStatusField::hp, 400.0);
+        set(RefereeStatusField::max_hp, 400.0);
+        set(RefereeStatusField::shooter_cooling, 40.0);
+        set(RefereeStatusField::shooter_heat_limit, 50000.0);
+        set(RefereeStatusField::shooter_bullet_allowance, 50.0);
+        set(RefereeStatusField::shooter_1_heat, 0.0);
+        set(RefereeStatusField::shooter_2_heat, 0.0);
+        set(RefereeStatusField::chassis_power, 0.0);
+        set(RefereeStatusField::chassis_buffer_energy, 60.0);
+        set(RefereeStatusField::chassis_power_limit, 80.0);
+        mark_online(std::chrono::steady_clock::now());
+    }
+
+    ui::RefereeUiState current_ui_state() const {
+        const bool online = load_status(RefereeStatusField::online) > 0.5 && is_fresh();
+        return ui::RefereeUiState{
+            .online = online,
+            .robot_id = load_status(RefereeStatusField::id),
+            .game_stage = load_status(RefereeStatusField::game_stage),
+            .stage_remain_time = load_status(RefereeStatusField::game_stage_remain_time),
+            .hp = load_status(RefereeStatusField::hp),
+            .max_hp = load_status(RefereeStatusField::max_hp),
+            .shooter_cooling = load_status(RefereeStatusField::shooter_cooling),
+            .shooter_heat_limit = load_status(RefereeStatusField::shooter_heat_limit),
+            .shooter_bullet_allowance = load_status(RefereeStatusField::shooter_bullet_allowance),
+            .shooter_1_heat = load_status(RefereeStatusField::shooter_1_heat),
+            .shooter_2_heat = load_status(RefereeStatusField::shooter_2_heat),
+            .chassis_power_limit = load_status(RefereeStatusField::chassis_power_limit),
+            .chassis_power = load_status(RefereeStatusField::chassis_power),
+            .chassis_buffer_energy = load_status(RefereeStatusField::chassis_buffer_energy),
+            .chassis_output_status = load_status(RefereeStatusField::chassis_output_status),
+            .chassis_mode = 0.0,
+            .gimbal_enabled = 0.0,
+            .shooter_mode = 0.0,
+        };
+    }
+
+    void publish_status() {
+        update_mock_states();
+        if (!mock_) {
+            try_start_transport();
+        }
+
+        const auto state = current_ui_state();
+        auto msg = rmgo_msg::msg::RefereeStatus{};
+        msg.online = state.online;
+        msg.robot_id = state.robot_id;
+        msg.game_stage = state.game_stage;
+        msg.stage_remain_time = state.stage_remain_time;
+        msg.hp = state.hp;
+        msg.max_hp = state.max_hp;
+        msg.shooter_cooling = state.shooter_cooling;
+        msg.shooter_heat_limit = state.shooter_heat_limit;
+        msg.shooter_bullet_allowance = state.shooter_bullet_allowance;
+        msg.shooter_1_heat = state.shooter_1_heat;
+        msg.shooter_2_heat = state.shooter_2_heat;
+        msg.chassis_power_limit = state.chassis_power_limit;
+        msg.chassis_power = state.chassis_power;
+        msg.chassis_buffer_energy = state.chassis_buffer_energy;
+        msg.chassis_output_status = state.chassis_output_status;
+        msg.chassis_mode = state.chassis_mode;
+        msg.gimbal_enabled = state.gimbal_enabled;
+        msg.shooter_mode = state.shooter_mode;
+        status_publisher_->publish(msg);
+    }
+
+    void update_ui() {
+        const auto state = current_ui_state();
+        const auto game_stage = state.game_stage;
+        if (state.online
+            && ((!last_online_ && state.online)
+                || (last_game_stage_ == unknown_game_stage && game_stage != unknown_game_stage)
+                || (last_game_stage_ != preparation_game_stage
+                    && game_stage == preparation_game_stage))) {
+            interaction_ui_.reset_remote_state();
+        }
+        last_online_ = state.online;
+        last_game_stage_ = game_stage;
+
+        if (ui_profile_ != nullptr) {
+            ui_profile_->update(state);
+        }
+        if (endpoint_ != nullptr) {
+            (void)interaction_ui_.update(*endpoint_);
+        }
+    }
+
     RefereeTransferResult
         enqueue_tx(std::uint16_t command_id, std::span<const std::byte> payload) noexcept {
-        if (!transport_active_.load(std::memory_order_acquire)) {
+        if (!mock_ && !transport_active_.load(std::memory_order_acquire)) {
             return RefereeTransferResult::Inactive;
         }
-        if (command_id == 0 || payload.size() > rmgo_core::referee::max_referee_payload_size) {
+        if (command_id == 0 || payload.size() > max_referee_payload_size) {
             return RefereeTransferResult::InvalidFrame;
+        }
+        if (mock_) {
+            return RefereeTransferResult::Accepted;
         }
 
         auto frame = TxFrame{
@@ -321,14 +316,14 @@ private:
     bool open_serial() {
         close_serial();
         if (device_.empty()) {
-            RCLCPP_ERROR(logger_, "Referee serial device path is empty");
+            RCLCPP_ERROR(get_logger(), "Referee serial device path is empty");
             return false;
         }
 
         serial_fd_ = ::open(device_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
         if (serial_fd_ == invalid_fd) {
             RCLCPP_ERROR(
-                logger_, "Failed to open referee serial device '%s': %s", device_.c_str(),
+                get_logger(), "Failed to open referee serial device '%s': %s", device_.c_str(),
                 std::strerror(errno));
             return false;
         }
@@ -337,7 +332,7 @@ private:
             close_serial();
             return false;
         }
-        RCLCPP_INFO(logger_, "Opened referee serial device '%s'", device_.c_str());
+        RCLCPP_INFO(get_logger(), "Opened referee serial device '%s'", device_.c_str());
         return true;
     }
 
@@ -345,7 +340,7 @@ private:
         auto options = termios{};
         if (::tcgetattr(serial_fd_, &options) != 0) {
             RCLCPP_ERROR(
-                logger_, "Failed to read referee serial options: %s", std::strerror(errno));
+                get_logger(), "Failed to read referee serial options: %s", std::strerror(errno));
             return false;
         }
 
@@ -360,12 +355,12 @@ private:
         const speed_t speed = baud_constant(baudrate_);
         if (::cfsetispeed(&options, speed) != 0 || ::cfsetospeed(&options, speed) != 0) {
             RCLCPP_ERROR(
-                logger_, "Failed to set referee serial baudrate: %s", std::strerror(errno));
+                get_logger(), "Failed to set referee serial baudrate: %s", std::strerror(errno));
             return false;
         }
         if (::tcsetattr(serial_fd_, TCSANOW, &options) != 0) {
             RCLCPP_ERROR(
-                logger_, "Failed to apply referee serial options: %s", std::strerror(errno));
+                get_logger(), "Failed to apply referee serial options: %s", std::strerror(errno));
             return false;
         }
 
@@ -428,7 +423,7 @@ private:
     }
 
     void rx_loop(std::stop_token stop_token, int fd) {
-        auto rx_buffer = std::vector<std::byte>(std::max<std::size_t>(rx_buffer_size_, 1));
+        auto rx_buffer = std::vector<std::byte>(std::max(rx_buffer_size_, 1));
         while (!stop_token.stop_requested()) {
             auto poll_fd = pollfd{
                 .fd = fd,
@@ -445,7 +440,7 @@ private:
                 if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
                     continue;
                 }
-                RCLCPP_WARN(logger_, "Referee serial read failed: %s", std::strerror(errno));
+                RCLCPP_WARN(get_logger(), "Referee serial read failed: %s", std::strerror(errno));
                 mark_transport_fault();
                 return;
             }
@@ -453,7 +448,7 @@ private:
             for (ssize_t index = 0; index < count; ++index) {
                 if (const auto frame = parser_.push(rx_buffer[static_cast<std::size_t>(index)]);
                     frame.has_value()) {
-                    (void)rmgo_core::referee::apply_frame_to_status(*frame, *this);
+                    (void)apply_frame_to_status(*frame, *this);
                 }
             }
         }
@@ -461,7 +456,7 @@ private:
 
     void tx_loop(std::stop_token stop_token, int fd) {
         auto tx_frame = TxFrame{};
-        auto packed = std::array<std::byte, rmgo_core::referee::max_referee_frame_size>{};
+        auto packed = std::array<std::byte, max_referee_frame_size>{};
         while (!stop_token.stop_requested()) {
             if (tx_queue_ == nullptr || !tx_queue_->pop_front([&](TxFrame&& frame) noexcept {
                     tx_frame = std::move(frame);
@@ -472,8 +467,8 @@ private:
 
             const auto payload =
                 std::span<const std::byte>{tx_frame.payload}.first(tx_frame.payload_size);
-            const auto packed_size = rmgo_core::referee::pack_frame(
-                packed, next_tx_sequence_++, tx_frame.command_id, payload);
+            const auto packed_size =
+                pack_frame(packed, next_tx_sequence_++, tx_frame.command_id, payload);
             if (!packed_size.has_value()) {
                 continue;
             }
@@ -504,7 +499,7 @@ private:
                 if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
                     continue;
                 }
-                RCLCPP_WARN(logger_, "Referee serial write failed: %s", std::strerror(errno));
+                RCLCPP_WARN(get_logger(), "Referee serial write failed: %s", std::strerror(errno));
                 return false;
             }
             written += static_cast<std::size_t>(count);
@@ -512,30 +507,43 @@ private:
         return written == bytes.size();
     }
 
-    rclcpp::Logger logger_{rclcpp::get_logger("rmgo_core.referee_system_interface")};
     std::string device_ = "/dev/usbReferee";
-    std::string transfer_path_{rmgo_core::referee::default_transfer_path};
+    std::string status_topic_ = "/referee/status";
+    std::string profile_name_ = "omni_infantry";
     int baudrate_ = 115200;
-    std::size_t rx_buffer_size_ = 1024;
+    int rx_buffer_size_ = 1024;
+    int tx_queue_capacity_ = 64;
     double online_timeout_ = 1.0;
+    bool mock_ = false;
+    std::chrono::duration<double> publish_period_{0.02};
+    std::chrono::duration<double> ui_period_{0.01};
     int serial_fd_ = invalid_fd;
     std::chrono::steady_clock::time_point last_open_attempt_;
-    std::array<double, rmgo_core::referee::to_index(RefereeStatusField::count)> state_values_{};
-    std::array<std::atomic<double>, rmgo_core::referee::to_index(RefereeStatusField::count)>
-        status_values_{};
+    std::array<std::atomic<double>, to_index(RefereeStatusField::count)> status_values_{};
     std::atomic<std::int64_t> last_update_ns_{0};
-    rmgo_core::referee::RefereeFrameParser parser_;
+    std::atomic<std::uint16_t> robot_id_{0};
+    RefereeFrameParser parser_;
     std::unique_ptr<rmgo_utility::utility::RingBuffer<TxFrame>> tx_queue_;
     std::shared_ptr<Endpoint> endpoint_;
     std::jthread rx_thread_;
     std::jthread tx_thread_;
     std::atomic_bool transport_active_{false};
     std::atomic_bool transport_faulted_{false};
-    std::atomic<std::uint16_t> robot_id_{0};
     std::uint8_t next_tx_sequence_ = 0;
+    bool last_online_ = false;
+    double last_game_stage_ = unknown_game_stage;
+    ui::InteractionUi interaction_ui_;
+    std::unique_ptr<ui::UiProfile> ui_profile_;
+    rclcpp::Publisher<rmgo_msg::msg::RefereeStatus>::SharedPtr status_publisher_;
+    rclcpp::TimerBase::SharedPtr publish_timer_;
+    rclcpp::TimerBase::SharedPtr ui_timer_;
 };
 
-} // namespace rmgo_core::interface
+} // namespace rmgo_referee
 
-PLUGINLIB_EXPORT_CLASS(
-    rmgo_core::interface::RefereeSystemInterface, hardware_interface::SystemInterface)
+int main(int argc, char** argv) {
+    rclcpp::init(argc, argv);
+    rclcpp::spin(std::make_shared<rmgo_referee::RefereeNode>(rclcpp::NodeOptions{}));
+    rclcpp::shutdown();
+    return 0;
+}

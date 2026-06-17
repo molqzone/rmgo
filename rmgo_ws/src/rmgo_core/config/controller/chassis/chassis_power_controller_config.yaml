@@ -4,6 +4,12 @@ chassis_power_controller:
     description: "Downstream chain controller that receives power-limited chassis velocity commands."
     validation:
       not_empty<>: []
+  referee_status_topic:
+    type: string
+    default_value: /referee/status
+    description: "Referee status topic mirrored into a realtime buffer."
+    validation:
+      not_empty<>: []
   buffer_threshold:
     type: double
     description: "Referee buffer threshold above which rm_control-style extra power is allowed."

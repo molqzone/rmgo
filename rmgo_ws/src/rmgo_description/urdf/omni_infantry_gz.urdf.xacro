@@ -1,12 +1,8 @@
 <?xml version="1.0"?>
 <robot name="omni_infantry" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:arg name="hardware_plugin" default="rmgo_core/OmniInfantryGzInterface"/>
-  <xacro:arg name="command_hardware_plugin" default="rmgo_core/CommandEndpointGzInterface"/>
-  <xacro:arg name="referee_hardware_plugin" default="rmgo_core/RefereeGzSystemInterface"/>
   <xacro:arg name="controllers_file" default="$(find rmgo_description)/config/omni_infantry_controllers.yaml"/>
   <xacro:arg name="debug_visuals" default="false"/>
-
-  <xacro:include filename="$(find rmgo_description)/urdf/command_endpoints.xacro"/>
 
   <xacro:property name="wheel_distance_x" value="0.31794"/>
   <xacro:property name="wheel_distance_y" value="0.31794"/>
@@ -374,37 +370,6 @@
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
-  </ros2_control>
-
-  <xacro:command_endpoint_system
-    name="CommandEndpointGz"
-    plugin="$(arg command_hardware_plugin)"
-    chassis="true"
-    gimbal="true"
-    shooter="true"/>
-
-  <ros2_control name="RefereeGz" type="system">
-    <hardware>
-      <plugin>$(arg referee_hardware_plugin)</plugin>
-      <param name="transfer_path">/referee/serial</param>
-    </hardware>
-
-    <gpio name="referee">
-      <state_interface name="online"/>
-      <state_interface name="id"/>
-      <state_interface name="game/stage"/>
-      <state_interface name="game/stage_remain_time"/>
-      <state_interface name="hp"/>
-      <state_interface name="max_hp"/>
-      <state_interface name="shooter/cooling"/>
-      <state_interface name="shooter/heat_limit"/>
-      <state_interface name="shooter/bullet_allowance"/>
-      <state_interface name="shooter/1/heat"/>
-      <state_interface name="shooter/2/heat"/>
-      <state_interface name="chassis/power_limit"/>
-      <state_interface name="chassis/power"/>
-      <state_interface name="chassis/buffer_energy"/>
-    </gpio>
   </ros2_control>
 
   <gazebo>

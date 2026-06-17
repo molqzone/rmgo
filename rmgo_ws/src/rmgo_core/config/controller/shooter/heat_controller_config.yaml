@@ -4,6 +4,12 @@ heat_controller:
     description: "Bullet feeder controller that receives heat-limited bullet allowance."
     validation:
       not_empty<>: []
+  referee_status_topic:
+    type: string
+    default_value: /referee/status
+    description: "Referee status topic mirrored into a realtime buffer."
+    validation:
+      not_empty<>: []
   heat_per_shot:
     type: double
     description: "Local heat added per detected shot."

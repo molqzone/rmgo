@@ -8,10 +8,12 @@
 #include <controller_interface/chainable_controller_interface.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
+#include <rclcpp/qos.hpp>
 #include <rclcpp_lifecycle/state.hpp>
+#include <realtime_tools/realtime_buffer.hpp>
 
 #include "rmgo_core/chassis_power_controller_config.hpp"
-#include "rmgo_core/interface/io_state_interfaces.hpp"
+#include "rmgo_msg/msg/referee_status.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 
@@ -25,6 +27,7 @@ public:
     controller_interface::CallbackReturn on_init() override {
         init_parameters(param_listener_, params_);
         target_controller_name_ = params_.target_controller_name;
+        referee_status_buffer_.initRT(BufferedRefereeStatus{});
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
@@ -33,8 +36,10 @@ public:
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        return build_individual_config(
-            rmgo_core::io_state_interfaces::chassis_power_state_interfaces);
+        return {
+            controller_interface::interface_configuration_type::NONE,
+            {},
+        };
     }
 
     std::vector<hardware_interface::CommandInterface::SharedPtr>
@@ -50,6 +55,22 @@ public:
         if (target_controller_name_.empty()) {
             logging::error("target_controller_name must not be empty");
             return controller_interface::CallbackReturn::ERROR;
+        }
+        if (referee_status_topic_ != params_.referee_status_topic) {
+            referee_status_subscriber_.reset();
+        }
+        referee_status_topic_ = params_.referee_status_topic;
+        if (!referee_status_subscriber_) {
+            referee_status_subscriber_ =
+                get_node()->create_subscription<rmgo_msg::msg::RefereeStatus>(
+                    referee_status_topic_, rclcpp::SystemDefaultsQoS(),
+                    [this](const rmgo_msg::msg::RefereeStatus& msg) {
+                        referee_status_buffer_.writeFromNonRT(BufferedRefereeStatus{
+                            .power_limit = msg.chassis_power_limit,
+                            .buffer_energy = msg.chassis_buffer_energy,
+                            .online = msg.online,
+                        });
+                    });
         }
         reset_references(chassis_reference_);
         return controller_interface::CallbackReturn::SUCCESS;
@@ -93,15 +114,21 @@ private:
         "linear/y/velocity",
         "angular/z/velocity",
     };
-    static constexpr std::size_t power_buffer_index = 1;
-    static constexpr std::size_t power_limit_index = 2;
+
+    struct BufferedRefereeStatus {
+        double power_limit = 0.0;
+        double buffer_energy = 0.0;
+        bool online = false;
+    };
 
     double calculate_control_power_limit() {
-        const double referee_power_limit = read_state(power_limit_index);
-        const double referee_buffer_energy = read_state(power_buffer_index);
+        const auto referee = *referee_status_buffer_.readFromRT();
+        if (!referee.online) {
+            return 0.0;
+        }
         const double extra_power =
-            (referee_buffer_energy - params_.buffer_threshold) * params_.power_gain;
-        return std::clamp(referee_power_limit + extra_power, 0.0, params_.max_power_limit);
+            (referee.buffer_energy - params_.buffer_threshold) * params_.power_gain;
+        return std::clamp(referee.power_limit + extra_power, 0.0, params_.max_power_limit);
     }
 
     std::array<double, 3> limit_chassis_command(double control_power_limit) const {
@@ -127,10 +154,6 @@ private:
         return std::clamp(value, -limit, limit);
     }
 
-    double read_state(std::size_t index) const {
-        return read_interface_value(state_interfaces_, index);
-    }
-
     bool write_chassis_commands(const std::array<double, 3>& commands) {
         return write_safe_commands(
             command_interfaces_, commands, target_controller_name_, chassis_command_suffixes,
@@ -138,7 +161,10 @@ private:
     }
 
     std::string target_controller_name_;
+    std::string referee_status_topic_{"/referee/status"};
     std::array<double, 3> chassis_reference_{0.0, 0.0, 0.0};
+    realtime_tools::RealtimeBuffer<BufferedRefereeStatus> referee_status_buffer_;
+    rclcpp::Subscription<rmgo_msg::msg::RefereeStatus>::SharedPtr referee_status_subscriber_;
     std::shared_ptr<::chassis_power_controller::ParamListener> param_listener_;
     ::chassis_power_controller::Params params_;
 };

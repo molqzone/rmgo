@@ -21,6 +21,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(realtime_tools REQUIRED)
 find_package(rmgo_description REQUIRED)
+find_package(rmgo_msg REQUIRED)
 find_package(rmgo_utility REQUIRED)
 find_package(std_msgs REQUIRED)
 
@@ -79,19 +80,9 @@ add_library(
   src/controller/pid/error_pid_controller.cpp
   src/controller/pid/joint_velocity_pid_controller.cpp
   src/controller/remote/teleop_remote_controller.cpp
-  src/referee/controller/referee_ui_controller.cpp
-  src/referee/hardware/referee_gz_system_interface.cpp
-  src/referee/hardware/referee_system_interface.cpp
-  src/referee/interaction.cpp
-  src/referee/protocol.cpp
-  src/referee/transfer_registry.cpp
-  src/referee/ui/interaction_ui.cpp
-  src/referee/ui/profile.cpp
-  src/referee/ui/shape.cpp
   src/controller/shooter/bullet_feeder_controller_17mm.cpp
   src/controller/shooter/friction_wheel_controller.cpp
   src/controller/shooter/heat_controller.cpp
-  src/hardware/command_endpoint_gz_interface.cpp
   src/hardware/omni_infantry/omni_infantry_gz_interface.cpp
 )
 
@@ -110,6 +101,7 @@ ament_target_dependencies(
   rclcpp_lifecycle
   realtime_tools
   rmgo_description
+  rmgo_msg
   rmgo_utility
   std_msgs
 )

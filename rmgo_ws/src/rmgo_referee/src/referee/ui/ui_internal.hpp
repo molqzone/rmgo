@@ -11,7 +11,7 @@
 
 #include "referee/ui/ui.hpp"
 
-namespace rmgo_core::referee::ui {
+namespace rmgo_referee::ui {
 
 inline constexpr std::uint16_t screen_width = 1920;
 inline constexpr std::uint16_t screen_height = 1080;
@@ -221,4 +221,4 @@ private:
     std::string content_;
 };
 
-} // namespace rmgo_core::referee::ui
+} // namespace rmgo_referee::ui
