@@ -66,8 +66,8 @@ public:
                     referee_status_topic_, rclcpp::SystemDefaultsQoS(),
                     [this](const rmgo_msg::msg::RefereeStatus& msg) {
                         referee_status_buffer_.writeFromNonRT(BufferedRefereeStatus{
-                            .power_limit = msg.chassis_power_limit,
-                            .buffer_energy = msg.chassis_buffer_energy,
+                            .power_limit = static_cast<double>(msg.chassis_power_limit),
+                            .buffer_energy = static_cast<double>(msg.chassis_buffer_energy),
                             .power_heat_fresh = msg.power_heat_fresh,
                             .online = msg.online,
                         });

@@ -60,8 +60,8 @@ public:
                     referee_status_topic_, rclcpp::SystemDefaultsQoS(),
                     [this](const rmgo_msg::msg::RefereeStatus& msg) {
                         referee_status_buffer_.writeFromNonRT(BufferedRefereeStatus{
-                            .cooling = msg.shooter_cooling,
-                            .heat_limit = msg.shooter_heat_limit,
+                            .cooling = static_cast<double>(msg.shooter_cooling),
+                            .heat_limit = static_cast<double>(msg.shooter_heat_limit),
                             .online = msg.online,
                         });
                     });
