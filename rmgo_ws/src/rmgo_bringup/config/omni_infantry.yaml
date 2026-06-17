@@ -113,6 +113,12 @@ referee:
     device: /dev/usbReferee
     profile: omni_infantry
     status_topic: /referee/status
+    chassis_status_topic: /chassis/status
+    gimbal_status_topic: /gimbal/status
+    shooter_status_topic: /shooter/status
+    remote_status_topic: /remote/status
+    target_status_topic: /target/status
+    capacitor_status_topic: /capacitor/status
 
 simple_gimbal_controller:
   ros__parameters:
