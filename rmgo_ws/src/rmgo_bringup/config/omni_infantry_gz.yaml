@@ -108,7 +108,6 @@ teleop_remote_controller:
 
 referee:
   ros__parameters:
-    mock: true
     profile: omni_infantry
     status_topic: /referee/status
 

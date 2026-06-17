@@ -68,6 +68,7 @@ public:
                         referee_status_buffer_.writeFromNonRT(BufferedRefereeStatus{
                             .power_limit = msg.chassis_power_limit,
                             .buffer_energy = msg.chassis_buffer_energy,
+                            .power_heat_fresh = msg.power_heat_fresh,
                             .online = msg.online,
                         });
                     });
@@ -118,6 +119,7 @@ private:
     struct BufferedRefereeStatus {
         double power_limit = 0.0;
         double buffer_energy = 0.0;
+        bool power_heat_fresh = false;
         bool online = false;
     };
 
@@ -127,7 +129,9 @@ private:
             return 0.0;
         }
         const double extra_power =
-            (referee.buffer_energy - params_.buffer_threshold) * params_.power_gain;
+            referee.power_heat_fresh
+                ? (referee.buffer_energy - params_.buffer_threshold) * params_.power_gain
+                : 0.0;
         return std::clamp(referee.power_limit + extra_power, 0.0, params_.max_power_limit);
     }
 

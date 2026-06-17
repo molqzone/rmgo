@@ -171,8 +171,7 @@ std::optional<RefereeTransferResult> InteractionUi::update(
     next_interaction_send_ =
         now
         + std::max(
-            interaction_period_,
-            frame_budget_period(frame_size, serial_budget_bytes_per_second_));
+            interaction_period_, frame_budget_period(frame_size, serial_budget_bytes_per_second_));
     return result;
 }
 

@@ -109,8 +109,6 @@ teleop_remote_controller:
 referee:
   ros__parameters:
     device: /dev/usbReferee
-    baudrate: 115200
-    mock: false
     profile: omni_infantry
     status_topic: /referee/status
 

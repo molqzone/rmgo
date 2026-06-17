@@ -17,6 +17,7 @@ add_executable(
   src/referee/interaction.cpp
   src/referee/node/referee_node.cpp
   src/referee/protocol.cpp
+  src/referee/status.cpp
   src/referee/ui/interaction_ui.cpp
   src/referee/ui/profile.cpp
   src/referee/ui/shape.cpp
