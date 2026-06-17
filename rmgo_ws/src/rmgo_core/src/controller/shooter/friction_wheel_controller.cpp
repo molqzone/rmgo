@@ -11,10 +11,14 @@
 #include <controller_interface/chainable_controller_interface.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
+#include <rclcpp/qos.hpp>
+#include <rclcpp/time.hpp>
+#include <rclcpp_lifecycle/lifecycle_publisher.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "rmgo_core/friction_wheel_controller_config.hpp"
 #include "rmgo_core/interface/reference_interfaces.hpp"
+#include "rmgo_msg/msg/shooter_status.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 
@@ -63,6 +67,10 @@ public:
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
         update_parameters(param_listener_, params_);
+        if (!status_publisher_) {
+            status_publisher_ = get_node()->create_publisher<rmgo_msg::msg::ShooterStatus>(
+                "/shooter/status", rclcpp::SystemDefaultsQoS());
+        }
         reset_references(shooter_reference_);
         reset_internal_state();
         return controller_interface::CallbackReturn::SUCCESS;
@@ -72,6 +80,9 @@ public:
         on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override {
         if (!bind_state_interfaces()) {
             return controller_interface::CallbackReturn::ERROR;
+        }
+        if (status_publisher_) {
+            status_publisher_->on_activate();
         }
         reset_references(shooter_reference_);
         reset_internal_state();
@@ -83,9 +94,12 @@ public:
     controller_interface::CallbackReturn
         on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
         reset_internal_state();
-        return write_outputs({0.0, 0.0}, false, false)
-                 ? controller_interface::CallbackReturn::SUCCESS
-                 : controller_interface::CallbackReturn::ERROR;
+        const bool stopped = write_outputs({0.0, 0.0}, false, false);
+        if (status_publisher_) {
+            status_publisher_->on_deactivate();
+        }
+        return stopped ? controller_interface::CallbackReturn::SUCCESS
+                       : controller_interface::CallbackReturn::ERROR;
     }
 
     controller_interface::return_type update_reference_from_subscribers(
@@ -97,7 +111,7 @@ public:
     }
 
     controller_interface::return_type update_and_write_commands(
-        const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
+        const rclcpp::Time& time, const rclcpp::Duration& period) override {
         const StateSnapshot state = read_state_snapshot();
         const double dt = std::max(0.0, period.seconds());
         const Mode mode = mode_from_value(state.mode);
@@ -110,6 +124,8 @@ public:
             update_friction_commands(friction_requested && !friction_faulted_, dt);
         const bool friction_ready = update_friction_status(state, friction_requested, commands, dt);
         const bool bullet_fired = friction_ready && detect_bullet_fire(state.left_velocity);
+        publish_status(
+            time, state, mode, commands, friction_requested, friction_ready, bullet_fired);
 
         return write_outputs(commands, friction_ready, bullet_fired)
                  ? controller_interface::return_type::OK
@@ -273,6 +289,29 @@ private:
         reset_friction_status();
     }
 
+    void publish_status(
+        const rclcpp::Time& time, const StateSnapshot& state, Mode mode,
+        const std::array<double, 2>& commands, bool friction_requested, bool friction_ready,
+        bool bullet_fired) {
+        if (!status_publisher_) {
+            return;
+        }
+
+        auto msg = rmgo_msg::msg::ShooterStatus{};
+        msg.header.stamp = time;
+        msg.header.frame_id = "shooter";
+        msg.mode = static_cast<std::uint8_t>(mode);
+        msg.friction_requested = friction_requested;
+        msg.friction_ready = friction_ready;
+        msg.friction_faulted = friction_faulted_;
+        msg.bullet_fired = bullet_fired;
+        msg.left_friction_velocity = state.left_velocity;
+        msg.right_friction_velocity = state.right_velocity;
+        msg.left_control_velocity = commands[0];
+        msg.right_control_velocity = commands[1];
+        status_publisher_->publish(msg);
+    }
+
     bool write_outputs(
         const std::array<double, 2>& control_velocities, bool friction_ready, bool bullet_fired) {
         std::size_t offset = 0;
@@ -317,6 +356,8 @@ private:
     bool friction_faulted_ = false;
     double last_primary_friction_velocity_ = nan();
     double primary_friction_velocity_decrease_integral_ = 0.0;
+    rclcpp_lifecycle::LifecyclePublisher<rmgo_msg::msg::ShooterStatus>::SharedPtr
+        status_publisher_;
     std::shared_ptr<::friction_wheel_controller::ParamListener> param_listener_;
     ::friction_wheel_controller::Params params_;
 };

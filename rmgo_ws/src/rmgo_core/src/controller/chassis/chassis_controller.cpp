@@ -12,11 +12,15 @@
 #include <controller_interface/chainable_controller_interface.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
+#include <rclcpp/qos.hpp>
+#include <rclcpp/time.hpp>
+#include <rclcpp_lifecycle/lifecycle_publisher.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "../pid/pid_calculator.hpp"
 #include "rmgo_core/chassis_controller_config.hpp"
 #include "rmgo_core/interface/reference_interfaces.hpp"
+#include "rmgo_msg/msg/chassis_status.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 
@@ -58,6 +62,10 @@ public:
         yaw_state_interface_name_ = params_.yaw_state_interface_name;
         auto& node = *get_node();
         follow_pid_ = rmgo_core::pid::make_pid_calculator(node, "follow_", 0.0, 0.0, 0.0);
+        if (!status_publisher_) {
+            status_publisher_ = get_node()->create_publisher<rmgo_msg::msg::ChassisStatus>(
+                "/chassis/status", rclcpp::SystemDefaultsQoS());
+        }
 
         reset_references(chassis_reference_);
         reset_internal_state();
@@ -69,6 +77,9 @@ public:
         if (!bind_state_interfaces()) {
             return controller_interface::CallbackReturn::ERROR;
         }
+        if (status_publisher_) {
+            status_publisher_->on_activate();
+        }
         reset_references(chassis_reference_);
         reset_internal_state();
         return stop_chassis() ? controller_interface::CallbackReturn::SUCCESS
@@ -78,8 +89,12 @@ public:
     controller_interface::CallbackReturn
         on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
         reset_internal_state();
-        return stop_chassis() ? controller_interface::CallbackReturn::SUCCESS
-                              : controller_interface::CallbackReturn::ERROR;
+        const bool stopped = stop_chassis();
+        if (status_publisher_) {
+            status_publisher_->on_deactivate();
+        }
+        return stopped ? controller_interface::CallbackReturn::SUCCESS
+                       : controller_interface::CallbackReturn::ERROR;
     }
 
     controller_interface::return_type update_reference_from_subscribers(
@@ -91,7 +106,7 @@ public:
     }
 
     controller_interface::return_type update_and_write_commands(
-        const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
+        const rclcpp::Time& time, const rclcpp::Duration& /*period*/) override {
         const StateSnapshot state = read_state_snapshot();
         const Mode mode = mode_from_value(state.mode);
         if (mode != last_mode_) {
@@ -100,6 +115,7 @@ public:
         }
 
         const auto values = calculate_command(mode, state.reference, state.yaw);
+        publish_status(time, state, mode);
 
         return write_command(values) ? controller_interface::return_type::OK
                                      : controller_interface::return_type::ERROR;
@@ -262,6 +278,22 @@ private:
 
     void reset_pid() { follow_pid_.reset(); }
 
+    void publish_status(const rclcpp::Time& time, const StateSnapshot& state, Mode mode) {
+        if (!status_publisher_) {
+            return;
+        }
+
+        auto msg = rmgo_msg::msg::ChassisStatus{};
+        msg.header.stamp = time;
+        msg.header.frame_id = "chassis";
+        msg.mode = static_cast<std::uint8_t>(mode);
+        msg.yaw = state.yaw;
+        msg.linear_x_reference = state.reference.vx;
+        msg.linear_y_reference = state.reference.vy;
+        msg.angular_z_reference = state.reference.wz;
+        status_publisher_->publish(msg);
+    }
+
     void reset_internal_state() {
         reset_pid();
         last_mode_ = Mode::raw;
@@ -284,6 +316,8 @@ private:
         chassis_reference_{0.0, 0.0, 0.0, 0.0};
     Mode last_mode_ = Mode::raw;
     rmgo_core::pid::PidCalculator follow_pid_;
+    rclcpp_lifecycle::LifecyclePublisher<rmgo_msg::msg::ChassisStatus>::SharedPtr
+        status_publisher_;
     std::shared_ptr<::chassis_controller::ParamListener> param_listener_;
     ::chassis_controller::Params params_;
 };

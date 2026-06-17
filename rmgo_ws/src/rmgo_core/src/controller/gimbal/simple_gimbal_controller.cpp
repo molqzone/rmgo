@@ -10,13 +10,16 @@
 #include <controller_interface/chainable_controller_interface.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
+#include <rclcpp/qos.hpp>
 #include <rclcpp/time.hpp>
+#include <rclcpp_lifecycle/lifecycle_publisher.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
 #include "gimbal_tf_builder.hpp"
 #include "rmgo_core/interface/io_state_interfaces.hpp"
 #include "rmgo_core/interface/reference_interfaces.hpp"
 #include "rmgo_core/simple_gimbal_controller_config.hpp"
+#include "rmgo_msg/msg/gimbal_status.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 #include "two_axis_gimbal_solver.hpp"
@@ -72,6 +75,10 @@ public:
             params_.pitch_lower_limit,
             params_.pitch_upper_limit,
         };
+        if (!status_publisher_) {
+            status_publisher_ = get_node()->create_publisher<rmgo_msg::msg::GimbalStatus>(
+                "/gimbal/status", rclcpp::SystemDefaultsQoS());
+        }
         reset_references(gimbal_reference_);
         return controller_interface::CallbackReturn::SUCCESS;
     }
@@ -89,6 +96,9 @@ public:
             return controller_interface::CallbackReturn::ERROR;
         }
 
+        if (status_publisher_) {
+            status_publisher_->on_activate();
+        }
         reset_references(gimbal_reference_);
         return write_angle_errors({0.0, 0.0}) ? controller_interface::CallbackReturn::SUCCESS
                                               : controller_interface::CallbackReturn::ERROR;
@@ -96,9 +106,12 @@ public:
 
     controller_interface::CallbackReturn
         on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        return write_angle_errors(disabled_angle_error())
-                 ? controller_interface::CallbackReturn::SUCCESS
-                 : controller_interface::CallbackReturn::ERROR;
+        const bool disabled = write_angle_errors(disabled_angle_error());
+        if (status_publisher_) {
+            status_publisher_->on_deactivate();
+        }
+        return disabled ? controller_interface::CallbackReturn::SUCCESS
+                        : controller_interface::CallbackReturn::ERROR;
     }
 
     controller_interface::return_type update_reference_from_subscribers(
@@ -110,8 +123,11 @@ public:
     }
 
     controller_interface::return_type update_and_write_commands(
-        const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
-        const TwoAxisGimbalSolver::AngleError angle_error = calculate_angle_error(period.seconds());
+        const rclcpp::Time& time, const rclcpp::Duration& period) override {
+        const StateSnapshot state = read_state_snapshot();
+        const TwoAxisGimbalSolver::AngleError angle_error =
+            calculate_angle_error(state, period.seconds());
+        publish_status(time, state);
         return write_angle_errors(angle_error) ? controller_interface::return_type::OK
                                                : controller_interface::return_type::ERROR;
     }
@@ -140,6 +156,14 @@ private:
         count,
     };
 
+    struct StateSnapshot {
+        double yaw = 0.0;
+        double pitch = 0.0;
+        double yaw_reference = 0.0;
+        double pitch_reference = 0.0;
+        bool enabled = false;
+    };
+
     template <typename IndexT>
     static constexpr std::size_t to_index(IndexT index) {
         return std::to_underlying(index);
@@ -160,6 +184,17 @@ private:
 
     double read_state(StateInterfaceIndex index) const {
         return read_interface_value(state_interfaces_, state_indexes_[to_index(index)]);
+    }
+
+    StateSnapshot read_state_snapshot() const {
+        const double enabled_reference = gimbal_reference_[2];
+        return StateSnapshot{
+            .yaw = read_state(StateInterfaceIndex::yaw),
+            .pitch = read_state(StateInterfaceIndex::pitch),
+            .yaw_reference = gimbal_reference_[0],
+            .pitch_reference = gimbal_reference_[1],
+            .enabled = std::isfinite(enabled_reference) && enabled_reference > 0.5,
+        };
     }
 
     bool bind_command_interfaces() {
@@ -208,18 +243,14 @@ private:
                    "gimbal state interface");
     }
 
-    TwoAxisGimbalSolver::AngleError calculate_angle_error(double dt) {
-        const double yaw = read_state(StateInterfaceIndex::yaw);
-        const double pitch = read_state(StateInterfaceIndex::pitch);
+    TwoAxisGimbalSolver::AngleError calculate_angle_error(const StateSnapshot& state, double dt) {
+        const double yaw = state.yaw;
+        const double pitch = state.pitch;
         if (!std::isfinite(yaw) || !std::isfinite(pitch) || !update_tf(yaw, pitch)) {
             return disabled_angle_error();
         }
 
-        const double yaw_reference = gimbal_reference_[0];
-        const double pitch_reference = gimbal_reference_[1];
-        const double enabled_reference = gimbal_reference_[2];
-        const bool is_enabled = std::isfinite(enabled_reference) && enabled_reference > 0.5;
-        if (!is_enabled) {
+        if (!state.enabled) {
             return solver_.update(tf_, pitch, TwoAxisGimbalSolver::SetDisabled{});
         }
 
@@ -227,8 +258,8 @@ private:
                              ? solver_.update(
                                    tf_, pitch,
                                    TwoAxisGimbalSolver::SetControlShift{
-                                       finite_or_zero(yaw_reference) * dt,
-                                       finite_or_zero(pitch_reference) * dt,
+                                       finite_or_zero(state.yaw_reference) * dt,
+                                       finite_or_zero(state.pitch_reference) * dt,
                                    })
                              : solver_.update(tf_, pitch, TwoAxisGimbalSolver::SetToLevel{});
 
@@ -270,6 +301,22 @@ private:
             "gimbal angle error");
     }
 
+    void publish_status(const rclcpp::Time& time, const StateSnapshot& state) {
+        if (!status_publisher_) {
+            return;
+        }
+
+        auto msg = rmgo_msg::msg::GimbalStatus{};
+        msg.header.stamp = time;
+        msg.header.frame_id = "gimbal";
+        msg.enabled = state.enabled;
+        msg.yaw = state.yaw;
+        msg.pitch = state.pitch;
+        msg.yaw_reference = state.yaw_reference;
+        msg.pitch_reference = state.pitch_reference;
+        status_publisher_->publish(msg);
+    }
+
     std::array<std::size_t, std::to_underlying(CommandInterfaceIndex::count)> command_indexes_ =
         invalid_indexes<std::to_underlying(CommandInterfaceIndex::count)>();
     std::array<std::size_t, std::to_underlying(StateInterfaceIndex::count)> state_indexes_ =
@@ -284,6 +331,8 @@ private:
         std::numeric_limits<double>::infinity(),
         -std::numeric_limits<double>::infinity(),
     };
+    rclcpp_lifecycle::LifecyclePublisher<rmgo_msg::msg::GimbalStatus>::SharedPtr
+        status_publisher_;
     std::shared_ptr<::simple_gimbal_controller::ParamListener> param_listener_;
     ::simple_gimbal_controller::Params params_;
 };
