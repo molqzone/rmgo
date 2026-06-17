@@ -62,9 +62,13 @@ public:
         yaw_state_interface_name_ = params_.yaw_state_interface_name;
         auto& node = *get_node();
         follow_pid_ = rmgo_core::pid::make_pid_calculator(node, "follow_", 0.0, 0.0, 0.0);
+        if (status_publisher_ && status_topic_ != params_.status_topic) {
+            status_publisher_.reset();
+        }
+        status_topic_ = params_.status_topic;
         if (!status_publisher_) {
             status_publisher_ = get_node()->create_publisher<rmgo_msg::msg::ChassisStatus>(
-                "/chassis/status", rclcpp::SystemDefaultsQoS());
+                status_topic_, rclcpp::SystemDefaultsQoS());
         }
 
         reset_references(chassis_reference_);
@@ -316,6 +320,7 @@ private:
         chassis_reference_{0.0, 0.0, 0.0, 0.0};
     Mode last_mode_ = Mode::raw;
     rmgo_core::pid::PidCalculator follow_pid_;
+    std::string status_topic_ = "/chassis/status";
     rclcpp_lifecycle::LifecyclePublisher<rmgo_msg::msg::ChassisStatus>::SharedPtr
         status_publisher_;
     std::shared_ptr<::chassis_controller::ParamListener> param_listener_;

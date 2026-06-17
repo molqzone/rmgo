@@ -3,6 +3,7 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -75,9 +76,13 @@ public:
             params_.pitch_lower_limit,
             params_.pitch_upper_limit,
         };
+        if (status_publisher_ && status_topic_ != params_.status_topic) {
+            status_publisher_.reset();
+        }
+        status_topic_ = params_.status_topic;
         if (!status_publisher_) {
             status_publisher_ = get_node()->create_publisher<rmgo_msg::msg::GimbalStatus>(
-                "/gimbal/status", rclcpp::SystemDefaultsQoS());
+                status_topic_, rclcpp::SystemDefaultsQoS());
         }
         reset_references(gimbal_reference_);
         return controller_interface::CallbackReturn::SUCCESS;
@@ -331,6 +336,7 @@ private:
         std::numeric_limits<double>::infinity(),
         -std::numeric_limits<double>::infinity(),
     };
+    std::string status_topic_ = "/gimbal/status";
     rclcpp_lifecycle::LifecyclePublisher<rmgo_msg::msg::GimbalStatus>::SharedPtr
         status_publisher_;
     std::shared_ptr<::simple_gimbal_controller::ParamListener> param_listener_;

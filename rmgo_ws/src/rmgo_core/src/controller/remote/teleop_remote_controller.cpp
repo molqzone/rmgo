@@ -78,9 +78,13 @@ public:
         shooter_mode_topic_ = params_.shooter_mode_topic;
         shooter_fire_topic_ = params_.shooter_fire_topic;
         command_timeout_ = params_.command_timeout;
+        if (remote_status_publisher_ && status_topic_ != params_.status_topic) {
+            remote_status_publisher_.reset();
+        }
+        status_topic_ = params_.status_topic;
         if (!remote_status_publisher_) {
             remote_status_publisher_ = node_->create_publisher<rmgo_msg::msg::RemoteStatus>(
-                "/remote/status", rclcpp::SystemDefaultsQoS());
+                status_topic_, rclcpp::SystemDefaultsQoS());
         }
 
         if (!cmd_vel_subscriber_) {
@@ -394,6 +398,7 @@ private:
     std::string mode_topic_ = "/cmd_chassis_mode";
     std::string shooter_mode_topic_ = "/cmd_shooter_mode";
     std::string shooter_fire_topic_ = "/cmd_shooter_fire";
+    std::string status_topic_ = "/remote/status";
     double command_timeout_ = 0.25;
     rclcpp::Clock steady_clock_{RCL_STEADY_TIME};
     realtime_tools::RealtimeBuffer<BufferedCommand> command_buffer_;

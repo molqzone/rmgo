@@ -25,3 +25,9 @@ chassis_controller:
   follow_velocity_feedforward:
     type: double
     description: "Additional angular velocity feedforward in follow mode."
+  status_topic:
+    type: string
+    default_value: /chassis/status
+    description: "Semantic chassis status topic consumed by non-RT observers such as referee UI."
+    validation:
+      not_empty<>: []

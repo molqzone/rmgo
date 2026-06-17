@@ -52,3 +52,9 @@ teleop_remote_controller:
   command_timeout:
     type: double
     description: "Maximum age of cmd_vel before zeroing velocity. Non-positive disables timeout."
+  status_topic:
+    type: string
+    default_value: /remote/status
+    description: "Semantic remote status topic consumed by non-RT observers such as referee UI."
+    validation:
+      not_empty<>: []

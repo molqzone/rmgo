@@ -67,9 +67,13 @@ public:
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
         update_parameters(param_listener_, params_);
+        if (status_publisher_ && status_topic_ != params_.status_topic) {
+            status_publisher_.reset();
+        }
+        status_topic_ = params_.status_topic;
         if (!status_publisher_) {
             status_publisher_ = get_node()->create_publisher<rmgo_msg::msg::ShooterStatus>(
-                "/shooter/status", rclcpp::SystemDefaultsQoS());
+                status_topic_, rclcpp::SystemDefaultsQoS());
         }
         reset_references(shooter_reference_);
         reset_internal_state();
@@ -356,6 +360,7 @@ private:
     bool friction_faulted_ = false;
     double last_primary_friction_velocity_ = nan();
     double primary_friction_velocity_decrease_integral_ = 0.0;
+    std::string status_topic_ = "/shooter/status";
     rclcpp_lifecycle::LifecyclePublisher<rmgo_msg::msg::ShooterStatus>::SharedPtr
         status_publisher_;
     std::shared_ptr<::friction_wheel_controller::ParamListener> param_listener_;

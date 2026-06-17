@@ -55,6 +55,7 @@ chassis_controller:
     command_source_frame: yaw
     twist_angular: 0.5235987755982988
     follow_velocity_feedforward: 0.0
+    status_topic: /chassis/status
     follow_kp: 7.0
     follow_ki: 0.0
     follow_kd: 0.0
@@ -103,6 +104,7 @@ teleop_remote_controller:
     mode_topic: /cmd_chassis_mode
     shooter_mode_topic: /cmd_shooter_mode
     shooter_fire_topic: /cmd_shooter_fire
+    status_topic: /remote/status
     bullet_feeder_controller_name: bullet_feeder_controller
     command_timeout: 2.0
 
@@ -121,6 +123,7 @@ simple_gimbal_controller:
     state_interface_name: position
     pitch_lower_limit: -0.5098
     pitch_upper_limit: 0.2262
+    status_topic: /gimbal/status
 
 yaw_angle_pid_controller:
   ros__parameters:
@@ -187,6 +190,7 @@ friction_wheel_controller:
     bullet_drop_integral_threshold: -14.0
     bullet_drop_recovery_threshold: 0.1
     bullet_drop_velocity_margin: 20.0
+    status_topic: /shooter/status
 
 heat_controller:
   ros__parameters:
