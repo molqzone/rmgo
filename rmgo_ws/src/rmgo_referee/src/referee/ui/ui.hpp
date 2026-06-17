@@ -110,9 +110,37 @@ struct RefereeUiState {
     double chassis_power = 0.0;
     double chassis_buffer_energy = 0.0;
     double chassis_output_status = 0.0;
+    double capacitor_charge_ratio = 0.0;
+    double capacitor_online = 0.0;
+    double capacitor_resetting = 0.0;
     double chassis_mode = 0.0;
+    double chassis_yaw = 0.0;
+    double chassis_linear_x_reference = 0.0;
+    double chassis_linear_y_reference = 0.0;
+    double chassis_angular_z_reference = 0.0;
     double gimbal_enabled = 0.0;
+    double gimbal_yaw = 0.0;
+    double gimbal_pitch = 0.0;
+    double gimbal_yaw_reference = 0.0;
+    double gimbal_pitch_reference = 0.0;
     double shooter_mode = 0.0;
+    double shooter_friction_requested = 0.0;
+    double shooter_friction_ready = 0.0;
+    double shooter_friction_faulted = 0.0;
+    double shooter_left_control_velocity = 0.0;
+    double shooter_right_control_velocity = 0.0;
+    double remote_active = 0.0;
+    double remote_fire_pressed = 0.0;
+    double remote_cover_open = 0.0;
+    double remote_gimbal_eject = 0.0;
+    double remote_power_limit_state = 0.0;
+    double remote_shoot_frequency = 0.0;
+    double remote_target = 0.0;
+    double remote_armor_target = 0.0;
+    double remote_target_color_red = 0.0;
+    double target_locked = 0.0;
+    double target_id = 0.0;
+    double target_distance = 0.0;
 };
 
 class UiProfile {

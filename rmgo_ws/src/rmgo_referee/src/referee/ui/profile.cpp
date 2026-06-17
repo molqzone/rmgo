@@ -94,6 +94,28 @@ std::string shooter_mode_name(double value) {
     }
 }
 
+std::string target_name(double target, double armor_target) {
+    switch (round_i32(target)) {
+    case 1:
+        switch (round_i32(armor_target)) {
+        case 1: return "armor_all";
+        case 2: return "armor_base";
+        default: return "armor";
+        }
+    case 2: return "small_buff";
+    case 3: return "big_buff";
+    case 0:
+    default: return "target_none";
+    }
+}
+
+std::uint16_t screen_coordinate(double value) {
+    if (!std::isfinite(value)) {
+        return 0;
+    }
+    return static_cast<std::uint16_t>(std::clamp(std::lround(value), 0L, 2047L));
+}
+
 template <typename ShapeArray>
 void set_shapes_visible(const ShapeArray& shapes, bool visible) {
     for (auto* shape : shapes) {
@@ -138,18 +160,41 @@ public:
         , lane_right_inner_(interaction_ui, Color::white, 1, 1160, 980, 1010, 690, false)
         , horizon_(
               interaction_ui, Color::white, 1, x_center - 210, y_center + 180, x_center + 210,
-              y_center + 180, false) {
+              y_center + 180, false)
+        , rotation_(interaction_ui, Color::yellow, 4, x_center, y_center, x_center, y_center - 80,
+              false) {
         set_shapes_layer_priority(shapes(), 0, 1);
+        rotation_.set_priority(5);
     }
 
     void set_visible(bool visible) { set_shapes_visible(shapes(), visible); }
 
+    void update(const RefereeUiState& state) {
+        const double pitch = std::clamp(state.gimbal_pitch, -0.8, 0.8);
+        const double lane_top_y = 630.0 + pitch * 160.0;
+        const double lane_inner_top_y = 700.0 + pitch * 140.0;
+        lane_left_.set_end_xy(screen_coordinate(884.0 - pitch * 80.0), screen_coordinate(lane_top_y));
+        lane_right_.set_end_xy(
+            screen_coordinate(1036.0 + pitch * 80.0), screen_coordinate(lane_top_y));
+        lane_left_inner_.set_end_xy(
+            screen_coordinate(910.0 - pitch * 45.0), screen_coordinate(lane_inner_top_y));
+        lane_right_inner_.set_end_xy(
+            screen_coordinate(1010.0 + pitch * 45.0), screen_coordinate(lane_inner_top_y));
+
+        const double yaw = std::isfinite(state.chassis_yaw) ? state.chassis_yaw : 0.0;
+        rotation_.set_end_xy(
+            screen_coordinate(static_cast<double>(x_center) + std::sin(yaw) * 90.0),
+            screen_coordinate(static_cast<double>(y_center) - std::cos(yaw) * 90.0));
+        rotation_.set_color(round_i32(state.chassis_mode) == 0 ? Color::green : Color::pink);
+    }
+
 private:
-    std::array<Shape*, 12> shapes() {
+    std::array<Shape*, 13> shapes() {
         return {
             &center_left_, &center_right_,    &center_up_,        &center_down_,
             &center_ring_, &range_left_,      &range_right_,      &lane_left_,
             &lane_right_,  &lane_left_inner_, &lane_right_inner_, &horizon_,
+            &rotation_,
         };
     }
 
@@ -165,6 +210,7 @@ private:
     Line lane_left_inner_;
     Line lane_right_inner_;
     Line horizon_;
+    Line rotation_;
 };
 
 class ModeWidget {
@@ -183,15 +229,18 @@ public:
     void update(const RefereeUiState& state) {
         const auto chassis = chassis_mode_name(state.chassis_mode);
         chassis_.set_content("CHS " + chassis);
-        chassis_.set_color(chassis_color(chassis, state.chassis_output_status));
+        chassis_.set_color(
+            chassis_color(chassis, state.chassis_output_status, state.remote_power_limit_state));
 
         const bool gimbal_enabled = state.gimbal_enabled > 0.5;
         gimbal_.set_content(gimbal_enabled ? "GMB on" : "GMB off");
-        gimbal_.set_color(gimbal_enabled ? Color::green : Color::pink);
+        gimbal_.set_color(
+            state.remote_gimbal_eject > 0.5 ? Color::orange
+                                            : gimbal_enabled ? Color::green : Color::pink);
 
         const auto shooter = shooter_mode_name(state.shooter_mode);
         shooter_.set_content("SHT " + shooter);
-        shooter_.set_color(shooter_color(shooter));
+        shooter_.set_color(shooter_color(shooter, state.remote_shoot_frequency));
 
         game_.set_content(value_suffix("T", state.stage_remain_time, "s"));
         online_.set_content(value_suffix("ID", state.robot_id, ""));
@@ -200,9 +249,16 @@ public:
 private:
     std::array<Shape*, 5> shapes() { return {&chassis_, &gimbal_, &shooter_, &game_, &online_}; }
 
-    static Color chassis_color(std::string_view mode, double output_status) {
+    static Color
+        chassis_color(std::string_view mode, double output_status, double power_limit_state) {
         if (output_status > 0.0 && output_status < 0.5) {
             return Color::pink;
+        }
+        if (round_i32(power_limit_state) == 2) {
+            return Color::orange;
+        }
+        if (round_i32(power_limit_state) == 3) {
+            return Color::green;
         }
         if (mode == "twist") {
             return Color::orange;
@@ -213,7 +269,13 @@ private:
         return Color::white;
     }
 
-    static Color shooter_color(std::string_view mode) {
+    static Color shooter_color(std::string_view mode, double shoot_frequency) {
+        if (round_i32(shoot_frequency) == 3) {
+            return Color::orange;
+        }
+        if (round_i32(shoot_frequency) == 2) {
+            return Color::yellow;
+        }
         if (mode == "auto" || mode == "single") {
             return Color::green;
         }
@@ -286,21 +348,24 @@ class PowerWidget {
 public:
     explicit PowerWidget(InteractionUi& interaction_ui)
         : power_(interaction_ui, 610, 100, 600, "PWR")
-        , buffer_(interaction_ui, 610, 140, 600, "BUF") {}
+        , capacitor_(interaction_ui, 610, 140, 600, "CAP") {}
 
     void set_visible(bool visible) {
         power_.set_visible(visible);
-        buffer_.set_visible(visible);
+        capacitor_.set_visible(visible);
     }
 
     void update(const RefereeUiState& state) {
         power_.update_load(state.chassis_power, state.chassis_power_limit, "W");
-        buffer_.update_remaining(state.chassis_buffer_energy, 60.0, "J");
+        const double charge_ratio = state.capacitor_online > 0.5
+                                  ? state.capacitor_charge_ratio
+                                  : ratio(state.chassis_buffer_energy, 60.0);
+        capacitor_.update_remaining(charge_ratio * 100.0, 100.0, "%");
     }
 
 private:
     BarWidget power_;
-    BarWidget buffer_;
+    BarWidget capacitor_;
 };
 
 class HeatWidget {
@@ -389,6 +454,89 @@ private:
     std::optional<int> last_allowance_;
 };
 
+class TargetWidget {
+public:
+    explicit TargetWidget(InteractionUi& interaction_ui)
+        : target_(interaction_ui, Color::cyan, 18, 2, 120, 710, "TGT target_none", false)
+        , lock_box_(interaction_ui, Color::white, 3, 500, 240, 1420, 840, false)
+        , distance_(interaction_ui, Color::white, 18, 2, 1450, 270, "DIST 0m", false) {
+        set_shapes_layer_priority(shapes(), 1, 6);
+        lock_box_.set_layer(0);
+        lock_box_.set_priority(2);
+    }
+
+    void set_visible(bool visible) { set_shapes_visible(shapes(), visible); }
+
+    void update(const RefereeUiState& state) {
+        const auto name = target_name(state.remote_target, state.remote_armor_target);
+        target_.set_content("TGT " + name);
+        const bool locked = state.target_locked > 0.5;
+        const bool red = state.remote_target_color_red > 0.5;
+        const auto color = locked ? Color::green : red ? Color::pink : Color::cyan;
+        target_.set_color(color);
+        lock_box_.set_color(locked ? Color::green : Color::white);
+        distance_.set_content(value_suffix("DIST", state.target_distance, "m"));
+        distance_.set_color(locked ? Color::green : Color::white);
+    }
+
+private:
+    std::array<Shape*, 3> shapes() { return {&target_, &lock_box_, &distance_}; }
+
+    Text target_;
+    Rectangle lock_box_;
+    Text distance_;
+};
+
+class CoverFlashWidget {
+public:
+    explicit CoverFlashWidget(InteractionUi& interaction_ui)
+        : text_(interaction_ui, Color::green, 25, 2, 830, 700, "cover open!!", false) {
+        text_.set_layer(1);
+        text_.set_priority(9);
+    }
+
+    void set_visible(bool visible) { active_ = visible; }
+
+    void update(const RefereeUiState& state) {
+        text_.set_visible(active_ && state.remote_cover_open > 0.5);
+    }
+
+private:
+    bool active_ = false;
+    Text text_;
+};
+
+class FrictionSpeedWidget {
+public:
+    explicit FrictionSpeedWidget(InteractionUi& interaction_ui)
+        : text_(interaction_ui, Color::white, 18, 2, 1450, 318, "FRIC 0", false) {
+        text_.set_layer(1);
+        text_.set_priority(7);
+    }
+
+    void set_visible(bool visible) { text_.set_visible(visible); }
+
+    void update(const RefereeUiState& state) {
+        const double speed =
+            (std::abs(state.shooter_left_control_velocity)
+             + std::abs(state.shooter_right_control_velocity))
+            * 0.5;
+        text_.set_content(value_suffix("FRIC", speed, ""));
+        if (state.shooter_friction_faulted > 0.5) {
+            text_.set_color(Color::pink);
+        } else if (state.shooter_friction_ready > 0.5) {
+            text_.set_color(Color::green);
+        } else if (state.shooter_friction_requested > 0.5) {
+            text_.set_color(Color::yellow);
+        } else {
+            text_.set_color(Color::white);
+        }
+    }
+
+private:
+    Text text_;
+};
+
 } // namespace
 
 class OmniInfantryUiProfile final : public UiProfile {
@@ -399,7 +547,10 @@ public:
         , health_(interaction_ui)
         , power_(interaction_ui)
         , heat_(interaction_ui)
-        , bullets_(interaction_ui) {}
+        , bullets_(interaction_ui)
+        , target_(interaction_ui)
+        , cover_(interaction_ui)
+        , friction_(interaction_ui) {}
 
     void on_activate() override { set_active(true); }
 
@@ -418,10 +569,14 @@ public:
         }
 
         modes_.update(state);
+        fixed_.update(state);
         health_.update(state);
         power_.update(state);
         heat_.update(state);
         bullets_.update(state);
+        target_.update(state);
+        cover_.update(state);
+        friction_.update(state);
     }
 
 private:
@@ -438,6 +593,9 @@ private:
         power_.set_visible(visible_);
         heat_.set_visible(visible_);
         bullets_.set_visible(visible_);
+        target_.set_visible(visible_);
+        cover_.set_visible(visible_);
+        friction_.set_visible(visible_);
     }
 
     static constexpr int preparation_stage = 1;
@@ -451,6 +609,9 @@ private:
     PowerWidget power_;
     HeatWidget heat_;
     BulletWidget bullets_;
+    TargetWidget target_;
+    CoverFlashWidget cover_;
+    FrictionSpeedWidget friction_;
 };
 
 namespace {

@@ -25,10 +25,13 @@
 #include "referee/status.hpp"
 #include "referee/transfer.hpp"
 #include "referee/ui/ui.hpp"
+#include "rmgo_msg/msg/capacitor_status.hpp"
 #include "rmgo_msg/msg/chassis_status.hpp"
 #include "rmgo_msg/msg/gimbal_status.hpp"
 #include "rmgo_msg/msg/referee_status.hpp"
+#include "rmgo_msg/msg/remote_status.hpp"
 #include "rmgo_msg/msg/shooter_status.hpp"
+#include "rmgo_msg/msg/target_status.hpp"
 #include "rmgo_utility/utility/ring_buffer.hpp"
 
 namespace rmgo_referee {
@@ -46,26 +49,133 @@ class UiBroadcastStore {
 public:
     void update(const rmgo_msg::msg::ChassisStatus& msg) noexcept {
         chassis_mode_.store(msg.mode, std::memory_order_release);
+        chassis_yaw_.store(msg.yaw, std::memory_order_release);
+        chassis_linear_x_reference_.store(msg.linear_x_reference, std::memory_order_release);
+        chassis_linear_y_reference_.store(msg.linear_y_reference, std::memory_order_release);
+        chassis_angular_z_reference_.store(msg.angular_z_reference, std::memory_order_release);
     }
 
     void update(const rmgo_msg::msg::GimbalStatus& msg) noexcept {
         gimbal_enabled_.store(msg.enabled ? 1.0 : 0.0, std::memory_order_release);
+        gimbal_yaw_.store(msg.yaw, std::memory_order_release);
+        gimbal_pitch_.store(msg.pitch, std::memory_order_release);
+        gimbal_yaw_reference_.store(msg.yaw_reference, std::memory_order_release);
+        gimbal_pitch_reference_.store(msg.pitch_reference, std::memory_order_release);
     }
 
     void update(const rmgo_msg::msg::ShooterStatus& msg) noexcept {
         shooter_mode_.store(msg.mode, std::memory_order_release);
+        shooter_friction_requested_.store(
+            msg.friction_requested ? 1.0 : 0.0, std::memory_order_release);
+        shooter_friction_ready_.store(msg.friction_ready ? 1.0 : 0.0, std::memory_order_release);
+        shooter_friction_faulted_.store(
+            msg.friction_faulted ? 1.0 : 0.0, std::memory_order_release);
+        shooter_left_control_velocity_.store(
+            msg.left_control_velocity, std::memory_order_release);
+        shooter_right_control_velocity_.store(
+            msg.right_control_velocity, std::memory_order_release);
+    }
+
+    void update(const rmgo_msg::msg::RemoteStatus& msg) noexcept {
+        remote_active_.store(msg.active ? 1.0 : 0.0, std::memory_order_release);
+        remote_fire_pressed_.store(msg.fire_pressed ? 1.0 : 0.0, std::memory_order_release);
+        remote_cover_open_.store(msg.cover_open ? 1.0 : 0.0, std::memory_order_release);
+        remote_gimbal_eject_.store(msg.gimbal_eject ? 1.0 : 0.0, std::memory_order_release);
+        remote_power_limit_state_.store(msg.power_limit_state, std::memory_order_release);
+        remote_shoot_frequency_.store(msg.shoot_frequency, std::memory_order_release);
+        remote_target_.store(msg.target, std::memory_order_release);
+        remote_armor_target_.store(msg.armor_target, std::memory_order_release);
+        remote_target_color_red_.store(
+            msg.target_color_red ? 1.0 : 0.0, std::memory_order_release);
+    }
+
+    void update(const rmgo_msg::msg::TargetStatus& msg) noexcept {
+        target_locked_.store(msg.locked ? 1.0 : 0.0, std::memory_order_release);
+        target_id_.store(msg.id, std::memory_order_release);
+        target_distance_.store(msg.distance, std::memory_order_release);
+    }
+
+    void update(const rmgo_msg::msg::CapacitorStatus& msg) noexcept {
+        capacitor_online_.store(msg.online ? 1.0 : 0.0, std::memory_order_release);
+        capacitor_resetting_.store(msg.resetting ? 1.0 : 0.0, std::memory_order_release);
+        capacitor_charge_ratio_.store(msg.charge_ratio, std::memory_order_release);
     }
 
     void apply(ui::RefereeUiState& state) const noexcept {
         state.chassis_mode = chassis_mode_.load(std::memory_order_acquire);
+        state.chassis_yaw = chassis_yaw_.load(std::memory_order_acquire);
+        state.chassis_linear_x_reference =
+            chassis_linear_x_reference_.load(std::memory_order_acquire);
+        state.chassis_linear_y_reference =
+            chassis_linear_y_reference_.load(std::memory_order_acquire);
+        state.chassis_angular_z_reference =
+            chassis_angular_z_reference_.load(std::memory_order_acquire);
         state.gimbal_enabled = gimbal_enabled_.load(std::memory_order_acquire);
+        state.gimbal_yaw = gimbal_yaw_.load(std::memory_order_acquire);
+        state.gimbal_pitch = gimbal_pitch_.load(std::memory_order_acquire);
+        state.gimbal_yaw_reference = gimbal_yaw_reference_.load(std::memory_order_acquire);
+        state.gimbal_pitch_reference = gimbal_pitch_reference_.load(std::memory_order_acquire);
         state.shooter_mode = shooter_mode_.load(std::memory_order_acquire);
+        state.shooter_friction_requested =
+            shooter_friction_requested_.load(std::memory_order_acquire);
+        state.shooter_friction_ready = shooter_friction_ready_.load(std::memory_order_acquire);
+        state.shooter_friction_faulted = shooter_friction_faulted_.load(std::memory_order_acquire);
+        state.shooter_left_control_velocity =
+            shooter_left_control_velocity_.load(std::memory_order_acquire);
+        state.shooter_right_control_velocity =
+            shooter_right_control_velocity_.load(std::memory_order_acquire);
+        state.remote_active = remote_active_.load(std::memory_order_acquire);
+        state.remote_fire_pressed = remote_fire_pressed_.load(std::memory_order_acquire);
+        state.remote_cover_open = remote_cover_open_.load(std::memory_order_acquire);
+        state.remote_gimbal_eject = remote_gimbal_eject_.load(std::memory_order_acquire);
+        state.remote_power_limit_state =
+            remote_power_limit_state_.load(std::memory_order_acquire);
+        state.remote_shoot_frequency = remote_shoot_frequency_.load(std::memory_order_acquire);
+        state.remote_target = remote_target_.load(std::memory_order_acquire);
+        state.remote_armor_target = remote_armor_target_.load(std::memory_order_acquire);
+        state.remote_target_color_red =
+            remote_target_color_red_.load(std::memory_order_acquire);
+        state.target_locked = target_locked_.load(std::memory_order_acquire);
+        state.target_id = target_id_.load(std::memory_order_acquire);
+        state.target_distance = target_distance_.load(std::memory_order_acquire);
+        state.capacitor_online = capacitor_online_.load(std::memory_order_acquire);
+        state.capacitor_resetting = capacitor_resetting_.load(std::memory_order_acquire);
+        state.capacitor_charge_ratio =
+            capacitor_charge_ratio_.load(std::memory_order_acquire);
     }
 
 private:
     std::atomic<double> chassis_mode_{0.0};
+    std::atomic<double> chassis_yaw_{0.0};
+    std::atomic<double> chassis_linear_x_reference_{0.0};
+    std::atomic<double> chassis_linear_y_reference_{0.0};
+    std::atomic<double> chassis_angular_z_reference_{0.0};
     std::atomic<double> gimbal_enabled_{0.0};
+    std::atomic<double> gimbal_yaw_{0.0};
+    std::atomic<double> gimbal_pitch_{0.0};
+    std::atomic<double> gimbal_yaw_reference_{0.0};
+    std::atomic<double> gimbal_pitch_reference_{0.0};
     std::atomic<double> shooter_mode_{0.0};
+    std::atomic<double> shooter_friction_requested_{0.0};
+    std::atomic<double> shooter_friction_ready_{0.0};
+    std::atomic<double> shooter_friction_faulted_{0.0};
+    std::atomic<double> shooter_left_control_velocity_{0.0};
+    std::atomic<double> shooter_right_control_velocity_{0.0};
+    std::atomic<double> remote_active_{0.0};
+    std::atomic<double> remote_fire_pressed_{0.0};
+    std::atomic<double> remote_cover_open_{0.0};
+    std::atomic<double> remote_gimbal_eject_{0.0};
+    std::atomic<double> remote_power_limit_state_{0.0};
+    std::atomic<double> remote_shoot_frequency_{0.0};
+    std::atomic<double> remote_target_{0.0};
+    std::atomic<double> remote_armor_target_{0.0};
+    std::atomic<double> remote_target_color_red_{0.0};
+    std::atomic<double> target_locked_{0.0};
+    std::atomic<double> target_id_{0.0};
+    std::atomic<double> target_distance_{0.0};
+    std::atomic<double> capacitor_online_{0.0};
+    std::atomic<double> capacitor_resetting_{0.0};
+    std::atomic<double> capacitor_charge_ratio_{0.0};
 };
 
 } // namespace
@@ -87,6 +197,12 @@ public:
             declare_parameter<std::string>("gimbal_status_topic", "/gimbal/status");
         shooter_status_topic_ =
             declare_parameter<std::string>("shooter_status_topic", "/shooter/status");
+        remote_status_topic_ =
+            declare_parameter<std::string>("remote_status_topic", "/remote/status");
+        target_status_topic_ =
+            declare_parameter<std::string>("target_status_topic", "/target/status");
+        capacitor_status_topic_ =
+            declare_parameter<std::string>("capacitor_status_topic", "/capacitor/status");
         profile_name_ = declare_parameter<std::string>("profile", "omni_infantry");
         publish_period_ =
             std::chrono::duration<double>{declare_parameter<double>("publish_period", 0.02)};
@@ -110,6 +226,15 @@ public:
         shooter_status_subscriber_ = create_subscription<rmgo_msg::msg::ShooterStatus>(
             shooter_status_topic_, rclcpp::SystemDefaultsQoS(),
             [this](const rmgo_msg::msg::ShooterStatus& msg) { ui_broadcast_.update(msg); });
+        remote_status_subscriber_ = create_subscription<rmgo_msg::msg::RemoteStatus>(
+            remote_status_topic_, rclcpp::SystemDefaultsQoS(),
+            [this](const rmgo_msg::msg::RemoteStatus& msg) { ui_broadcast_.update(msg); });
+        target_status_subscriber_ = create_subscription<rmgo_msg::msg::TargetStatus>(
+            target_status_topic_, rclcpp::SystemDefaultsQoS(),
+            [this](const rmgo_msg::msg::TargetStatus& msg) { ui_broadcast_.update(msg); });
+        capacitor_status_subscriber_ = create_subscription<rmgo_msg::msg::CapacitorStatus>(
+            capacitor_status_topic_, rclcpp::SystemDefaultsQoS(),
+            [this](const rmgo_msg::msg::CapacitorStatus& msg) { ui_broadcast_.update(msg); });
         ui_profile_ = ui::make_ui_profile(profile_name_, interaction_ui_);
         if (ui_profile_ == nullptr) {
             RCLCPP_ERROR(get_logger(), "Unknown referee UI profile '%s'", profile_name_.c_str());
@@ -448,6 +573,9 @@ private:
     std::string chassis_status_topic_ = "/chassis/status";
     std::string gimbal_status_topic_ = "/gimbal/status";
     std::string shooter_status_topic_ = "/shooter/status";
+    std::string remote_status_topic_ = "/remote/status";
+    std::string target_status_topic_ = "/target/status";
+    std::string capacitor_status_topic_ = "/capacitor/status";
     std::string profile_name_ = "omni_infantry";
     int rx_buffer_size_ = 1024;
     int tx_queue_capacity_ = 64;
@@ -476,6 +604,9 @@ private:
     rclcpp::Subscription<rmgo_msg::msg::ChassisStatus>::SharedPtr chassis_status_subscriber_;
     rclcpp::Subscription<rmgo_msg::msg::GimbalStatus>::SharedPtr gimbal_status_subscriber_;
     rclcpp::Subscription<rmgo_msg::msg::ShooterStatus>::SharedPtr shooter_status_subscriber_;
+    rclcpp::Subscription<rmgo_msg::msg::RemoteStatus>::SharedPtr remote_status_subscriber_;
+    rclcpp::Subscription<rmgo_msg::msg::TargetStatus>::SharedPtr target_status_subscriber_;
+    rclcpp::Subscription<rmgo_msg::msg::CapacitorStatus>::SharedPtr capacitor_status_subscriber_;
     rclcpp::TimerBase::SharedPtr publish_timer_;
     rclcpp::TimerBase::SharedPtr ui_timer_;
     rclcpp::TimerBase::SharedPtr transport_watchdog_timer_;

@@ -13,12 +13,14 @@
 #include <rclcpp/subscription.hpp>
 #include <rclcpp/time.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
+#include <rclcpp_lifecycle/lifecycle_publisher.hpp>
 #include <realtime_tools/realtime_buffer.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/u_int8.hpp>
 
 #include "rmgo_core/interface/reference_interfaces.hpp"
 #include "rmgo_core/teleop_remote_controller_config.hpp"
+#include "rmgo_msg/msg/remote_status.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 
@@ -76,6 +78,10 @@ public:
         shooter_mode_topic_ = params_.shooter_mode_topic;
         shooter_fire_topic_ = params_.shooter_fire_topic;
         command_timeout_ = params_.command_timeout;
+        if (!remote_status_publisher_) {
+            remote_status_publisher_ = node_->create_publisher<rmgo_msg::msg::RemoteStatus>(
+                "/remote/status", rclcpp::SystemDefaultsQoS());
+        }
 
         if (!cmd_vel_subscriber_) {
             cmd_vel_subscriber_ = node_->create_subscription<geometry_msgs::msg::Twist>(
@@ -149,6 +155,9 @@ public:
         shooter_fire_buffer_.writeFromNonRT(BufferedShooterFire{});
         last_fire_pressed_ = false;
         shooter_request_sequence_ = 0;
+        if (remote_status_publisher_) {
+            remote_status_publisher_->on_activate();
+        }
         return write_reference_interfaces({
                    0.0,
                    0.0,
@@ -172,6 +181,9 @@ public:
         shooter_mode_buffer_.writeFromNonRT(BufferedShooterMode{});
         shooter_fire_buffer_.writeFromNonRT(BufferedShooterFire{});
         last_fire_pressed_ = false;
+        if (remote_status_publisher_) {
+            remote_status_publisher_->on_deactivate();
+        }
         const bool wrote_references = write_reference_interfaces({
             0.0,
             0.0,
@@ -188,7 +200,7 @@ public:
     }
 
     controller_interface::return_type
-        update(const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
+        update(const rclcpp::Time& time, const rclcpp::Duration& /*period*/) override {
         const BufferedCommand command = *command_buffer_.readFromRT();
         const rclcpp::Time now = steady_clock_.now();
         const bool valid =
@@ -216,7 +228,9 @@ public:
         const std::array<double, 1> shooter_values{
             static_cast<double>(shooter_valid ? shooter_mode.mode : disabled_shooter),
         };
-        const double request_sequence = update_shooter_request_sequence(now, shooter_values[0]);
+        const ShooterFireStatus shooter_fire =
+            update_shooter_request_sequence(now, shooter_values[0]);
+        publish_remote_status(time, valid || gimbal_valid || shooter_valid, shooter_fire.pressed);
 
         return write_reference_interfaces({
                    chassis_values[0],
@@ -227,7 +241,7 @@ public:
                    gimbal_values[1],
                    gimbal_values[2],
                    shooter_values[0],
-                   request_sequence,
+                   shooter_fire.request_sequence,
                })
                  ? controller_interface::return_type::OK
                  : controller_interface::return_type::ERROR;
@@ -261,6 +275,11 @@ private:
         bool valid = false;
     };
 
+    struct ShooterFireStatus {
+        bool pressed = false;
+        double request_sequence = 0.0;
+    };
+
     static constexpr std::size_t teleop_reference_count =
         rmgo_core::reference_interfaces::chassis_interfaces.size()
         + rmgo_core::reference_interfaces::gimbal_interfaces.size()
@@ -289,7 +308,7 @@ private:
         return std::move(config.names);
     }
 
-    double update_shooter_request_sequence(const rclcpp::Time& now, double shooter_mode) {
+    ShooterFireStatus update_shooter_request_sequence(const rclcpp::Time& now, double shooter_mode) {
         const BufferedShooterFire shooter_fire = *shooter_fire_buffer_.readFromRT();
         const bool fresh = shooter_fire.valid
                         && (command_timeout_ <= 0.0
@@ -299,9 +318,35 @@ private:
         last_fire_pressed_ = fire_pressed;
 
         if (shooter_mode <= disabled_shooter || !rising_edge) {
-            return 0.0;
+            return {
+                .pressed = fire_pressed,
+                .request_sequence = 0.0,
+            };
         }
-        return static_cast<double>(++shooter_request_sequence_);
+        return {
+            .pressed = fire_pressed,
+            .request_sequence = static_cast<double>(++shooter_request_sequence_),
+        };
+    }
+
+    void publish_remote_status(const rclcpp::Time& time, bool active, bool fire_pressed) {
+        if (!remote_status_publisher_) {
+            return;
+        }
+
+        auto msg = rmgo_msg::msg::RemoteStatus{};
+        msg.header.stamp = time;
+        msg.header.frame_id = "remote";
+        msg.active = active;
+        msg.fire_pressed = fire_pressed;
+        msg.cover_open = false;
+        msg.gimbal_eject = false;
+        msg.power_limit_state = rmgo_msg::msg::RemoteStatus::POWER_LIMIT_UNKNOWN;
+        msg.shoot_frequency = rmgo_msg::msg::RemoteStatus::SHOOT_FREQUENCY_UNKNOWN;
+        msg.target = rmgo_msg::msg::RemoteStatus::TARGET_UNKNOWN;
+        msg.armor_target = rmgo_msg::msg::RemoteStatus::ARMOR_UNKNOWN;
+        msg.target_color_red = false;
+        remote_status_publisher_->publish(msg);
     }
 
     bool bind_command_interfaces() {
@@ -362,6 +407,8 @@ private:
     std::shared_ptr<::teleop_remote_controller::ParamListener> param_listener_;
     ::teleop_remote_controller::Params params_;
     std::shared_ptr<rclcpp_lifecycle::LifecycleNode> node_;
+    rclcpp_lifecycle::LifecyclePublisher<rmgo_msg::msg::RemoteStatus>::SharedPtr
+        remote_status_publisher_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_subscriber_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_gimbal_subscriber_;
     rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr mode_subscriber_;

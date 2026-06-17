@@ -6,10 +6,13 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  msg/CapacitorStatus.msg
   msg/ChassisStatus.msg
   msg/GimbalStatus.msg
   msg/RefereeStatus.msg
+  msg/RemoteStatus.msg
   msg/ShooterStatus.msg
+  msg/TargetStatus.msg
   DEPENDENCIES std_msgs
 )
 
