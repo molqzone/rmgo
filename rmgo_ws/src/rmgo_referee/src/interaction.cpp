@@ -1,4 +1,4 @@
-#include "referee/interaction.hpp"
+#include "interaction.hpp"
 
 #include <algorithm>
 #include <bit>

@@ -6,7 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "referee/ui/ui.hpp"
+#include "ui/ui.hpp"
 #include "rmgo_msg/msg/referee_status.hpp"
 #include "rmgo_utility/utility/watchdog.hpp"
 

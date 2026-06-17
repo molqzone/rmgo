@@ -9,7 +9,7 @@
 #include <string_view>
 #include <vector>
 
-#include "referee/ui/ui.hpp"
+#include "ui/ui.hpp"
 
 namespace rmgo_referee::ui {
 

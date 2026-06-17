@@ -6,8 +6,8 @@
 #include <optional>
 #include <span>
 
-#include "referee/protocol.hpp"
-#include "referee/transfer.hpp"
+#include "protocol.hpp"
+#include "transfer.hpp"
 
 namespace rmgo_referee {
 

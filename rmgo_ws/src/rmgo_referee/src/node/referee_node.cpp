@@ -21,10 +21,10 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-#include "referee/protocol.hpp"
-#include "referee/status.hpp"
-#include "referee/transfer.hpp"
-#include "referee/ui/ui.hpp"
+#include "protocol.hpp"
+#include "status.hpp"
+#include "transfer.hpp"
+#include "ui/ui.hpp"
 #include "rmgo_msg/msg/capacitor_status.hpp"
 #include "rmgo_msg/msg/chassis_status.hpp"
 #include "rmgo_msg/msg/gimbal_status.hpp"

@@ -6,7 +6,7 @@
 #include <span>
 #include <vector>
 
-#include "referee/status.hpp"
+#include "status.hpp"
 
 namespace rmgo_referee {
 

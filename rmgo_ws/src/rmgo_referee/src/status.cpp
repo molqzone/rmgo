@@ -1,4 +1,4 @@
-#include "referee/status.hpp"
+#include "status.hpp"
 
 #include <algorithm>
 #include <array>

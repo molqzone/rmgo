@@ -14,13 +14,13 @@ find_package(rmgo_utility REQUIRED)
 
 add_executable(
   referee_node
-  src/referee/interaction.cpp
-  src/referee/node/referee_node.cpp
-  src/referee/protocol.cpp
-  src/referee/status.cpp
-  src/referee/ui/interaction_ui.cpp
-  src/referee/ui/profile.cpp
-  src/referee/ui/shape.cpp
+  src/interaction.cpp
+  src/node/referee_node.cpp
+  src/protocol.cpp
+  src/status.cpp
+  src/ui/interaction_ui.cpp
+  src/ui/profile.cpp
+  src/ui/shape.cpp
 )
 
 target_compile_features(referee_node PUBLIC cxx_std_23)

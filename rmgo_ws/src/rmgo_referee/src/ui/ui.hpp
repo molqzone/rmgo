@@ -8,7 +8,7 @@
 #include <string_view>
 #include <vector>
 
-#include "referee/transfer.hpp"
+#include "transfer.hpp"
 
 namespace rmgo_referee::ui {
 

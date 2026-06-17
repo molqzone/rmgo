@@ -1,11 +1,11 @@
-#include "referee/ui/ui_internal.hpp"
+#include "ui/ui_internal.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <utility>
 
-#include "referee/interaction.hpp"
+#include "interaction.hpp"
 
 namespace rmgo_referee::ui {
 namespace {

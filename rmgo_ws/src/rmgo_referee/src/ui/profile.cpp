@@ -1,4 +1,4 @@
-#include "referee/ui/ui_internal.hpp"
+#include "ui/ui_internal.hpp"
 
 #include <algorithm>
 #include <array>

@@ -1,4 +1,4 @@
-#include "referee/protocol.hpp"
+#include "protocol.hpp"
 
 #include <algorithm>
 #include <array>
