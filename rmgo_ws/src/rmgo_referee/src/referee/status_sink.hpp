@@ -6,9 +6,8 @@
 
 namespace rmgo_referee {
 
-// Indexes mirror io_state_interfaces::referee_state_interfaces. The referee
-// parser writes wire-frame values into these fields instead of owning a large
-// semantic "referee" object.
+// The parser writes wire-frame values into these fields instead of owning a
+// large semantic "referee" object.
 enum class RefereeStatusField : std::size_t {
   online = 0,
   id,
