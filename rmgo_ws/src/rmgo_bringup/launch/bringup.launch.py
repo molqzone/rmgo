@@ -118,6 +118,13 @@ def launch_setup(context: LaunchContext, *args, **kwargs):
             output="screen",
         ),
         Node(
+            package="rmgo_referee",
+            executable="referee_node",
+            name="referee",
+            parameters=[config_file],
+            output="screen",
+        ),
+        Node(
             package="ros_gz_sim",
             executable="create",
             parameters=[{"robot_description": robot_description}],
