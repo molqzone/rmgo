@@ -6,9 +6,12 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "ui/ui.hpp"
+#include "rmgo_msg/msg/game_robot_status.hpp"
+#include "rmgo_msg/msg/game_status.hpp"
+#include "rmgo_msg/msg/power_heat_data.hpp"
 #include "rmgo_msg/msg/referee_status.hpp"
 #include "rmgo_utility/utility/watchdog.hpp"
+#include "ui/ui.hpp"
 
 namespace rmgo_referee {
 
@@ -17,6 +20,8 @@ namespace rmgo_referee {
 enum class RefereeStatusField : std::size_t {
     online = 0,
     id,
+    robot_level,
+    game_type,
     game_stage,
     game_stage_remain_time,
     hp,
@@ -26,9 +31,14 @@ enum class RefereeStatusField : std::size_t {
     shooter_bullet_allowance,
     shooter_1_heat,
     shooter_2_heat,
+    shooter_42mm_heat,
     chassis_power_limit,
+    chassis_voltage,
+    chassis_current,
     chassis_power,
     chassis_buffer_energy,
+    gimbal_output_status,
+    shooter_output_status,
     radar_mark_hero,
     radar_mark_engineer,
     radar_mark_infantry_3,
@@ -140,6 +150,9 @@ public:
     bool power_heat_fresh() const noexcept;
     std::uint16_t robot_id() const noexcept;
     ui::RefereeUiState to_ui_state(double online_timeout) const noexcept;
+    rmgo_msg::msg::GameStatus to_game_status_message() const;
+    rmgo_msg::msg::GameRobotStatus to_game_robot_status_message() const;
+    rmgo_msg::msg::PowerHeatData to_power_heat_data_message() const;
     rmgo_msg::msg::RefereeStatus to_message(double online_timeout) const;
 
 private:

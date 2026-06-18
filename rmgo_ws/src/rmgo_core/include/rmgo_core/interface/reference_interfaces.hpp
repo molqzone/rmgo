@@ -8,6 +8,7 @@ inline constexpr const char* chassis_linear_x_velocity = "linear/x/velocity";
 inline constexpr const char* chassis_linear_y_velocity = "linear/y/velocity";
 inline constexpr const char* chassis_angular_z_velocity = "angular/z/velocity";
 inline constexpr const char* chassis_mode = "mode";
+inline constexpr const char* chassis_power_limit = "power_limit";
 
 inline constexpr std::array chassis_interfaces{
     chassis_linear_x_velocity,

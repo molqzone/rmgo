@@ -22,17 +22,20 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include "protocol.hpp"
-#include "status.hpp"
-#include "transfer.hpp"
-#include "ui/ui.hpp"
 #include "rmgo_msg/msg/capacitor_status.hpp"
 #include "rmgo_msg/msg/chassis_status.hpp"
+#include "rmgo_msg/msg/game_robot_status.hpp"
+#include "rmgo_msg/msg/game_status.hpp"
 #include "rmgo_msg/msg/gimbal_status.hpp"
+#include "rmgo_msg/msg/power_heat_data.hpp"
 #include "rmgo_msg/msg/referee_status.hpp"
 #include "rmgo_msg/msg/remote_status.hpp"
 #include "rmgo_msg/msg/shooter_status.hpp"
 #include "rmgo_msg/msg/target_status.hpp"
 #include "rmgo_utility/utility/ring_buffer.hpp"
+#include "status.hpp"
+#include "transfer.hpp"
+#include "ui/ui.hpp"
 
 namespace rmgo_referee {
 namespace {
@@ -70,8 +73,7 @@ public:
         shooter_friction_ready_.store(msg.friction_ready ? 1.0 : 0.0, std::memory_order_release);
         shooter_friction_faulted_.store(
             msg.friction_faulted ? 1.0 : 0.0, std::memory_order_release);
-        shooter_left_control_velocity_.store(
-            msg.left_control_velocity, std::memory_order_release);
+        shooter_left_control_velocity_.store(msg.left_control_velocity, std::memory_order_release);
         shooter_right_control_velocity_.store(
             msg.right_control_velocity, std::memory_order_release);
     }
@@ -85,8 +87,7 @@ public:
         remote_shoot_frequency_.store(msg.shoot_frequency, std::memory_order_release);
         remote_target_.store(msg.target, std::memory_order_release);
         remote_armor_target_.store(msg.armor_target, std::memory_order_release);
-        remote_target_color_red_.store(
-            msg.target_color_red ? 1.0 : 0.0, std::memory_order_release);
+        remote_target_color_red_.store(msg.target_color_red ? 1.0 : 0.0, std::memory_order_release);
     }
 
     void update(const rmgo_msg::msg::TargetStatus& msg) noexcept {
@@ -128,20 +129,17 @@ public:
         state.remote_fire_pressed = remote_fire_pressed_.load(std::memory_order_acquire);
         state.remote_cover_open = remote_cover_open_.load(std::memory_order_acquire);
         state.remote_gimbal_eject = remote_gimbal_eject_.load(std::memory_order_acquire);
-        state.remote_power_limit_state =
-            remote_power_limit_state_.load(std::memory_order_acquire);
+        state.remote_power_limit_state = remote_power_limit_state_.load(std::memory_order_acquire);
         state.remote_shoot_frequency = remote_shoot_frequency_.load(std::memory_order_acquire);
         state.remote_target = remote_target_.load(std::memory_order_acquire);
         state.remote_armor_target = remote_armor_target_.load(std::memory_order_acquire);
-        state.remote_target_color_red =
-            remote_target_color_red_.load(std::memory_order_acquire);
+        state.remote_target_color_red = remote_target_color_red_.load(std::memory_order_acquire);
         state.target_locked = target_locked_.load(std::memory_order_acquire);
         state.target_id = target_id_.load(std::memory_order_acquire);
         state.target_distance = target_distance_.load(std::memory_order_acquire);
         state.capacitor_online = capacitor_online_.load(std::memory_order_acquire);
         state.capacitor_resetting = capacitor_resetting_.load(std::memory_order_acquire);
-        state.capacitor_charge_ratio =
-            capacitor_charge_ratio_.load(std::memory_order_acquire);
+        state.capacitor_charge_ratio = capacitor_charge_ratio_.load(std::memory_order_acquire);
     }
 
 private:
@@ -191,6 +189,12 @@ public:
         tx_queue_capacity_ = declare_parameter<int>("tx_queue_capacity", 64);
         online_timeout_ = declare_parameter<double>("online_timeout", 1.0);
         status_topic_ = declare_parameter<std::string>("status_topic", "/referee/status");
+        game_status_topic_ =
+            declare_parameter<std::string>("game_status_topic", "/referee/game_status");
+        game_robot_status_topic_ =
+            declare_parameter<std::string>("game_robot_status_topic", "/referee/game_robot_status");
+        power_heat_data_topic_ =
+            declare_parameter<std::string>("power_heat_data_topic", "/referee/power_heat_data");
         chassis_status_topic_ =
             declare_parameter<std::string>("chassis_status_topic", "/chassis/status");
         gimbal_status_topic_ =
@@ -217,6 +221,12 @@ public:
 
         status_publisher_ = create_publisher<rmgo_msg::msg::RefereeStatus>(
             status_topic_, rclcpp::SystemDefaultsQoS());
+        game_status_publisher_ = create_publisher<rmgo_msg::msg::GameStatus>(
+            game_status_topic_, rclcpp::SystemDefaultsQoS());
+        game_robot_status_publisher_ = create_publisher<rmgo_msg::msg::GameRobotStatus>(
+            game_robot_status_topic_, rclcpp::SystemDefaultsQoS());
+        power_heat_data_publisher_ = create_publisher<rmgo_msg::msg::PowerHeatData>(
+            power_heat_data_topic_, rclcpp::SystemDefaultsQoS());
         chassis_status_subscriber_ = create_subscription<rmgo_msg::msg::ChassisStatus>(
             chassis_status_topic_, rclcpp::SystemDefaultsQoS(),
             [this](const rmgo_msg::msg::ChassisStatus& msg) { ui_broadcast_.update(msg); });
@@ -302,19 +312,63 @@ private:
     }
 
     void maintain_status_safety() {
+        const auto now = get_clock()->now();
         const auto events = status_.maintain_safety();
         if (events.game_status_timeout) {
             RCLCPP_INFO(get_logger(), "Referee game status timeout; stage set to unknown");
+            publish_game_status(now);
         }
         if (events.robot_status_timeout) {
             RCLCPP_ERROR(
                 get_logger(),
                 "Referee robot status timeout; shooter/chassis limits set to safe values");
+            publish_game_robot_status(now);
         }
         if (events.power_heat_timeout) {
             RCLCPP_ERROR(
                 get_logger(), "Referee power heat data timeout; power state set to safe values");
+            publish_power_heat_data(now);
         }
+    }
+
+    void publish_referee_packet(const RefereeFrame& frame) {
+        const auto now = get_clock()->now();
+        switch (static_cast<CommandId>(frame.command_id)) {
+        case CommandId::game_status: publish_game_status(now); break;
+        case CommandId::robot_status: publish_game_robot_status(now); break;
+        case CommandId::power_heat: publish_power_heat_data(now); break;
+        default: break;
+        }
+    }
+
+    void publish_game_status(const rclcpp::Time& stamp) {
+        if (!game_status_publisher_) {
+            return;
+        }
+        auto msg = status_.to_game_status_message();
+        msg.header.stamp = stamp;
+        msg.header.frame_id = "referee";
+        game_status_publisher_->publish(msg);
+    }
+
+    void publish_game_robot_status(const rclcpp::Time& stamp) {
+        if (!game_robot_status_publisher_) {
+            return;
+        }
+        auto msg = status_.to_game_robot_status_message();
+        msg.header.stamp = stamp;
+        msg.header.frame_id = "referee";
+        game_robot_status_publisher_->publish(msg);
+    }
+
+    void publish_power_heat_data(const rclcpp::Time& stamp) {
+        if (!power_heat_data_publisher_) {
+            return;
+        }
+        auto msg = status_.to_power_heat_data_message();
+        msg.header.stamp = stamp;
+        msg.header.frame_id = "referee";
+        power_heat_data_publisher_->publish(msg);
     }
 
     void update_ui() {
@@ -509,7 +563,9 @@ private:
             for (ssize_t index = 0; index < count; ++index) {
                 if (const auto frame = parser_.push(rx_buffer[static_cast<std::size_t>(index)]);
                     frame.has_value()) {
-                    (void)apply_frame_to_status(*frame, status_);
+                    if (apply_frame_to_status(*frame, status_)) {
+                        publish_referee_packet(*frame);
+                    }
                 }
             }
         }
@@ -570,6 +626,9 @@ private:
 
     std::string device_ = "/dev/usbReferee";
     std::string status_topic_ = "/referee/status";
+    std::string game_status_topic_ = "/referee/game_status";
+    std::string game_robot_status_topic_ = "/referee/game_robot_status";
+    std::string power_heat_data_topic_ = "/referee/power_heat_data";
     std::string chassis_status_topic_ = "/chassis/status";
     std::string gimbal_status_topic_ = "/gimbal/status";
     std::string shooter_status_topic_ = "/shooter/status";
@@ -601,6 +660,9 @@ private:
     ui::InteractionUi interaction_ui_;
     std::unique_ptr<ui::UiProfile> ui_profile_;
     rclcpp::Publisher<rmgo_msg::msg::RefereeStatus>::SharedPtr status_publisher_;
+    rclcpp::Publisher<rmgo_msg::msg::GameStatus>::SharedPtr game_status_publisher_;
+    rclcpp::Publisher<rmgo_msg::msg::GameRobotStatus>::SharedPtr game_robot_status_publisher_;
+    rclcpp::Publisher<rmgo_msg::msg::PowerHeatData>::SharedPtr power_heat_data_publisher_;
     rclcpp::Subscription<rmgo_msg::msg::ChassisStatus>::SharedPtr chassis_status_subscriber_;
     rclcpp::Subscription<rmgo_msg::msg::GimbalStatus>::SharedPtr gimbal_status_subscriber_;
     rclcpp::Subscription<rmgo_msg::msg::ShooterStatus>::SharedPtr shooter_status_subscriber_;

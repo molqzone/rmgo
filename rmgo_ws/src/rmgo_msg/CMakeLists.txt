@@ -9,6 +9,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   msg/CapacitorStatus.msg
   msg/ChassisStatus.msg
   msg/GimbalStatus.msg
+  msg/GameRobotStatus.msg
+  msg/GameStatus.msg
+  msg/PowerHeatData.msg
   msg/RefereeStatus.msg
   msg/RemoteStatus.msg
   msg/ShooterStatus.msg

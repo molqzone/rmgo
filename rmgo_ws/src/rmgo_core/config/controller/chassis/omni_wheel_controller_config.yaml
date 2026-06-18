@@ -32,3 +32,8 @@ omni_wheel_controller:
   max_wheel_velocity:
     type: double
     description: "Maximum absolute wheel velocity command. Non-positive disables saturation."
+  full_speed_power_limit:
+    type: double
+    description: "Power limit at which wheel commands are fully available."
+    validation:
+      gt<>: [0.0]

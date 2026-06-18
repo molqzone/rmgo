@@ -158,7 +158,9 @@ bool apply_frame_to_status(const RefereeFrame& frame, RefereeStatusSink& status)
     switch (static_cast<CommandId>(frame.command_id)) {
     case CommandId::game_status:
         if (data.size() >= 3) {
-            status.set(Field::game_stage, static_cast<double>((read_u8(data, 0) >> 4U) & 0x0FU));
+            const auto game_status = read_u8(data, 0);
+            status.set(Field::game_type, static_cast<double>(game_status & 0x0FU));
+            status.set(Field::game_stage, static_cast<double>((game_status >> 4U) & 0x0FU));
             status.set(Field::game_stage_remain_time, static_cast<double>(read_u16(data, 1)));
             if (data.size() >= 11) {
                 status.set(Field::game_sync_timestamp, static_cast<double>(read_u64(data, 3)));
@@ -199,6 +201,7 @@ bool apply_frame_to_status(const RefereeFrame& frame, RefereeStatusSink& status)
     case CommandId::robot_status:
         if (data.size() >= 12) {
             status.set(Field::id, static_cast<double>(read_u8(data, 0)));
+            status.set(Field::robot_level, static_cast<double>(read_u8(data, 1)));
             status.set(Field::hp, static_cast<double>(read_u16(data, 2)));
             status.set(Field::max_hp, static_cast<double>(read_u16(data, 4)));
             status.set(Field::shooter_cooling, static_cast<double>(read_u16(data, 6)));
@@ -206,20 +209,26 @@ bool apply_frame_to_status(const RefereeFrame& frame, RefereeStatusSink& status)
             status.set(Field::chassis_power_limit, static_cast<double>(read_u16(data, 10)));
             if (data.size() >= 13) {
                 status.set(
+                    Field::gimbal_output_status, static_cast<double>(read_u8(data, 12) & 0x01U));
+                status.set(
                     Field::chassis_output_status,
                     static_cast<double>((read_u8(data, 12) >> 1U) & 0x01U));
+                status.set(
+                    Field::shooter_output_status,
+                    static_cast<double>((read_u8(data, 12) >> 2U) & 0x01U));
             }
         }
         return true;
     case CommandId::power_heat:
         if (data.size() >= 14) {
+            status.set(Field::chassis_voltage, static_cast<double>(read_u16(data, 0)));
+            status.set(Field::chassis_current, static_cast<double>(read_u16(data, 2)));
             status.set(Field::chassis_power, static_cast<double>(read_float(data, 4)));
             status.set(Field::chassis_buffer_energy, static_cast<double>(read_u16(data, 8)));
             status.set(Field::shooter_1_heat, static_cast<double>(read_u16(data, 10)));
             status.set(Field::shooter_2_heat, static_cast<double>(read_u16(data, 12)));
             if (data.size() >= 16) {
-                // There is no exported 42mm heat interface yet; keep parity with the
-                // existing public interface surface rather than inventing one here.
+                status.set(Field::shooter_42mm_heat, static_cast<double>(read_u16(data, 14)));
             }
         }
         return true;

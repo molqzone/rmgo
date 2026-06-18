@@ -8,11 +8,12 @@
 #include <controller_interface/chainable_controller_interface.hpp>
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp/qos.hpp>
+#include <rclcpp/time.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 #include <realtime_tools/realtime_buffer.hpp>
 
 #include "rmgo_core/heat_controller_config.hpp"
-#include "rmgo_msg/msg/referee_status.hpp"
+#include "rmgo_msg/msg/game_robot_status.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 
@@ -25,7 +26,7 @@ class HeatController
 public:
     controller_interface::CallbackReturn on_init() override {
         init_parameters(param_listener_, params_);
-        referee_status_buffer_.initRT(BufferedRefereeStatus{});
+        robot_status_buffer_.initRT(BufferedRobotStatus{});
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
@@ -50,20 +51,23 @@ public:
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
         update_parameters(param_listener_, params_);
-        if (referee_status_topic_ != params_.referee_status_topic) {
-            referee_status_subscriber_.reset();
+        if (game_robot_status_topic_ != params_.game_robot_status_topic) {
+            game_robot_status_subscriber_.reset();
         }
-        referee_status_topic_ = params_.referee_status_topic;
-        if (!referee_status_subscriber_) {
-            referee_status_subscriber_ =
-                get_node()->create_subscription<rmgo_msg::msg::RefereeStatus>(
-                    referee_status_topic_, rclcpp::SystemDefaultsQoS(),
-                    [this](const rmgo_msg::msg::RefereeStatus& msg) {
-                        referee_status_buffer_.writeFromNonRT(BufferedRefereeStatus{
-                            .cooling = static_cast<double>(msg.shooter_cooling),
-                            .heat_limit = static_cast<double>(msg.shooter_heat_limit),
-                            .online = msg.online,
-                        });
+        game_robot_status_topic_ = params_.game_robot_status_topic;
+        status_timeout_ = params_.status_timeout;
+        if (!game_robot_status_subscriber_) {
+            game_robot_status_subscriber_ =
+                get_node()->create_subscription<rmgo_msg::msg::GameRobotStatus>(
+                    game_robot_status_topic_, rclcpp::SystemDefaultsQoS(),
+                    [this](const rmgo_msg::msg::GameRobotStatus& msg) {
+                        robot_status_buffer_.writeFromNonRT(
+                            BufferedRobotStatus{
+                                .cooling = static_cast<double>(msg.shooter_cooling),
+                                .heat_limit = static_cast<double>(msg.shooter_heat_limit),
+                                .stamp = steady_clock_.now(),
+                                .valid = true,
+                            });
                     });
         }
         reset();
@@ -94,9 +98,10 @@ public:
 
     controller_interface::return_type update_and_write_commands(
         const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
-        const auto referee = *referee_status_buffer_.readFromRT();
-        const double cooling = referee.online ? referee.cooling : 0.0;
-        const double heat_limit = referee.online ? referee.heat_limit : 0.0;
+        const auto robot = *robot_status_buffer_.readFromRT();
+        const bool robot_status_fresh = is_fresh(robot, steady_clock_.now());
+        const double cooling = robot_status_fresh ? robot.cooling : 0.0;
+        const double heat_limit = robot_status_fresh ? robot.heat_limit : 0.0;
         heat_ = std::max(0.0, heat_ - std::max(0.0, cooling) * std::max(0.0, period.seconds()));
 
         const bool bullet_fired = reference_[0] > 0.5;
@@ -117,11 +122,17 @@ private:
         "control_bullet_allowance/limited_by_heat",
     };
 
-    struct BufferedRefereeStatus {
+    struct BufferedRobotStatus {
         double cooling = 0.0;
         double heat_limit = 0.0;
-        bool online = false;
+        rclcpp::Time stamp{0, 0, RCL_STEADY_TIME};
+        bool valid = false;
     };
+
+    bool is_fresh(const BufferedRobotStatus& packet, const rclcpp::Time& now) const {
+        return packet.valid
+            && (status_timeout_ <= 0.0 || (now - packet.stamp).seconds() <= status_timeout_);
+    }
 
     void reset() {
         reset_references(reference_);
@@ -137,9 +148,11 @@ private:
     }
 
     std::array<double, 1> reference_{0.0};
-    std::string referee_status_topic_{"/referee/status"};
-    realtime_tools::RealtimeBuffer<BufferedRefereeStatus> referee_status_buffer_;
-    rclcpp::Subscription<rmgo_msg::msg::RefereeStatus>::SharedPtr referee_status_subscriber_;
+    std::string game_robot_status_topic_;
+    double status_timeout_ = 0.0;
+    rclcpp::Clock steady_clock_{RCL_STEADY_TIME};
+    realtime_tools::RealtimeBuffer<BufferedRobotStatus> robot_status_buffer_;
+    rclcpp::Subscription<rmgo_msg::msg::GameRobotStatus>::SharedPtr game_robot_status_subscriber_;
     double heat_ = 0.0;
     bool last_bullet_fired_ = false;
     std::shared_ptr<::heat_controller::ParamListener> param_listener_;

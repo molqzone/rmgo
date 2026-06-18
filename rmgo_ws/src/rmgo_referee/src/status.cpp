@@ -214,6 +214,48 @@ ui::RefereeUiState RefereeStatusStore::to_ui_state(double online_timeout) const 
     };
 }
 
+rmgo_msg::msg::GameStatus RefereeStatusStore::to_game_status_message() const {
+    auto msg = rmgo_msg::msg::GameStatus{};
+    msg.game_type = status_integer<std::uint8_t>(load(RefereeStatusField::game_type));
+    msg.game_progress = status_integer<std::uint8_t>(load(RefereeStatusField::game_stage));
+    msg.stage_remain_time =
+        status_integer<std::uint16_t>(load(RefereeStatusField::game_stage_remain_time));
+    msg.sync_timestamp =
+        status_integer<std::uint64_t>(load(RefereeStatusField::game_sync_timestamp));
+    return msg;
+}
+
+rmgo_msg::msg::GameRobotStatus RefereeStatusStore::to_game_robot_status_message() const {
+    auto msg = rmgo_msg::msg::GameRobotStatus{};
+    msg.robot_id = status_integer<std::uint8_t>(load(RefereeStatusField::id));
+    msg.robot_level = status_integer<std::uint8_t>(load(RefereeStatusField::robot_level));
+    msg.hp = status_integer<std::uint16_t>(load(RefereeStatusField::hp));
+    msg.max_hp = status_integer<std::uint16_t>(load(RefereeStatusField::max_hp));
+    msg.shooter_cooling = status_integer<std::uint16_t>(load(RefereeStatusField::shooter_cooling));
+    msg.shooter_heat_limit =
+        status_integer<std::uint16_t>(load(RefereeStatusField::shooter_heat_limit));
+    msg.chassis_power_limit =
+        status_integer<std::uint16_t>(load(RefereeStatusField::chassis_power_limit));
+    msg.gimbal_output_enabled = status_bool(load(RefereeStatusField::gimbal_output_status));
+    msg.chassis_output_enabled = status_bool(load(RefereeStatusField::chassis_output_status));
+    msg.shooter_output_enabled = status_bool(load(RefereeStatusField::shooter_output_status));
+    return msg;
+}
+
+rmgo_msg::msg::PowerHeatData RefereeStatusStore::to_power_heat_data_message() const {
+    auto msg = rmgo_msg::msg::PowerHeatData{};
+    msg.chassis_voltage = status_integer<std::uint16_t>(load(RefereeStatusField::chassis_voltage));
+    msg.chassis_current = status_integer<std::uint16_t>(load(RefereeStatusField::chassis_current));
+    msg.chassis_power = status_float(load(RefereeStatusField::chassis_power));
+    msg.chassis_buffer_energy =
+        status_integer<std::uint16_t>(load(RefereeStatusField::chassis_buffer_energy));
+    msg.shooter_1_heat = status_integer<std::uint16_t>(load(RefereeStatusField::shooter_1_heat));
+    msg.shooter_2_heat = status_integer<std::uint16_t>(load(RefereeStatusField::shooter_2_heat));
+    msg.shooter_42mm_heat =
+        status_integer<std::uint16_t>(load(RefereeStatusField::shooter_42mm_heat));
+    return msg;
+}
+
 rmgo_msg::msg::RefereeStatus RefereeStatusStore::to_message(double online_timeout) const {
     const auto state = to_ui_state(online_timeout);
     auto msg = rmgo_msg::msg::RefereeStatus{};

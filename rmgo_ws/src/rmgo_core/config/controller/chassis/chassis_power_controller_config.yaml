@@ -1,15 +1,24 @@
 chassis_power_controller:
   target_controller_name:
     type: string
-    description: "Downstream chain controller that receives power-limited chassis velocity commands."
+    description: "Downstream omni controller that consumes the power_limit reference."
     validation:
       not_empty<>: []
-  referee_status_topic:
+  game_robot_status_topic:
     type: string
-    default_value: /referee/status
-    description: "Referee status topic mirrored into a realtime buffer."
+    description: "Referee game robot status topic mirrored into a realtime buffer."
     validation:
       not_empty<>: []
+  power_heat_data_topic:
+    type: string
+    description: "Referee power heat topic mirrored into a realtime buffer."
+    validation:
+      not_empty<>: []
+  status_timeout:
+    type: double
+    description: "Maximum age in seconds before referee packet data is considered stale."
+    validation:
+      gt_eq<>: [0.0]
   buffer_threshold:
     type: double
     description: "Referee buffer threshold above which rm_control-style extra power is allowed."
@@ -23,25 +32,5 @@ chassis_power_controller:
   max_power_limit:
     type: double
     description: "Upper bound for the computed chassis control power limit."
-    validation:
-      gt_eq<>: [0.0]
-  full_speed_power_limit:
-    type: double
-    description: "Power limit at which chassis velocity limits are fully available."
-    validation:
-      gt<>: [0.0]
-  max_linear_x_velocity:
-    type: double
-    description: "Maximum absolute base-link x velocity when full power is available."
-    validation:
-      gt_eq<>: [0.0]
-  max_linear_y_velocity:
-    type: double
-    description: "Maximum absolute base-link y velocity when full power is available."
-    validation:
-      gt_eq<>: [0.0]
-  max_angular_z_velocity:
-    type: double
-    description: "Maximum absolute base-link yaw velocity when full power is available."
     validation:
       gt_eq<>: [0.0]

@@ -49,7 +49,7 @@ controller_manager:
 
 chassis_controller:
   ros__parameters:
-    target_controller_name: chassis_power_controller
+    target_controller_name: omni_wheel_controller
     yaw_joint_name: yaw_joint
     yaw_state_interface_name: position
     command_source_frame: yaw
@@ -65,14 +65,12 @@ chassis_controller:
 chassis_power_controller:
   ros__parameters:
     target_controller_name: omni_wheel_controller
-    referee_status_topic: /referee/status
+    game_robot_status_topic: /referee/game_robot_status
+    power_heat_data_topic: /referee/power_heat_data
+    status_timeout: 1.0
     buffer_threshold: 30.0
     power_gain: 0.5
     max_power_limit: 95.0
-    full_speed_power_limit: 95.0
-    max_linear_x_velocity: 4.0
-    max_linear_y_velocity: 4.0
-    max_angular_z_velocity: 10.0
 
 omni_wheel_controller:
   ros__parameters:
@@ -87,6 +85,8 @@ omni_wheel_controller:
     chassis_radius_x: 0.15897
     chassis_radius_y: 0.15897
     max_wheel_velocity: 40.0
+
+    full_speed_power_limit: 95.0
     linear_x_kp: 0.0
     linear_x_ki: 0.0
     linear_x_kd: 0.0
@@ -113,6 +113,9 @@ referee:
     device: /dev/usbReferee
     profile: omni_infantry
     status_topic: /referee/status
+    game_status_topic: /referee/game_status
+    game_robot_status_topic: /referee/game_robot_status
+    power_heat_data_topic: /referee/power_heat_data
     chassis_status_topic: /chassis/status
     gimbal_status_topic: /gimbal/status
     shooter_status_topic: /shooter/status
@@ -201,7 +204,8 @@ friction_wheel_controller:
 heat_controller:
   ros__parameters:
     target_bullet_feeder_controller_name: bullet_feeder_controller
-    referee_status_topic: /referee/status
+    game_robot_status_topic: /referee/game_robot_status
+    status_timeout: 1.0
     heat_per_shot: 10000.0
     extra_heat_per_shot: 10.0
     reserved_heat: 10000.0

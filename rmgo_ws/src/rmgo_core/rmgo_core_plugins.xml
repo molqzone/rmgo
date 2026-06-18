@@ -10,9 +10,9 @@
   <class
     name="rmgo_core/ChassisPowerController"
     type="rmgo_core::controller::chassis::ChassisPowerController"
-    base_class_type="controller_interface::ChainableControllerInterface">
+    base_class_type="controller_interface::ControllerInterface">
     <description>
-      Chassis power scaling chain controller for RMGO.
+      Referee-derived chassis power budget controller for RMGO.
     </description>
   </class>
   <class

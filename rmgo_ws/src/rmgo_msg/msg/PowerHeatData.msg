@@ -1,0 +1,9 @@
+std_msgs/Header header
+
+uint16 chassis_voltage
+uint16 chassis_current
+float32 chassis_power
+uint16 chassis_buffer_energy
+uint16 shooter_1_heat
+uint16 shooter_2_heat
+uint16 shooter_42mm_heat
