@@ -5,6 +5,8 @@
 #include <span>
 #include <string>
 
+#include <diagnostic_msgs/msg/diagnostic_status.hpp>
+#include <diagnostic_updater/diagnostic_updater.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 
@@ -13,7 +15,6 @@
 #include "rmgo_msg/msg/game_status.hpp"
 #include "rmgo_msg/msg/power_heat_data.hpp"
 #include "rmgo_msg/msg/referee_status.hpp"
-#include "rmgo_utility/node_mixin.hpp"
 #include "serial.hpp"
 #include "status/status.hpp"
 #include "translator.hpp"
@@ -21,15 +22,37 @@
 
 namespace rmgo_referee {
 
-class RefereeNode final
-    : public rclcpp::Node
-    , public rmgo_utility::NodeMixin {
-    class Endpoint;
+namespace {
 
+class NodeTransferEndpoint final : public RefereeTransferEndpoint {
+public:
+    NodeTransferEndpoint(
+        RefereeStatusStore& status, std::unique_ptr<RefereeSerialTransport>& transport) noexcept
+        : status_(status)
+        , transport_(transport) {}
+
+    std::uint16_t self_robot_id() const noexcept override { return status_.robot_id(); }
+
+    RefereeTransferResult
+        send_frame(std::uint16_t command_id, std::span<const std::byte> payload) noexcept override {
+        return transport_ != nullptr ? transport_->send_frame(command_id, payload)
+                                     : RefereeTransferResult::Inactive;
+    }
+
+private:
+    RefereeStatusStore& status_;
+    std::unique_ptr<RefereeSerialTransport>& transport_;
+};
+
+} // namespace
+
+class RefereeNode final : public rclcpp::Node {
 public:
     explicit RefereeNode(const rclcpp::NodeOptions& options)
-        : rclcpp::Node("referee", options) {
+        : rclcpp::Node("referee", options)
+        , diagnostic_updater_(this) {
         declare_parameters();
+        create_diagnostics();
         status_.reset();
         create_publishers();
         create_referee_pipeline();
@@ -45,32 +68,12 @@ public:
         transport_.reset();
     }
 
-    rclcpp::Node* get_node() noexcept { return this; }
-
-    const rclcpp::Node* get_node() const noexcept { return this; }
-
 private:
-    class Endpoint final : public RefereeTransferEndpoint {
-    public:
-        explicit Endpoint(RefereeNode& owner)
-            : owner_(owner) {}
-
-        std::uint16_t self_robot_id() const noexcept override { return owner_.status_.robot_id(); }
-
-        RefereeTransferResult send_frame(
-            std::uint16_t command_id, std::span<const std::byte> payload) noexcept override {
-            return owner_.transport_ != nullptr ? owner_.transport_->send_frame(command_id, payload)
-                                                : RefereeTransferResult::Inactive;
-        }
-
-    private:
-        RefereeNode& owner_;
-    };
-
     using RefereeStatus = rmgo_msg::msg::RefereeStatus;
     using GameStatus = rmgo_msg::msg::GameStatus;
     using GameRobotStatus = rmgo_msg::msg::GameRobotStatus;
     using PowerHeatData = rmgo_msg::msg::PowerHeatData;
+    using DiagnosticStatus = diagnostic_msgs::msg::DiagnosticStatus;
 
     template <typename Message>
     using Publisher = typename rclcpp::Publisher<Message>::SharedPtr;
@@ -109,6 +112,12 @@ private:
 
     static rclcpp::SystemDefaultsQoS default_qos() { return rclcpp::SystemDefaultsQoS{}; }
 
+    void create_diagnostics() {
+        diagnostic_updater_.setHardwareID(device_);
+        diagnostic_updater_.add(
+            "referee_serial_transport", this, &RefereeNode::fill_transport_diagnostics);
+    }
+
     void create_publishers() {
         status_publisher_ = create_publisher<RefereeStatus>(status_topic_, default_qos());
         game_status_publisher_ = create_publisher<GameStatus>(game_status_topic_, default_qos());
@@ -126,7 +135,7 @@ private:
                     publish_referee_events(translator_->handle_frame(frame), get_clock()->now());
                 }
             });
-        endpoint_ = std::make_shared<Endpoint>(*this);
+        endpoint_ = std::make_shared<NodeTransferEndpoint>(status_, transport_);
     }
 
     void create_ui_pipeline() {
@@ -163,23 +172,48 @@ private:
             return;
         }
 
-        const auto result = transport_->maintain();
-        if (!result.has_value()) {
-            error("{}", result.error());
+        transport_->maintain();
+    }
+
+    void fill_transport_diagnostics(diagnostic_updater::DiagnosticStatusWrapper& status) {
+        if (transport_ == nullptr) {
+            status.summary(DiagnosticStatus::WARN, "Referee serial transport not created");
+            status.add("device", device_);
+            return;
         }
+
+        const auto snapshot = transport_->diagnostic_snapshot();
+        status.summary(to_diagnostic_level(snapshot.level), snapshot.message);
+        status.add("device", snapshot.device);
+        status.add("active", snapshot.active);
+        status.add("serial_open", snapshot.serial_open);
+        status.add("rx_thread_running", snapshot.rx_thread_running);
+        status.add("tx_thread_running", snapshot.tx_thread_running);
+        status.add("tx_queue_readable", snapshot.tx_queue_readable);
+        status.add("tx_queue_capacity", snapshot.tx_queue_capacity);
+    }
+
+    static std::uint8_t to_diagnostic_level(RefereeSerialTransport::DiagnosticLevel level) {
+        switch (level) {
+        case RefereeSerialTransport::DiagnosticLevel::Ok: return DiagnosticStatus::OK;
+        case RefereeSerialTransport::DiagnosticLevel::Warn: return DiagnosticStatus::WARN;
+        case RefereeSerialTransport::DiagnosticLevel::Error: return DiagnosticStatus::ERROR;
+        }
+        return DiagnosticStatus::ERROR;
     }
 
     void log_status_safety(const RefereeStatusEvents& events) const {
         if (events.game_status) {
-            info("Referee game status timeout; stage set to unknown");
+            RCLCPP_INFO(get_logger(), "Referee game status timeout; stage set to unknown");
         }
         if (events.robot_status) {
-            error(
-                "Referee robot status timeout; "
-                "shooter/chassis limits set to safe values");
+            RCLCPP_ERROR(
+                get_logger(), "Referee robot status timeout; "
+                              "shooter/chassis limits set to safe values");
         }
         if (events.power_heat) {
-            error("Referee power heat data timeout; power state set to safe values");
+            RCLCPP_ERROR(
+                get_logger(), "Referee power heat data timeout; power state set to safe values");
         }
     }
 
@@ -255,8 +289,9 @@ private:
     RefereeStatusStore status_;
     std::unique_ptr<RefereeStatusTranslator> translator_;
     std::unique_ptr<RefereeSerialTransport> transport_;
-    std::shared_ptr<Endpoint> endpoint_;
+    std::shared_ptr<NodeTransferEndpoint> endpoint_;
     std::unique_ptr<UiStateAdapter> ui_state_adapter_;
+    diagnostic_updater::Updater diagnostic_updater_;
     Publisher<RefereeStatus> status_publisher_;
     Publisher<GameStatus> game_status_publisher_;
     Publisher<GameRobotStatus> game_robot_status_publisher_;

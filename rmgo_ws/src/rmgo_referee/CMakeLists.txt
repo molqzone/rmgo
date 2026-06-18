@@ -8,6 +8,8 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
+find_package(diagnostic_updater REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(rmgo_msg REQUIRED)
@@ -25,6 +27,8 @@ target_compile_features(referee_node_component PUBLIC cxx_std_23)
 
 ament_target_dependencies(
   referee_node_component
+  diagnostic_msgs
+  diagnostic_updater
   rclcpp
   rclcpp_components
   rmgo_msg

@@ -41,6 +41,24 @@ public:
     using FdResult = std::expected<int, std::string>;
     using ReadResult = std::expected<std::optional<ssize_t>, std::string>;
 
+    enum class DiagnosticLevel {
+        Ok,
+        Warn,
+        Error,
+    };
+
+    struct DiagnosticSnapshot {
+        DiagnosticLevel level = DiagnosticLevel::Warn;
+        std::string message;
+        std::string device;
+        bool active = false;
+        bool serial_open = false;
+        bool rx_thread_running = false;
+        bool tx_thread_running = false;
+        std::size_t tx_queue_readable = 0;
+        std::size_t tx_queue_capacity = 0;
+    };
+
     RefereeSerialTransport(
         std::string device, int rx_buffer_size, int tx_queue_capacity, FrameHandler on_frame)
         : device_(std::move(device))
@@ -61,6 +79,7 @@ public:
 
     RefereeTransferResult
         send_frame(std::uint16_t command_id, std::span<const std::byte> payload) noexcept {
+        auto queued = false;
         {
             const std::scoped_lock lock{tx_queue_mutex_};
             if (!active_.load(std::memory_order_acquire)) {
@@ -76,28 +95,60 @@ public:
                 .payload = {},
             };
             std::copy(payload.begin(), payload.end(), frame.payload.begin());
-            if (!tx_queue_->push_back(std::move(frame))) {
-                return RefereeTransferResult::QueueFull;
-            }
+            queued = tx_queue_->push_back(std::move(frame));
+        }
+        if (!queued) {
+            set_diagnostic(DiagnosticLevel::Warn, "Referee serial TX queue full");
+            return RefereeTransferResult::QueueFull;
         }
         tx_queue_ready_.notify_one();
         return RefereeTransferResult::Accepted;
     }
 
-    Result maintain() {
+    void maintain() {
         const std::scoped_lock lock{transport_mutex_};
         if (faulted_.exchange(false, std::memory_order_acq_rel)) {
             stop();
             close_serial();
-            set_pending_message_if_empty("Referee transport fault detected, reconnecting");
+            set_diagnostic_if_not_error(
+                DiagnosticLevel::Error, "Referee transport fault detected, reconnecting");
         }
         if (rx_thread_.joinable() || tx_thread_.joinable()) {
-            return take_pending_message();
+            set_diagnostic(DiagnosticLevel::Ok, "Referee serial transport active");
+            return;
         }
         if (try_open_serial()) {
             start();
         }
-        return take_pending_message();
+        if (rx_thread_.joinable() || tx_thread_.joinable()) {
+            set_diagnostic(DiagnosticLevel::Ok, "Referee serial transport active");
+            return;
+        }
+        set_diagnostic_if_not_error(
+            DiagnosticLevel::Warn, "Referee serial transport waiting for device");
+    }
+
+    DiagnosticSnapshot diagnostic_snapshot() const {
+        auto snapshot = DiagnosticSnapshot{};
+        {
+            const std::scoped_lock lock{diagnostic_mutex_};
+            snapshot.level = diagnostic_level_;
+            snapshot.message = diagnostic_message_;
+        }
+        {
+            const std::scoped_lock lock{transport_mutex_};
+            snapshot.device = device_;
+            snapshot.serial_open = serial_fd_ != invalid_fd;
+            snapshot.rx_thread_running = rx_thread_.joinable();
+            snapshot.tx_thread_running = tx_thread_.joinable();
+        }
+        {
+            const std::scoped_lock lock{tx_queue_mutex_};
+            snapshot.active = active_.load(std::memory_order_acquire);
+            snapshot.tx_queue_readable = tx_queue_->readable();
+            snapshot.tx_queue_capacity = tx_queue_->max_size();
+        }
+        return snapshot;
     }
 
     void stop() {
@@ -175,27 +226,18 @@ private:
         return {};
     }
 
-    void set_pending_message(std::string message) {
-        const std::scoped_lock lock{message_mutex_};
-        pending_message_ = std::move(message);
+    void set_diagnostic(DiagnosticLevel level, std::string message) const {
+        const std::scoped_lock lock{diagnostic_mutex_};
+        diagnostic_level_ = level;
+        diagnostic_message_ = std::move(message);
     }
 
-    void set_pending_message_if_empty(std::string message) {
-        const std::scoped_lock lock{message_mutex_};
-        if (pending_message_.empty()) {
-            pending_message_ = std::move(message);
+    void set_diagnostic_if_not_error(DiagnosticLevel level, std::string message) const {
+        const std::scoped_lock lock{diagnostic_mutex_};
+        if (diagnostic_level_ != DiagnosticLevel::Error) {
+            diagnostic_level_ = level;
+            diagnostic_message_ = std::move(message);
         }
-    }
-
-    Result take_pending_message() {
-        const std::scoped_lock lock{message_mutex_};
-        if (pending_message_.empty()) {
-            return {};
-        }
-
-        auto message = std::move(pending_message_);
-        pending_message_.clear();
-        return std::unexpected{std::move(message)};
     }
 
     bool try_open_serial() {
@@ -211,7 +253,7 @@ private:
         last_open_attempt_ = now;
         const auto opened = open_serial();
         if (!opened.has_value()) {
-            set_pending_message(opened.error());
+            set_diagnostic(DiagnosticLevel::Error, opened.error());
             return false;
         }
 
@@ -261,7 +303,7 @@ private:
     }
 
     void mark_fault(std::string message) {
-        set_pending_message(std::move(message));
+        set_diagnostic(DiagnosticLevel::Error, std::move(message));
         {
             const std::scoped_lock lock{tx_queue_mutex_};
             active_.store(false, std::memory_order_release);
@@ -425,14 +467,15 @@ private:
 
     std::string device_;
     int rx_buffer_size_ = 1024;
-    std::mutex message_mutex_;
-    std::string pending_message_;
+    mutable std::mutex diagnostic_mutex_;
+    mutable DiagnosticLevel diagnostic_level_ = DiagnosticLevel::Warn;
+    mutable std::string diagnostic_message_ = "Referee serial transport not started";
     FrameHandler on_frame_;
     int serial_fd_ = invalid_fd;
-    std::mutex transport_mutex_;
+    mutable std::mutex transport_mutex_;
     std::chrono::steady_clock::time_point last_open_attempt_;
     RefereeFrameParser parser_;
-    std::mutex tx_queue_mutex_;
+    mutable std::mutex tx_queue_mutex_;
     std::condition_variable_any tx_queue_ready_;
     std::unique_ptr<rmgo_utility::utility::RingBuffer<TxFrame>> tx_queue_;
     std::jthread rx_thread_;
