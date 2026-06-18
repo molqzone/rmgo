@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -14,6 +15,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <poll.h>
 #include <span>
 #include <string>
@@ -33,18 +35,20 @@ namespace rmgo_referee {
 
 class RefereeSerialTransport final {
 public:
+    // Called synchronously from the RX thread; keep handlers short and non-blocking.
     using FrameHandler = std::function<void(const RefereeFrame&)>;
     using Result = std::expected<void, std::string>;
     using FdResult = std::expected<int, std::string>;
-    using ReadResult = std::expected<ssize_t, std::string>;
+    using ReadResult = std::expected<std::optional<ssize_t>, std::string>;
 
     RefereeSerialTransport(
         std::string device, int rx_buffer_size, int tx_queue_capacity, FrameHandler on_frame)
         : device_(std::move(device))
         , rx_buffer_size_(rx_buffer_size)
         , on_frame_(std::move(on_frame))
-        , tx_queue_(std::make_unique<rmgo_utility::utility::RingBuffer<TxFrame>>(
-              std::max(tx_queue_capacity, 1))) {}
+        , tx_queue_(
+              std::make_unique<rmgo_utility::utility::RingBuffer<TxFrame>>(
+                  std::max(tx_queue_capacity, 1))) {}
 
     ~RefereeSerialTransport() {
         const std::scoped_lock lock{transport_mutex_};
@@ -57,22 +61,27 @@ public:
 
     RefereeTransferResult
         send_frame(std::uint16_t command_id, std::span<const std::byte> payload) noexcept {
-        if (!active_.load(std::memory_order_acquire)) {
-            return RefereeTransferResult::Inactive;
-        }
-        if (command_id == 0 || payload.size() > max_referee_payload_size) {
-            return RefereeTransferResult::InvalidFrame;
-        }
+        {
+            const std::scoped_lock lock{tx_queue_mutex_};
+            if (!active_.load(std::memory_order_acquire)) {
+                return RefereeTransferResult::Inactive;
+            }
+            if (command_id == 0 || payload.size() > max_referee_payload_size) {
+                return RefereeTransferResult::InvalidFrame;
+            }
 
-        auto frame = TxFrame{
-            .command_id = command_id,
-            .payload_size = static_cast<std::uint16_t>(payload.size()),
-            .payload = {},
-        };
-        std::copy(payload.begin(), payload.end(), frame.payload.begin());
-        return tx_queue_ != nullptr && tx_queue_->push_back(std::move(frame))
-                 ? RefereeTransferResult::Accepted
-                 : RefereeTransferResult::QueueFull;
+            auto frame = TxFrame{
+                .command_id = command_id,
+                .payload_size = static_cast<std::uint16_t>(payload.size()),
+                .payload = {},
+            };
+            std::copy(payload.begin(), payload.end(), frame.payload.begin());
+            if (!tx_queue_->push_back(std::move(frame))) {
+                return RefereeTransferResult::QueueFull;
+            }
+        }
+        tx_queue_ready_.notify_one();
+        return RefereeTransferResult::Accepted;
     }
 
     Result maintain() {
@@ -92,7 +101,11 @@ public:
     }
 
     void stop() {
-        active_.store(false, std::memory_order_release);
+        {
+            const std::scoped_lock lock{tx_queue_mutex_};
+            active_.store(false, std::memory_order_release);
+        }
+        tx_queue_ready_.notify_all();
         if (rx_thread_.joinable()) {
             rx_thread_.request_stop();
             rx_thread_ = {};
@@ -106,6 +119,7 @@ public:
 private:
     static constexpr int invalid_fd = -1;
     static constexpr int poll_timeout_ms = 100;
+    static constexpr short poll_error_events = POLLERR | POLLHUP | POLLNVAL;
     static constexpr auto serial_retry_interval = std::chrono::seconds{1};
 
     struct TxFrame {
@@ -234,10 +248,11 @@ private:
         }
 
         parser_.reset();
-        if (tx_queue_ != nullptr) {
+        {
+            const std::scoped_lock lock{tx_queue_mutex_};
             tx_queue_->clear();
+            active_.store(true, std::memory_order_release);
         }
-        active_.store(true, std::memory_order_release);
         const int fd = serial_fd_;
         rx_thread_ =
             std::jthread{[this, fd](std::stop_token stop_token) { rx_loop(stop_token, fd); }};
@@ -247,7 +262,11 @@ private:
 
     void mark_fault(std::string message) {
         set_pending_message(std::move(message));
-        active_.store(false, std::memory_order_release);
+        {
+            const std::scoped_lock lock{tx_queue_mutex_};
+            active_.store(false, std::memory_order_release);
+        }
+        tx_queue_ready_.notify_all();
         faulted_.store(true, std::memory_order_release);
     }
 
@@ -260,7 +279,23 @@ private:
                 .revents = 0,
             };
             const int ready = ::poll(&poll_fd, 1, poll_timeout_ms);
-            if (ready <= 0 || (poll_fd.revents & POLLIN) == 0) {
+            if (ready < 0) {
+                const int error_code = errno;
+                if (error_code == EINTR) {
+                    continue;
+                }
+                mark_fault(
+                    std::format("Referee serial read poll failed: {}", std::strerror(error_code)));
+                return;
+            }
+            if (ready == 0) {
+                continue;
+            }
+            if ((poll_fd.revents & poll_error_events) != 0) {
+                mark_fault(format_poll_error("read", poll_fd.revents));
+                return;
+            }
+            if ((poll_fd.revents & POLLIN) == 0) {
                 continue;
             }
 
@@ -269,8 +304,15 @@ private:
                 mark_fault(count.error());
                 return;
             }
+            if (!count->has_value()) {
+                continue;
+            }
+            if (**count == 0) {
+                mark_fault("Referee serial read reached end of stream");
+                return;
+            }
 
-            for (ssize_t index = 0; index < *count; ++index) {
+            for (ssize_t index = 0; index < **count; ++index) {
                 if (const auto frame = parser_.push(rx_buffer[static_cast<std::size_t>(index)]);
                     frame.has_value()) {
                     on_frame_(*frame);
@@ -283,11 +325,18 @@ private:
         auto tx_frame = TxFrame{};
         auto packed = std::array<std::byte, max_referee_frame_size>{};
         while (!stop_token.stop_requested()) {
-            if (tx_queue_ == nullptr || !tx_queue_->pop_front([&](TxFrame&& frame) noexcept {
-                    tx_frame = std::move(frame);
-                })) {
-                std::this_thread::sleep_for(std::chrono::milliseconds{2});
-                continue;
+            {
+                std::unique_lock lock{tx_queue_mutex_};
+                tx_queue_ready_.wait(lock, stop_token, [this] {
+                    return !active_.load(std::memory_order_acquire) || tx_queue_->readable() > 0;
+                });
+                if (stop_token.stop_requested() || !active_.load(std::memory_order_acquire)) {
+                    return;
+                }
+                if (!tx_queue_->pop_front(
+                        [&](TxFrame&& frame) noexcept { tx_frame = std::move(frame); })) {
+                    continue;
+                }
             }
 
             const auto payload =
@@ -311,12 +360,12 @@ private:
         if (count < 0) {
             const int error_code = errno;
             if (error_code == EAGAIN || error_code == EWOULDBLOCK || error_code == EINTR) {
-                return 0;
+                return std::optional<ssize_t>{};
             }
             return std::unexpected{
                 std::format("Referee serial read failed: {}", std::strerror(error_code))};
         }
-        return count;
+        return std::optional<ssize_t>{count};
     }
 
     static Result write_referee_serial_all(
@@ -329,7 +378,21 @@ private:
                 .revents = 0,
             };
             const int ready = ::poll(&poll_fd, 1, poll_timeout_ms);
-            if (ready <= 0 || (poll_fd.revents & POLLOUT) == 0) {
+            if (ready < 0) {
+                const int error_code = errno;
+                if (error_code == EINTR) {
+                    continue;
+                }
+                return std::unexpected{
+                    std::format("Referee serial write poll failed: {}", std::strerror(error_code))};
+            }
+            if (ready == 0) {
+                continue;
+            }
+            if ((poll_fd.revents & poll_error_events) != 0) {
+                return std::unexpected{format_poll_error("write", poll_fd.revents)};
+            }
+            if ((poll_fd.revents & POLLOUT) == 0) {
                 continue;
             }
 
@@ -343,12 +406,21 @@ private:
                 return std::unexpected{
                     std::format("Referee serial write failed: {}", std::strerror(error_code))};
             }
+            if (count == 0) {
+                return std::unexpected{"Referee serial write made no progress"};
+            }
             written += static_cast<std::size_t>(count);
         }
         if (!stop_token.stop_requested() && written != bytes.size()) {
             return std::unexpected{"Referee serial write stopped before completion"};
         }
         return {};
+    }
+
+    static std::string format_poll_error(std::string_view operation, short revents) {
+        return std::format(
+            "Referee serial {} poll reported error events: 0x{:x}", operation,
+            static_cast<unsigned int>(static_cast<unsigned short>(revents)));
     }
 
     std::string device_;
@@ -360,6 +432,8 @@ private:
     std::mutex transport_mutex_;
     std::chrono::steady_clock::time_point last_open_attempt_;
     RefereeFrameParser parser_;
+    std::mutex tx_queue_mutex_;
+    std::condition_variable_any tx_queue_ready_;
     std::unique_ptr<rmgo_utility::utility::RingBuffer<TxFrame>> tx_queue_;
     std::jthread rx_thread_;
     std::jthread tx_thread_;
