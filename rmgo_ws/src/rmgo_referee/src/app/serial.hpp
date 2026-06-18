@@ -70,7 +70,7 @@ public:
 
     ~RefereeSerialTransport() {
         const std::scoped_lock lock{transport_mutex_};
-        stop();
+        stop_locked();
         close_serial();
     }
 
@@ -108,7 +108,7 @@ public:
     void maintain() {
         const std::scoped_lock lock{transport_mutex_};
         if (faulted_.exchange(false, std::memory_order_acq_rel)) {
-            stop();
+            stop_locked();
             close_serial();
             set_diagnostic_if_not_error(
                 DiagnosticLevel::Error, "Referee transport fault detected, reconnecting");
@@ -152,6 +152,23 @@ public:
     }
 
     void stop() {
+        const std::scoped_lock lock{transport_mutex_};
+        stop_locked();
+    }
+
+private:
+    static constexpr int invalid_fd = -1;
+    static constexpr int poll_timeout_ms = 100;
+    static constexpr short poll_error_events = POLLERR | POLLHUP | POLLNVAL;
+    static constexpr auto serial_retry_interval = std::chrono::seconds{1};
+
+    struct TxFrame {
+        std::uint16_t command_id = 0;
+        std::uint16_t payload_size = 0;
+        std::array<std::byte, max_referee_payload_size> payload{};
+    };
+
+    void stop_locked() {
         {
             const std::scoped_lock lock{tx_queue_mutex_};
             active_.store(false, std::memory_order_release);
@@ -166,18 +183,6 @@ public:
             tx_thread_ = {};
         }
     }
-
-private:
-    static constexpr int invalid_fd = -1;
-    static constexpr int poll_timeout_ms = 100;
-    static constexpr short poll_error_events = POLLERR | POLLHUP | POLLNVAL;
-    static constexpr auto serial_retry_interval = std::chrono::seconds{1};
-
-    struct TxFrame {
-        std::uint16_t command_id = 0;
-        std::uint16_t payload_size = 0;
-        std::array<std::byte, max_referee_payload_size> payload{};
-    };
 
     static FdResult open_referee_serial_device(std::string_view device) {
         if (device.empty()) {

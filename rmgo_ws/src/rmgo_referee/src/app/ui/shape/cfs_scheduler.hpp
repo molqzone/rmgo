@@ -66,6 +66,10 @@ inline bool CfsScheduler<ShapeT>::ShapeCompare::operator()(
 
 template <typename ShapeT>
 inline void CfsScheduler<ShapeT>::clear() noexcept {
+    for (auto* shape = run_queue_.first(); shape != nullptr; shape = run_queue_.next(*shape)) {
+        auto& entity = static_cast<Entity&>(*shape);
+        entity.clear_queued();
+    }
     run_queue_.clear();
     min_vruntime_ = 0;
 }

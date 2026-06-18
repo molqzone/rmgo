@@ -235,13 +235,13 @@ inline std::optional<std::size_t> pack_frame(
 }
 
 inline std::uint16_t client_id_from_robot_id(std::uint16_t robot_id) noexcept {
-    if (robot_id == 0) {
-        return 0;
+    if ((robot_id >= 1 && robot_id <= 7) || robot_id == 9) {
+        return static_cast<std::uint16_t>(robot_id + 0x0100);
     }
-    if (robot_id > 100) {
+    if ((robot_id >= 101 && robot_id <= 107) || robot_id == 109) {
         return static_cast<std::uint16_t>(robot_id - 101 + 0x0165);
     }
-    return static_cast<std::uint16_t>(robot_id + 0x0100);
+    return 0;
 }
 
 template <typename Callbacks>

@@ -90,7 +90,17 @@ def main() -> int:
             print(f"warning: failed to read {database}: {error}", file=sys.stderr)
             continue
 
-        for command in commands:
+        if not isinstance(commands, list):
+            print(f"warning: skipped {database}: root entry is not a list", file=sys.stderr)
+            continue
+
+        for index, command in enumerate(commands):
+            if not isinstance(command, dict):
+                print(
+                    f"warning: skipped {database} entry {index}: expected object",
+                    file=sys.stderr,
+                )
+                continue
             command = normalize_command(command, build_dir, target_workspace_root)
             key = (command.get("file"), command.get("directory"), command.get("command"))
             if key in seen:

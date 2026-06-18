@@ -74,7 +74,11 @@ void Shape::set_visible(bool visible) {
     visible_ = visible;
     if (!visible_) {
         if (existence_confidence() == 0) {
-            disable_swapping();
+            if (has_id()) {
+                revoke_id();
+            } else {
+                disable_swapping();
+            }
             interaction_ui_.unmark_modified(*this);
             sync_confidence_ = max_update_times;
             return;
@@ -149,7 +153,6 @@ bool Shape::write_update(std::span<std::byte> payload, std::size_t& written, Ope
     }
     if (visible_ && !ensure_id()) {
         sync_confidence_ = max_update_times;
-        visible_ = false;
         return false;
     }
 

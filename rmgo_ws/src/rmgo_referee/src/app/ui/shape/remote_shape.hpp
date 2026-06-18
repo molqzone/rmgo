@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 
@@ -38,11 +39,7 @@ public:
                 return true;
             }
 
-            if (next_id_ > id_assignment_max) {
-                return false;
-            }
-            assign_id();
-            return true;
+            return assign_id();
         }
 
         bool predict_try_assign_id(std::uint8_t& existence_confidence) const {
@@ -55,7 +52,7 @@ public:
                 return true;
             }
 
-            return next_id_ <= id_assignment_max;
+            return has_available_id();
         }
 
         bool swapping_enabled() const noexcept { return swapping_; }
@@ -90,11 +87,14 @@ public:
 
     private:
         friend class RemoteShape<ShapeT>;
+        friend ShapeT;
         friend struct DescriptorCompare;
 
-        void assign_id() {
-            id_ = next_id_++;
-            assigned_list_[id_ - 1] = this;
+        bool assign_id() {
+            if (assign_first_available_id(next_id_, id_assignment_max + 1U)) {
+                return true;
+            }
+            return assign_first_available_id(1U, next_id_);
         }
 
         void swap_id(Descriptor& victim) {
@@ -106,9 +106,27 @@ public:
 
         void revoke_id() {
             disable_swapping();
+            const auto revoked_id = id_;
+            if (revoked_id != 0 && assigned_list_[revoked_id - 1] == this) {
+                assigned_list_[revoked_id - 1] = nullptr;
+                next_id_ = std::min(next_id_, revoked_id);
+            }
             id_ = 0;
             existence_confidence_ = 0;
             static_cast<ShapeT*>(this)->id_revoked();
+        }
+
+        bool assign_first_available_id(std::uint16_t begin, std::uint16_t end) {
+            for (auto id = begin; id < end; ++id) {
+                if (assigned_list_[id - 1] != nullptr) {
+                    continue;
+                }
+                id_ = static_cast<std::uint8_t>(id);
+                assigned_list_[id - 1] = this;
+                next_id_ = static_cast<std::uint8_t>(id + 1U);
+                return true;
+            }
+            return false;
         }
 
         std::uint8_t id_ = 0;
@@ -129,6 +147,15 @@ public:
 
 private:
     static constexpr std::uint8_t id_assignment_max = 201;
+
+    static bool has_available_id() noexcept {
+        for (const auto* descriptor : assigned_list_) {
+            if (descriptor == nullptr) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     static inline std::uint8_t next_id_ = 1;
     static inline std::array<Descriptor*, id_assignment_max> assigned_list_{};

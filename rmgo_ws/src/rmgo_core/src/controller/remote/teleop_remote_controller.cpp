@@ -91,25 +91,27 @@ public:
             cmd_vel_subscriber_ = node_->create_subscription<geometry_msgs::msg::Twist>(
                 cmd_vel_topic_, rclcpp::SystemDefaultsQoS(),
                 [this](const geometry_msgs::msg::Twist& msg) {
-                    command_buffer_.writeFromNonRT(BufferedCommand{
-                        msg.linear.x,
-                        msg.linear.y,
-                        msg.angular.z,
-                        steady_clock_.now(),
-                        true,
-                    });
+                    command_buffer_.writeFromNonRT(
+                        BufferedCommand{
+                            msg.linear.x,
+                            msg.linear.y,
+                            msg.angular.z,
+                            steady_clock_.now(),
+                            true,
+                        });
                 });
         }
         if (!cmd_gimbal_subscriber_) {
             cmd_gimbal_subscriber_ = node_->create_subscription<geometry_msgs::msg::Twist>(
                 cmd_gimbal_topic_, rclcpp::SystemDefaultsQoS(),
                 [this](const geometry_msgs::msg::Twist& msg) {
-                    gimbal_command_buffer_.writeFromNonRT(BufferedGimbalCommand{
-                        msg.angular.z,
-                        msg.angular.y,
-                        steady_clock_.now(),
-                        true,
-                    });
+                    gimbal_command_buffer_.writeFromNonRT(
+                        BufferedGimbalCommand{
+                            msg.angular.z,
+                            msg.angular.y,
+                            steady_clock_.now(),
+                            true,
+                        });
                 });
         }
         if (!mode_subscriber_) {
@@ -121,22 +123,24 @@ public:
             shooter_mode_subscriber_ = node_->create_subscription<std_msgs::msg::UInt8>(
                 shooter_mode_topic_, rclcpp::SystemDefaultsQoS(),
                 [this](const std_msgs::msg::UInt8& msg) {
-                    shooter_mode_buffer_.writeFromNonRT(BufferedShooterMode{
-                        msg.data,
-                        steady_clock_.now(),
-                        true,
-                    });
+                    shooter_mode_buffer_.writeFromNonRT(
+                        BufferedShooterMode{
+                            msg.data,
+                            steady_clock_.now(),
+                            true,
+                        });
                 });
         }
         if (!shooter_fire_subscriber_) {
             shooter_fire_subscriber_ = node_->create_subscription<std_msgs::msg::Bool>(
                 shooter_fire_topic_, rclcpp::SystemDefaultsQoS(),
                 [this](const std_msgs::msg::Bool& msg) {
-                    shooter_fire_buffer_.writeFromNonRT(BufferedShooterFire{
-                        msg.data,
-                        steady_clock_.now(),
-                        true,
-                    });
+                    shooter_fire_buffer_.writeFromNonRT(
+                        BufferedShooterFire{
+                            msg.data,
+                            steady_clock_.now(),
+                            true,
+                        });
                 });
         }
 
@@ -305,7 +309,7 @@ private:
         append_prefixed_interface_names(
             config.names, params_.bullet_feeder_controller_name,
             rmgo_core::reference_interfaces::shooter_trigger_interfaces);
-        return std::move(config.names);
+        return config.names;
     }
 
     ShooterFireStatus
@@ -353,6 +357,7 @@ private:
     bool bind_command_interfaces() {
         command_indexes_.fill(invalid_index);
         const auto names = reference_interface_names();
+        cached_reference_names_ = names;
         for (std::size_t target_index = 0; target_index < names.size(); ++target_index) {
             std::size_t interface_index = 0;
             bool found = false;
@@ -373,11 +378,13 @@ private:
     }
 
     bool write_reference_interfaces(const std::array<double, teleop_reference_count>& values) {
-        const auto names = reference_interface_names();
         for (std::size_t index = 0; index < values.size(); ++index) {
             const std::size_t command_index = command_indexes_[index];
             if (command_index >= command_interfaces_.size()) [[unlikely]] {
-                logging::error("Teleop reference interface '{}' is not bound", names[index]);
+                const auto name = index < cached_reference_names_.size()
+                                    ? std::string_view{cached_reference_names_[index]}
+                                    : std::string_view{"<unbound>"};
+                logging::error("Teleop reference interface '{}' is not bound", name);
                 return false;
             }
             if (!command_interfaces_[command_index].set_value(values[index])) [[unlikely]] {
@@ -405,6 +412,7 @@ private:
     std::uint64_t shooter_request_sequence_ = 0;
     bool last_fire_pressed_ = false;
     std::array<std::size_t, teleop_reference_count> command_indexes_{};
+    std::vector<std::string> cached_reference_names_;
     std::shared_ptr<::teleop_remote_controller::ParamListener> param_listener_;
     ::teleop_remote_controller::Params params_;
     std::shared_ptr<rclcpp_lifecycle::LifecycleNode> node_;

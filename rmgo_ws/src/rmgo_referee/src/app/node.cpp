@@ -1,8 +1,10 @@
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <string>
 
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
@@ -108,12 +110,27 @@ private:
         ui_period_ = std::chrono::duration<double>{declare_parameter<double>("ui_period", 0.01)};
         transport_watchdog_period_ = std::chrono::duration<double>{
             declare_parameter<double>("transport_watchdog_period", 0.5)};
+
+        if (rx_buffer_size_ <= 0 || tx_queue_capacity_ <= 0) {
+            throw std::invalid_argument("rx_buffer_size and tx_queue_capacity must be positive");
+        }
+        if (!std::isfinite(online_timeout_) || online_timeout_ < 0.0) {
+            throw std::invalid_argument("online_timeout must be finite and non-negative");
+        }
+        if (!std::isfinite(publish_period_.count()) || publish_period_.count() <= 0.0
+            || !std::isfinite(ui_period_.count()) || ui_period_.count() <= 0.0
+            || !std::isfinite(transport_watchdog_period_.count())
+            || transport_watchdog_period_.count() <= 0.0) {
+            throw std::invalid_argument(
+                "publish_period, ui_period, and transport_watchdog_period must be finite and "
+                "positive");
+        }
     }
 
     static rclcpp::SystemDefaultsQoS default_qos() { return rclcpp::SystemDefaultsQoS{}; }
 
     void create_diagnostics() {
-        diagnostic_updater_.setHardwareID(device_);
+        diagnostic_updater_.setHardwareID(device_.empty() ? "disabled" : device_);
         diagnostic_updater_.add(
             "referee_serial_transport", this, &RefereeNode::fill_transport_diagnostics);
     }
@@ -129,12 +146,17 @@ private:
 
     void create_referee_pipeline() {
         translator_ = std::make_unique<RefereeStatusTranslator>(status_);
-        transport_ = std::make_unique<RefereeSerialTransport>(
-            device_, rx_buffer_size_, tx_queue_capacity_, [this](const RefereeFrame& frame) {
-                if (translator_ != nullptr) {
-                    publish_referee_events(translator_->handle_frame(frame), get_clock()->now());
-                }
-            });
+        if (!device_.empty()) {
+            transport_ = std::make_unique<RefereeSerialTransport>(
+                device_, rx_buffer_size_, tx_queue_capacity_, [this](const RefereeFrame& frame) {
+                    if (translator_ != nullptr) {
+                        publish_referee_events(
+                            translator_->handle_frame(frame), get_clock()->now());
+                    }
+                });
+        } else {
+            RCLCPP_INFO(get_logger(), "Referee serial transport disabled because device is empty");
+        }
         endpoint_ = std::make_shared<NodeTransferEndpoint>(status_, transport_);
     }
 
@@ -177,7 +199,10 @@ private:
 
     void fill_transport_diagnostics(diagnostic_updater::DiagnosticStatusWrapper& status) {
         if (transport_ == nullptr) {
-            status.summary(DiagnosticStatus::WARN, "Referee serial transport not created");
+            status.summary(
+                device_.empty() ? DiagnosticStatus::OK : DiagnosticStatus::WARN,
+                device_.empty() ? "Referee serial transport disabled"
+                                : "Referee serial transport not created");
             status.add("device", device_);
             return;
         }
