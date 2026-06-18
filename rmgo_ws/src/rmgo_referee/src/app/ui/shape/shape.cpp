@@ -1,165 +1,16 @@
-#include "ui/ui_internal.hpp"
+#include "app/ui/shape/shape.hpp"
 
 #include <algorithm>
 #include <bit>
 #include <cmath>
 
-#include "interaction.hpp"
+#include "command/interaction.hpp"
 
 namespace rmgo_referee::ui {
 
-void CfsScheduler::clear() noexcept {
-    run_queue_.clear();
-    min_vruntime_ = 0;
-}
-
-void CfsScheduler::insert(Shape& shape) {
-    const auto weight = shape.scheduling_weight();
-    if (shape.queued_) {
-        if (shape.queued_weight_ != weight) {
-            if (shape.queued_weight_ > weight) {
-                shape.vruntime_ += static_cast<std::uint64_t>(shape.queued_weight_ - weight);
-            } else {
-                const auto delta = static_cast<std::uint64_t>(weight - shape.queued_weight_);
-                shape.vruntime_ =
-                    delta < shape.vruntime_ ? shape.vruntime_ - delta : std::uint64_t{0};
-            }
-            shape.vruntime_ = std::max(shape.vruntime_, min_vruntime_);
-            shape.queued_weight_ = weight;
-        }
-        return;
-    }
-
-    shape.vruntime_ = std::max(shape.vruntime_, min_vruntime_);
-    shape.queued_weight_ = weight;
-    shape.queued_ = true;
-    run_queue_.push_back(&shape);
-}
-
-void CfsScheduler::erase(Shape& shape) noexcept {
-    if (!shape.queued_) {
-        return;
-    }
-    std::erase(run_queue_, &shape);
-    shape.queued_ = false;
-}
-
-Shape*
-    CfsScheduler::next(std::optional<FrameKind> frame_kind, std::span<Shape* const> ignored) const {
-    auto best = run_queue_.end();
-    for (auto candidate = run_queue_.begin(); candidate != run_queue_.end(); ++candidate) {
-        if (std::find(ignored.begin(), ignored.end(), *candidate) != ignored.end()) {
-            continue;
-        }
-        if (frame_kind.has_value() && (*candidate)->frame_kind() != *frame_kind) {
-            continue;
-        }
-        if (best == run_queue_.end() || (*candidate)->vruntime_ < (*best)->vruntime_
-            || ((*candidate)->vruntime_ == (*best)->vruntime_
-                && (*candidate)->priority() > (*best)->priority())) {
-            best = candidate;
-        }
-    }
-    if (best == run_queue_.end()) {
-        return nullptr;
-    }
-
-    return *best;
-}
-
-void CfsScheduler::select(Shape& shape) {
-    if (!shape.queued_) {
-        return;
-    }
-    min_vruntime_ = shape.vruntime_;
-    shape.on_selected_for_update();
-    erase(shape);
-}
-
-void RemoteShapeRegistry::register_shape(Shape& shape) { shapes_.push_back(&shape); }
-
-void RemoteShapeRegistry::unregister_shape(Shape& shape) noexcept {
-    disable_id_reuse(shape);
-    std::erase(shapes_, &shape);
-}
-
-void RemoteShapeRegistry::reset_ids() noexcept {
-    reusable_id_queue_.clear();
-    next_id_ = 1;
-}
-
-bool RemoteShapeRegistry::assign_or_reuse_id(Shape& shape) {
-    if (shape.id_ != 0) {
-        return true;
-    }
-
-    if (!reusable_id_queue_.empty()) {
-        const auto victim = std::min_element(
-            reusable_id_queue_.begin(), reusable_id_queue_.end(),
-            [](const Shape* lhs, const Shape* rhs) {
-                return lhs->existence_confidence_ < rhs->existence_confidence_;
-            });
-        auto* reused = *victim;
-        reusable_id_queue_.erase(victim);
-        reused->reusable_id_ = false;
-
-        shape.id_ = reused->id_;
-        shape.existence_confidence_ = reused->existence_confidence_;
-        reused->revoke_id();
-        return shape.id_ != 0;
-    }
-
-    shape.id_ = assign_id();
-    return shape.id_ != 0;
-}
-
-bool RemoteShapeRegistry::predict_assign_id(
-    const Shape& shape, std::uint8_t& existence_confidence) const {
-    if (shape.id_ != 0) {
-        return true;
-    }
-
-    if (!reusable_id_queue_.empty()) {
-        const auto victim = std::min_element(
-            reusable_id_queue_.begin(), reusable_id_queue_.end(),
-            [](const Shape* lhs, const Shape* rhs) {
-                return lhs->existence_confidence_ < rhs->existence_confidence_;
-            });
-        existence_confidence = (*victim)->existence_confidence_;
-        return true;
-    }
-
-    return next_id_ <= Shape::id_assignment_max;
-}
-
-void RemoteShapeRegistry::disable_id_reuse(Shape& shape) noexcept {
-    if (!shape.reusable_id_) {
-        return;
-    }
-    std::erase(reusable_id_queue_, &shape);
-    shape.reusable_id_ = false;
-}
-
-void RemoteShapeRegistry::enable_id_reuse(Shape& shape) {
-    if (shape.reusable_id_ || shape.id_ == 0 || shape.visible_) {
-        return;
-    }
-    shape.reusable_id_ = true;
-    reusable_id_queue_.push_back(&shape);
-}
-
-std::uint8_t RemoteShapeRegistry::assign_id() noexcept {
-    if (next_id_ > Shape::id_assignment_max) {
-        return 0;
-    }
-    const auto id = next_id_;
-    ++next_id_;
-    return id;
-}
-
 namespace {
 
-constexpr auto vruntime_period = std::uint64_t{65536};
+constexpr auto vruntime_period = CfsScheduler<Shape>::vruntime_period;
 
 void append_graphic_description(
     std::span<std::byte> payload, std::size_t& written, std::uint8_t name, Operation operation,
@@ -206,7 +57,7 @@ void Shape::write_no_operation_description(std::span<std::byte> payload, std::si
         payload, written, 0, Operation::none, ShapeType::line, 0, Color::white, 0, 0, 0, 0, 0, 0);
 }
 
-Shape::Shape(InteractionUi& interaction_ui, Color color, std::uint8_t layer, std::uint16_t width)
+Shape::Shape(Ui& interaction_ui, Color color, std::uint8_t layer, std::uint16_t width)
     : interaction_ui_(interaction_ui)
     , color_(color)
     , layer_(layer)
@@ -222,15 +73,15 @@ void Shape::set_visible(bool visible) {
     }
     visible_ = visible;
     if (!visible_) {
-        if (existence_confidence_ == 0) {
-            interaction_ui_.disable_id_reuse(*this);
+        if (existence_confidence() == 0) {
+            disable_swapping();
             interaction_ui_.unmark_modified(*this);
             sync_confidence_ = max_update_times;
             return;
         }
-        interaction_ui_.enable_id_reuse(*this);
+        enable_swapping();
     } else {
-        interaction_ui_.disable_id_reuse(*this);
+        disable_swapping();
     }
     sync_confidence_ = 0;
     interaction_ui_.mark_modified(*this);
@@ -258,7 +109,7 @@ void Shape::set_priority(std::uint8_t priority) {
         return;
     }
     priority_ = priority;
-    if (queued_) {
+    if (queued()) {
         interaction_ui_.run_queue_insert(*this);
     }
 }
@@ -287,13 +138,13 @@ void Shape::set_modified() {
     if (!visible_) {
         return;
     }
-    interaction_ui_.disable_id_reuse(*this);
+    disable_swapping();
     sync_confidence_ = 0;
     interaction_ui_.mark_modified(*this);
 }
 
 bool Shape::write_update(std::span<std::byte> payload, std::size_t& written, Operation& operation) {
-    if (!visible_ && existence_confidence_ == 0) {
+    if (!visible_ && existence_confidence() == 0) {
         return false;
     }
     if (visible_ && !ensure_id()) {
@@ -303,14 +154,14 @@ bool Shape::write_update(std::span<std::byte> payload, std::size_t& written, Ope
     }
 
     auto predicted_sync = sync_confidence_;
-    if (existence_confidence_ == 0) {
+    if (existence_confidence() == 0) {
         sync_confidence_ = max_update_times;
         predicted_sync = max_update_times;
     }
 
     if (visible_
-        && (existence_confidence_ <= predicted_sync
-            || (last_time_modified_ && existence_confidence_ < max_update_times))) {
+        && (existence_confidence() <= predicted_sync
+            || (last_time_modified_ && existence_confidence() < max_update_times))) {
         operation = Operation::add;
         write_description(payload, written, operation);
     } else {
@@ -325,13 +176,13 @@ bool Shape::write_update(std::span<std::byte> payload, std::size_t& written, Ope
 }
 
 Operation Shape::predict_update() const {
-    if (!visible_ && existence_confidence_ == 0) {
+    if (!visible_ && existence_confidence() == 0) {
         return Operation::none;
     }
 
-    auto predicted_existence = existence_confidence_;
+    auto predicted_existence = existence_confidence();
     auto predicted_sync = sync_confidence_;
-    if (id_ == 0 && !interaction_ui_.predict_assign_id(*this, predicted_existence)) {
+    if (!has_id() && !predict_try_assign_id(predicted_existence)) {
         return Operation::none;
     }
 
@@ -348,19 +199,19 @@ Operation Shape::predict_update() const {
 }
 
 bool Shape::ensure_id() {
-    if (id_ != 0) {
+    if (has_id()) {
         return true;
     }
-    return interaction_ui_.assign_or_reuse_id(*this);
+    return try_assign_id();
 }
 
 void Shape::mark_sent(Operation operation) {
     if (operation == Operation::add) {
         last_time_modified_ = false;
-        if (existence_confidence_ < max_update_times) {
-            ++existence_confidence_;
+        if (existence_confidence() < max_update_times) {
+            increase_existence_confidence();
         }
-        if (existence_confidence_ < max_update_times || sync_confidence_ < max_update_times) {
+        if (existence_confidence() < max_update_times || sync_confidence_ < max_update_times) {
             interaction_ui_.mark_modified(*this);
         }
         return;
@@ -378,11 +229,8 @@ void Shape::mark_sent(Operation operation) {
 }
 
 void Shape::forget_remote_state() {
-    id_ = 0;
-    existence_confidence_ = 0;
     sync_confidence_ = 0;
     last_time_modified_ = false;
-    reusable_id_ = false;
     if (visible_) {
         interaction_ui_.mark_modified(*this);
     } else {
@@ -390,10 +238,7 @@ void Shape::forget_remote_state() {
     }
 }
 
-void Shape::revoke_id() {
-    interaction_ui_.disable_id_reuse(*this);
-    id_ = 0;
-    existence_confidence_ = 0;
+void Shape::id_revoked() {
     sync_confidence_ = visible_ ? 0 : max_update_times;
     last_time_modified_ = false;
     if (visible_) {
@@ -403,14 +248,9 @@ void Shape::revoke_id() {
     }
 }
 
-void Shape::on_selected_for_update() noexcept {
-    const auto shift = std::max<std::uint64_t>(1, vruntime_period - queued_weight_);
-    vruntime_ += shift;
-}
-
 std::uint16_t Shape::scheduling_weight() const noexcept {
     const auto confidence =
-        std::min<std::uint8_t>(std::min(existence_confidence_, sync_confidence_), 3);
+        std::min<std::uint8_t>(std::min(existence_confidence(), sync_confidence_), 3);
     const auto priority = std::min<std::uint8_t>(priority_, 255);
     const auto penalty = std::min<std::uint32_t>(
         (256U - priority) << (4U * confidence), static_cast<std::uint32_t>(vruntime_period - 1U));
@@ -425,7 +265,7 @@ void Shape::write_invisible_description(
 }
 
 Line::Line(
-    InteractionUi& interaction_ui, Color color, std::uint16_t width, std::uint16_t start_x,
+    Ui& interaction_ui, Color color, std::uint16_t width, std::uint16_t start_x,
     std::uint16_t start_y, std::uint16_t end_x, std::uint16_t end_y, bool visible)
     : Shape(interaction_ui, color, 0, width) {
     set_xy(start_x, start_y);
@@ -452,7 +292,7 @@ void Line::write_description(
 }
 
 Rectangle::Rectangle(
-    InteractionUi& interaction_ui, Color color, std::uint16_t width, std::uint16_t start_x,
+    Ui& interaction_ui, Color color, std::uint16_t width, std::uint16_t start_x,
     std::uint16_t start_y, std::uint16_t end_x, std::uint16_t end_y, bool visible)
     : Shape(interaction_ui, color, 0, width) {
     set_xy(start_x, start_y);
@@ -479,8 +319,8 @@ void Rectangle::write_description(
 }
 
 Circle::Circle(
-    InteractionUi& interaction_ui, Color color, std::uint16_t width, std::uint16_t x,
-    std::uint16_t y, std::uint16_t radius, bool visible)
+    Ui& interaction_ui, Color color, std::uint16_t width, std::uint16_t x, std::uint16_t y,
+    std::uint16_t radius, bool visible)
     : Shape(interaction_ui, color, 0, width) {
     set_xy(x, y);
     set_radius(radius);
@@ -504,8 +344,8 @@ void Circle::write_description(
 }
 
 Integer::Integer(
-    InteractionUi& interaction_ui, Color color, std::uint16_t font_size, std::uint16_t width,
-    std::uint16_t x, std::uint16_t y, std::int32_t value, bool visible)
+    Ui& interaction_ui, Color color, std::uint16_t font_size, std::uint16_t width, std::uint16_t x,
+    std::uint16_t y, std::int32_t value, bool visible)
     : Shape(interaction_ui, color, 0, width)
     , font_size_(font_size)
     , value_(value) {
@@ -550,8 +390,8 @@ void Integer::write_description(
 }
 
 Text::Text(
-    InteractionUi& interaction_ui, Color color, std::uint16_t font_size, std::uint16_t width,
-    std::uint16_t x, std::uint16_t y, std::string content, bool visible)
+    Ui& interaction_ui, Color color, std::uint16_t font_size, std::uint16_t width, std::uint16_t x,
+    std::uint16_t y, std::string content, bool visible)
     : Shape(interaction_ui, color, 0, width)
     , font_size_(font_size) {
     set_xy(x, y);

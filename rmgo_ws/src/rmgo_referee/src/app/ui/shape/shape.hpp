@@ -9,7 +9,9 @@
 #include <string_view>
 #include <vector>
 
-#include "ui/ui.hpp"
+#include "app/ui/shape/cfs_scheduler.hpp"
+#include "app/ui/shape/remote_shape.hpp"
+#include "app/ui/ui.hpp"
 
 namespace rmgo_referee::ui {
 
@@ -50,11 +52,14 @@ enum class ShapeType : std::uint8_t {
     text = 7,
 };
 
-class InteractionUi;
+class Ui;
+class Shape;
 
-class Shape {
+class Shape
+    : private CfsScheduler<Shape>::Entity
+    , private RemoteShape<Shape>::Descriptor {
 public:
-    Shape(InteractionUi& interaction_ui, Color color, std::uint8_t layer, std::uint16_t width);
+    Shape(Ui& interaction_ui, Color color, std::uint8_t layer, std::uint16_t width);
     virtual ~Shape();
 
     Shape(const Shape&) = delete;
@@ -83,7 +88,7 @@ public:
     static void write_no_operation_description(std::span<std::byte> payload, std::size_t& written);
 
 protected:
-    std::uint8_t id() const noexcept { return id_; }
+    std::uint8_t id() const noexcept { return RemoteShape<Shape>::Descriptor::id(); }
     void set_modified();
     virtual void write_description(
         std::span<std::byte> payload, std::size_t& written, Operation operation) const = 0;
@@ -92,37 +97,27 @@ protected:
     virtual FrameKind frame_kind_impl() const noexcept { return FrameKind::graphics; }
 
 private:
-    friend class CfsScheduler;
-    friend class InteractionUi;
-    friend class RemoteShapeRegistry;
+    friend class Ui;
+    friend class RemoteShape<Shape>;
 
     bool write_update(std::span<std::byte> payload, std::size_t& written, Operation& operation);
     Operation predict_update() const;
     bool ensure_id();
     void mark_sent(Operation operation);
     void forget_remote_state();
-    void revoke_id();
-    void on_selected_for_update() noexcept;
+    void id_revoked();
     std::uint16_t scheduling_weight() const noexcept;
 
     static constexpr std::uint8_t max_update_times = 4;
-    static constexpr std::uint8_t id_assignment_max = 201;
-    static constexpr std::uint64_t initial_vruntime = 65536;
-
-    InteractionUi& interaction_ui_;
-    std::uint64_t vruntime_ = initial_vruntime;
-    std::uint16_t queued_weight_ = 0;
-    std::uint8_t id_ = 0;
+    friend class CfsScheduler<Shape>;
+    Ui& interaction_ui_;
     std::uint8_t priority_ = 15;
     Color color_;
     std::uint8_t layer_ = 0;
     std::uint16_t width_ = 1;
     std::uint16_t x_ = 0;
     std::uint16_t y_ = 0;
-    std::uint8_t existence_confidence_ = 0;
     std::uint8_t sync_confidence_ = max_update_times;
-    bool queued_ = false;
-    bool reusable_id_ = false;
     bool last_time_modified_ = false;
     bool visible_ = false;
 };
@@ -130,7 +125,7 @@ private:
 class Line final : public Shape {
 public:
     Line(
-        InteractionUi& interaction_ui, Color color, std::uint16_t width, std::uint16_t start_x,
+        Ui& interaction_ui, Color color, std::uint16_t width, std::uint16_t start_x,
         std::uint16_t start_y, std::uint16_t end_x, std::uint16_t end_y, bool visible = true);
 
     std::uint16_t end_x() const noexcept { return end_x_; }
@@ -148,7 +143,7 @@ private:
 class Rectangle final : public Shape {
 public:
     Rectangle(
-        InteractionUi& interaction_ui, Color color, std::uint16_t width, std::uint16_t start_x,
+        Ui& interaction_ui, Color color, std::uint16_t width, std::uint16_t start_x,
         std::uint16_t start_y, std::uint16_t end_x, std::uint16_t end_y, bool visible = true);
 
     void set_end_xy(std::uint16_t x, std::uint16_t y);
@@ -164,8 +159,8 @@ private:
 class Circle final : public Shape {
 public:
     Circle(
-        InteractionUi& interaction_ui, Color color, std::uint16_t width, std::uint16_t x,
-        std::uint16_t y, std::uint16_t radius, bool visible = true);
+        Ui& interaction_ui, Color color, std::uint16_t width, std::uint16_t x, std::uint16_t y,
+        std::uint16_t radius, bool visible = true);
 
     std::uint16_t radius() const noexcept { return radius_; }
     void set_radius(std::uint16_t radius);
@@ -180,7 +175,7 @@ private:
 class Integer final : public Shape {
 public:
     Integer(
-        InteractionUi& interaction_ui, Color color, std::uint16_t font_size, std::uint16_t width,
+        Ui& interaction_ui, Color color, std::uint16_t font_size, std::uint16_t width,
         std::uint16_t x, std::uint16_t y, std::int32_t value = 0, bool visible = true);
 
     std::int32_t value() const noexcept { return value_; }
@@ -201,7 +196,7 @@ private:
 class Text final : public Shape {
 public:
     Text(
-        InteractionUi& interaction_ui, Color color, std::uint16_t font_size, std::uint16_t width,
+        Ui& interaction_ui, Color color, std::uint16_t font_size, std::uint16_t width,
         std::uint16_t x, std::uint16_t y, std::string content = {}, bool visible = true);
 
     std::string_view content() const noexcept { return content_; }

@@ -1,10 +1,70 @@
-#include "status.hpp"
+#pragma once
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
+
+#include "rmgo_msg/msg/game_robot_status.hpp"
+#include "rmgo_msg/msg/game_status.hpp"
+#include "rmgo_msg/msg/power_heat_data.hpp"
+#include "rmgo_msg/msg/referee_status.hpp"
+#include "rmgo_utility/utility/watchdog.hpp"
+#include "status/field.hpp"
+
+namespace rmgo_referee {
+
+struct RefereeStatusSafetyEvents {
+    bool game_status_timeout = false;
+    bool robot_status_timeout = false;
+    bool power_heat_timeout = false;
+};
+
+class RefereeStatusStore final {
+public:
+    RefereeStatusStore();
+
+    void reset() noexcept;
+
+    void set(RefereeStatusField field, double value) noexcept;
+    double get(RefereeStatusField field) const noexcept;
+    void mark_online(std::chrono::steady_clock::time_point time) noexcept;
+
+    RefereeStatusSafetyEvents maintain_safety() noexcept;
+    bool is_fresh(double online_timeout) const noexcept;
+    bool game_status_fresh() const noexcept;
+    bool robot_status_fresh() const noexcept;
+    bool power_heat_fresh() const noexcept;
+    std::uint16_t robot_id() const noexcept;
+    rmgo_msg::msg::GameStatus to_game_status_message() const;
+    rmgo_msg::msg::GameRobotStatus to_game_robot_status_message() const;
+    rmgo_msg::msg::PowerHeatData to_power_heat_data_message() const;
+    rmgo_msg::msg::RefereeStatus to_message(double online_timeout) const;
+
+private:
+    using Watchdog = rmgo_utility::utility::Watchdog;
+
+    double load(RefereeStatusField field) const noexcept;
+    void apply_initial_safety_fallback() noexcept;
+    void arm_game_status_watchdog(Watchdog::clock::time_point now) noexcept;
+    void arm_robot_status_watchdog(Watchdog::clock::time_point now) noexcept;
+    void arm_power_heat_watchdog(Watchdog::clock::time_point now) noexcept;
+    void apply_robot_status_fallback() noexcept;
+    void apply_power_heat_fallback() noexcept;
+
+    std::array<std::atomic<double>, to_index(RefereeStatusField::count)> values_{};
+    std::atomic<std::int64_t> last_update_ns_{0};
+    std::atomic<std::uint16_t> robot_id_{0};
+    Watchdog game_status_watchdog_;
+    Watchdog robot_status_watchdog_;
+    Watchdog power_heat_watchdog_;
+};
+
+} // namespace rmgo_referee
 
 namespace rmgo_referee {
 namespace {
@@ -56,51 +116,11 @@ void fill_status_float_array(
     }
 }
 
-constexpr std::array robots_hp_fields{
-    RefereeStatusField::robots_hp_red_1,        RefereeStatusField::robots_hp_red_2,
-    RefereeStatusField::robots_hp_red_3,        RefereeStatusField::robots_hp_red_4,
-    RefereeStatusField::robots_hp_red_5,        RefereeStatusField::robots_hp_red_7,
-    RefereeStatusField::robots_hp_red_outpost,  RefereeStatusField::robots_hp_red_base,
-    RefereeStatusField::robots_hp_blue_1,       RefereeStatusField::robots_hp_blue_2,
-    RefereeStatusField::robots_hp_blue_3,       RefereeStatusField::robots_hp_blue_4,
-    RefereeStatusField::robots_hp_blue_5,       RefereeStatusField::robots_hp_blue_7,
-    RefereeStatusField::robots_hp_blue_outpost, RefereeStatusField::robots_hp_blue_base,
-};
-
-constexpr std::array radar_mark_fields{
-    RefereeStatusField::radar_mark_hero,       RefereeStatusField::radar_mark_engineer,
-    RefereeStatusField::radar_mark_infantry_3, RefereeStatusField::radar_mark_infantry_4,
-    RefereeStatusField::radar_mark_infantry_5, RefereeStatusField::radar_mark_sentry,
-};
-
-constexpr std::array ally_robot_position_fields{
-    RefereeStatusField::ally_hero_position_x,       RefereeStatusField::ally_hero_position_y,
-    RefereeStatusField::ally_engineer_position_x,   RefereeStatusField::ally_engineer_position_y,
-    RefereeStatusField::ally_infantry_3_position_x, RefereeStatusField::ally_infantry_3_position_y,
-    RefereeStatusField::ally_infantry_4_position_x, RefereeStatusField::ally_infantry_4_position_y,
-    RefereeStatusField::ally_infantry_5_position_x, RefereeStatusField::ally_infantry_5_position_y,
-};
-
-constexpr std::array opponent_robot_position_fields{
-    RefereeStatusField::opponent_hero_position_x,
-    RefereeStatusField::opponent_hero_position_y,
-    RefereeStatusField::opponent_engineer_position_x,
-    RefereeStatusField::opponent_engineer_position_y,
-    RefereeStatusField::opponent_infantry_3_position_x,
-    RefereeStatusField::opponent_infantry_3_position_y,
-    RefereeStatusField::opponent_infantry_4_position_x,
-    RefereeStatusField::opponent_infantry_4_position_y,
-    RefereeStatusField::opponent_uav_position_x,
-    RefereeStatusField::opponent_uav_position_y,
-    RefereeStatusField::opponent_sentry_position_x,
-    RefereeStatusField::opponent_sentry_position_y,
-};
-
 } // namespace
 
-RefereeStatusStore::RefereeStatusStore() { reset(); }
+inline RefereeStatusStore::RefereeStatusStore() { reset(); }
 
-void RefereeStatusStore::reset() noexcept {
+inline void RefereeStatusStore::reset() noexcept {
     for (auto& value : values_) {
         value.store(0.0, std::memory_order_relaxed);
     }
@@ -112,7 +132,7 @@ void RefereeStatusStore::reset() noexcept {
     apply_initial_safety_fallback();
 }
 
-void RefereeStatusStore::set(RefereeStatusField field, double value) noexcept {
+inline void RefereeStatusStore::set(RefereeStatusField field, double value) noexcept {
     values_[to_index(field)].store(value, std::memory_order_relaxed);
     if (field == RefereeStatusField::id) {
         robot_id_.store(static_cast<std::uint16_t>(value), std::memory_order_release);
@@ -136,15 +156,17 @@ void RefereeStatusStore::set(RefereeStatusField field, double value) noexcept {
     }
 }
 
-double RefereeStatusStore::get(RefereeStatusField field) const noexcept { return load(field); }
+inline double RefereeStatusStore::get(RefereeStatusField field) const noexcept {
+    return load(field);
+}
 
-void RefereeStatusStore::mark_online(std::chrono::steady_clock::time_point time) noexcept {
+inline void RefereeStatusStore::mark_online(std::chrono::steady_clock::time_point time) noexcept {
     last_update_ns_.store(
         std::chrono::duration_cast<std::chrono::nanoseconds>(time.time_since_epoch()).count(),
         std::memory_order_release);
 }
 
-RefereeStatusSafetyEvents RefereeStatusStore::maintain_safety() noexcept {
+inline RefereeStatusSafetyEvents RefereeStatusStore::maintain_safety() noexcept {
     const auto now = Watchdog::clock::now();
     auto events = RefereeStatusSafetyEvents{};
     if (game_status_watchdog_.consume_expiration(now)) {
@@ -163,7 +185,7 @@ RefereeStatusSafetyEvents RefereeStatusStore::maintain_safety() noexcept {
     return events;
 }
 
-bool RefereeStatusStore::is_fresh(double online_timeout) const noexcept {
+inline bool RefereeStatusStore::is_fresh(double online_timeout) const noexcept {
     const auto last_update_ns = last_update_ns_.load(std::memory_order_acquire);
     if (last_update_ns <= 0) {
         return false;
@@ -175,46 +197,23 @@ bool RefereeStatusStore::is_fresh(double online_timeout) const noexcept {
                <= std::chrono::duration<double>{online_timeout};
 }
 
-bool RefereeStatusStore::game_status_fresh() const noexcept {
+inline bool RefereeStatusStore::game_status_fresh() const noexcept {
     return game_status_watchdog_.fresh(Watchdog::clock::now());
 }
 
-bool RefereeStatusStore::robot_status_fresh() const noexcept {
+inline bool RefereeStatusStore::robot_status_fresh() const noexcept {
     return robot_status_watchdog_.fresh(Watchdog::clock::now());
 }
 
-bool RefereeStatusStore::power_heat_fresh() const noexcept {
+inline bool RefereeStatusStore::power_heat_fresh() const noexcept {
     return power_heat_watchdog_.fresh(Watchdog::clock::now());
 }
 
-std::uint16_t RefereeStatusStore::robot_id() const noexcept {
+inline std::uint16_t RefereeStatusStore::robot_id() const noexcept {
     return robot_id_.load(std::memory_order_acquire);
 }
 
-ui::RefereeUiState RefereeStatusStore::to_ui_state(double online_timeout) const noexcept {
-    return ui::RefereeUiState{
-        .online = load(RefereeStatusField::online) > 0.5 && is_fresh(online_timeout),
-        .robot_id = load(RefereeStatusField::id),
-        .game_stage = load(RefereeStatusField::game_stage),
-        .stage_remain_time = load(RefereeStatusField::game_stage_remain_time),
-        .hp = load(RefereeStatusField::hp),
-        .max_hp = load(RefereeStatusField::max_hp),
-        .shooter_cooling = load(RefereeStatusField::shooter_cooling),
-        .shooter_heat_limit = load(RefereeStatusField::shooter_heat_limit),
-        .shooter_bullet_allowance = load(RefereeStatusField::shooter_bullet_allowance),
-        .shooter_1_heat = load(RefereeStatusField::shooter_1_heat),
-        .shooter_2_heat = load(RefereeStatusField::shooter_2_heat),
-        .chassis_power_limit = load(RefereeStatusField::chassis_power_limit),
-        .chassis_power = load(RefereeStatusField::chassis_power),
-        .chassis_buffer_energy = load(RefereeStatusField::chassis_buffer_energy),
-        .chassis_output_status = load(RefereeStatusField::chassis_output_status),
-        .chassis_mode = 0.0,
-        .gimbal_enabled = 0.0,
-        .shooter_mode = 0.0,
-    };
-}
-
-rmgo_msg::msg::GameStatus RefereeStatusStore::to_game_status_message() const {
+inline rmgo_msg::msg::GameStatus RefereeStatusStore::to_game_status_message() const {
     auto msg = rmgo_msg::msg::GameStatus{};
     msg.game_type = status_integer<std::uint8_t>(load(RefereeStatusField::game_type));
     msg.game_progress = status_integer<std::uint8_t>(load(RefereeStatusField::game_stage));
@@ -225,7 +224,7 @@ rmgo_msg::msg::GameStatus RefereeStatusStore::to_game_status_message() const {
     return msg;
 }
 
-rmgo_msg::msg::GameRobotStatus RefereeStatusStore::to_game_robot_status_message() const {
+inline rmgo_msg::msg::GameRobotStatus RefereeStatusStore::to_game_robot_status_message() const {
     auto msg = rmgo_msg::msg::GameRobotStatus{};
     msg.robot_id = status_integer<std::uint8_t>(load(RefereeStatusField::id));
     msg.robot_level = status_integer<std::uint8_t>(load(RefereeStatusField::robot_level));
@@ -242,7 +241,7 @@ rmgo_msg::msg::GameRobotStatus RefereeStatusStore::to_game_robot_status_message(
     return msg;
 }
 
-rmgo_msg::msg::PowerHeatData RefereeStatusStore::to_power_heat_data_message() const {
+inline rmgo_msg::msg::PowerHeatData RefereeStatusStore::to_power_heat_data_message() const {
     auto msg = rmgo_msg::msg::PowerHeatData{};
     msg.chassis_voltage = status_integer<std::uint16_t>(load(RefereeStatusField::chassis_voltage));
     msg.chassis_current = status_integer<std::uint16_t>(load(RefereeStatusField::chassis_current));
@@ -256,42 +255,45 @@ rmgo_msg::msg::PowerHeatData RefereeStatusStore::to_power_heat_data_message() co
     return msg;
 }
 
-rmgo_msg::msg::RefereeStatus RefereeStatusStore::to_message(double online_timeout) const {
-    const auto state = to_ui_state(online_timeout);
+inline rmgo_msg::msg::RefereeStatus RefereeStatusStore::to_message(double online_timeout) const {
     auto msg = rmgo_msg::msg::RefereeStatus{};
-    msg.online = state.online;
+    msg.online = load(RefereeStatusField::online) > 0.5 && is_fresh(online_timeout);
     msg.game_status_fresh = game_status_fresh();
     msg.robot_status_fresh = robot_status_fresh();
     msg.power_heat_fresh = power_heat_fresh();
-    msg.robot_id = status_integer<std::uint16_t>(state.robot_id);
-    msg.game_stage = status_integer<std::uint8_t>(state.game_stage);
-    msg.stage_remain_time = status_integer<std::uint16_t>(state.stage_remain_time);
+    msg.robot_id = status_integer<std::uint16_t>(load(RefereeStatusField::id));
+    msg.game_stage = status_integer<std::uint8_t>(load(RefereeStatusField::game_stage));
+    msg.stage_remain_time =
+        status_integer<std::uint16_t>(load(RefereeStatusField::game_stage_remain_time));
     msg.game_sync_timestamp =
         status_integer<std::uint64_t>(load(RefereeStatusField::game_sync_timestamp));
 
-    msg.hp = status_integer<std::uint16_t>(state.hp);
-    msg.max_hp = status_integer<std::uint16_t>(state.max_hp);
-    fill_status_array(msg.robots_hp, robots_hp_fields, *this);
+    msg.hp = status_integer<std::uint16_t>(load(RefereeStatusField::hp));
+    msg.max_hp = status_integer<std::uint16_t>(load(RefereeStatusField::max_hp));
+    fill_status_array(msg.robots_hp, referee_robots_hp_fields, *this);
 
-    msg.shooter_cooling = status_integer<std::uint16_t>(state.shooter_cooling);
-    msg.shooter_heat_limit = status_integer<std::uint16_t>(state.shooter_heat_limit);
+    msg.shooter_cooling = status_integer<std::uint16_t>(load(RefereeStatusField::shooter_cooling));
+    msg.shooter_heat_limit =
+        status_integer<std::uint16_t>(load(RefereeStatusField::shooter_heat_limit));
     msg.shooter_17mm_bullet_allowance =
-        status_integer<std::uint16_t>(state.shooter_bullet_allowance);
+        status_integer<std::uint16_t>(load(RefereeStatusField::shooter_bullet_allowance));
     msg.shooter_42mm_bullet_allowance =
         status_integer<std::uint16_t>(load(RefereeStatusField::shooter_42mm_bullet_allowance));
     msg.shooter_fortress_17mm_bullet_allowance = status_integer<std::uint16_t>(
         load(RefereeStatusField::shooter_fortress_17mm_bullet_allowance));
-    msg.shooter_1_heat = status_integer<std::uint16_t>(state.shooter_1_heat);
-    msg.shooter_2_heat = status_integer<std::uint16_t>(state.shooter_2_heat);
+    msg.shooter_1_heat = status_integer<std::uint16_t>(load(RefereeStatusField::shooter_1_heat));
+    msg.shooter_2_heat = status_integer<std::uint16_t>(load(RefereeStatusField::shooter_2_heat));
 
-    msg.chassis_power_limit = status_integer<std::uint16_t>(state.chassis_power_limit);
-    msg.chassis_power = status_float(state.chassis_power);
-    msg.chassis_buffer_energy = status_integer<std::uint16_t>(state.chassis_buffer_energy);
-    msg.chassis_output_enabled = status_bool(state.chassis_output_status);
+    msg.chassis_power_limit =
+        status_integer<std::uint16_t>(load(RefereeStatusField::chassis_power_limit));
+    msg.chassis_power = status_float(load(RefereeStatusField::chassis_power));
+    msg.chassis_buffer_energy =
+        status_integer<std::uint16_t>(load(RefereeStatusField::chassis_buffer_energy));
+    msg.chassis_output_enabled = status_bool(load(RefereeStatusField::chassis_output_status));
     msg.remaining_gold_coin =
         status_integer<std::uint16_t>(load(RefereeStatusField::remaining_gold_coin));
 
-    fill_status_array(msg.radar_mark_progress, radar_mark_fields, *this);
+    fill_status_array(msg.radar_mark_progress, referee_radar_mark_fields, *this);
     msg.radar_double_effect_chance =
         status_integer<std::uint8_t>(load(RefereeStatusField::radar_double_effect_chance));
     msg.radar_double_effect_active =
@@ -312,8 +314,9 @@ rmgo_msg::msg::RefereeStatus RefereeStatusStore::to_message(double online_timeou
     msg.ally_fortress_occupation_status = status_integer<std::uint8_t>(
         load(RefereeStatusField::event_ally_fortress_occupation_status));
 
-    fill_status_float_array(msg.ally_robot_positions, ally_robot_position_fields, *this);
-    fill_status_float_array(msg.opponent_robot_positions, opponent_robot_position_fields, *this);
+    fill_status_float_array(msg.ally_robot_positions, referee_ally_robot_position_fields, *this);
+    fill_status_float_array(
+        msg.opponent_robot_positions, referee_opponent_robot_position_fields, *this);
 
     msg.map_command_target_position_x =
         status_float(load(RefereeStatusField::map_command_target_position_x));
@@ -346,32 +349,33 @@ rmgo_msg::msg::RefereeStatus RefereeStatusStore::to_message(double online_timeou
     return msg;
 }
 
-double RefereeStatusStore::load(RefereeStatusField field) const noexcept {
+inline double RefereeStatusStore::load(RefereeStatusField field) const noexcept {
     return values_[to_index(field)].load(std::memory_order_relaxed);
 }
 
-void RefereeStatusStore::apply_initial_safety_fallback() noexcept {
+inline void RefereeStatusStore::apply_initial_safety_fallback() noexcept {
     values_[to_index(RefereeStatusField::game_stage)].store(
         safe_game_stage, std::memory_order_relaxed);
     apply_robot_status_fallback();
     apply_power_heat_fallback();
 }
 
-void RefereeStatusStore::arm_game_status_watchdog(Watchdog::clock::time_point now) noexcept {
+inline void RefereeStatusStore::arm_game_status_watchdog(Watchdog::clock::time_point now) noexcept {
     const auto timeout = load(RefereeStatusField::game_stage) == started_game_stage ? 30s : 5s;
     game_status_watchdog_.reset(now, timeout);
 }
 
-void RefereeStatusStore::arm_robot_status_watchdog(Watchdog::clock::time_point now) noexcept {
+inline void
+    RefereeStatusStore::arm_robot_status_watchdog(Watchdog::clock::time_point now) noexcept {
     const auto timeout = load(RefereeStatusField::game_stage) == started_game_stage ? 60s : 5s;
     robot_status_watchdog_.reset(now, timeout);
 }
 
-void RefereeStatusStore::arm_power_heat_watchdog(Watchdog::clock::time_point now) noexcept {
+inline void RefereeStatusStore::arm_power_heat_watchdog(Watchdog::clock::time_point now) noexcept {
     power_heat_watchdog_.reset(now, 3s);
 }
 
-void RefereeStatusStore::apply_robot_status_fallback() noexcept {
+inline void RefereeStatusStore::apply_robot_status_fallback() noexcept {
     values_[to_index(RefereeStatusField::shooter_cooling)].store(
         safe_shooter_cooling, std::memory_order_relaxed);
     values_[to_index(RefereeStatusField::shooter_heat_limit)].store(
@@ -380,7 +384,7 @@ void RefereeStatusStore::apply_robot_status_fallback() noexcept {
         safe_chassis_power_limit, std::memory_order_relaxed);
 }
 
-void RefereeStatusStore::apply_power_heat_fallback() noexcept {
+inline void RefereeStatusStore::apply_power_heat_fallback() noexcept {
     values_[to_index(RefereeStatusField::chassis_power)].store(
         safe_chassis_power, std::memory_order_relaxed);
     values_[to_index(RefereeStatusField::chassis_buffer_energy)].store(
