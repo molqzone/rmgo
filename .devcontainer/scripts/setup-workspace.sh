@@ -2,7 +2,8 @@
 
 set -eu
 
-workspace_root="/workspaces/rmgo/rmgo_ws"
+repo_root="/workspaces/rmgo"
+workspace_root="$repo_root/rmgo_ws"
 src_path="$workspace_root/src"
 
 if [ ! -d "$src_path" ]; then
@@ -35,6 +36,8 @@ if ! rosdep install --from-paths "$src_path" --ignore-src -r -y --rosdistro "${R
 fi
 
 cd "$workspace_root"
-colcon build --symlink-install
+colcon build --symlink-install --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+python3 "$repo_root/.devcontainer/scripts/aggregate_compile_commands.py" "$workspace_root/build"
 
 printf 'Workspace setup complete: %s\n' "$workspace_root"

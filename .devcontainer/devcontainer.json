@@ -15,7 +15,7 @@
       "settings": {
         "remote.autoForwardPorts": false,
         "clangd.arguments": [
-          "--compile-commands-dir=/workspaces/rmgo/rmgo_ws/build/rmgo_core",
+          "--compile-commands-dir=/workspaces/rmgo/rmgo_ws/build",
           "--query-driver=/usr/bin/clang++,/usr/bin/g++,/opt/ros/jazzy/bin/*"
         ]
       },
