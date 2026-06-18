@@ -1,0 +1,62 @@
+std_msgs/Header header
+
+bool online
+bool game_status_fresh
+bool robot_status_fresh
+bool power_heat_fresh
+
+uint16 robot_id
+uint8 game_stage
+uint16 stage_remain_time
+uint64 game_sync_timestamp
+
+uint16 hp
+uint16 max_hp
+uint16[16] robots_hp
+
+uint16 shooter_cooling
+uint16 shooter_heat_limit
+uint16 shooter_17mm_bullet_allowance
+uint16 shooter_42mm_bullet_allowance
+uint16 shooter_fortress_17mm_bullet_allowance
+uint16 shooter_1_heat
+uint16 shooter_2_heat
+
+uint16 chassis_power_limit
+float32 chassis_power
+uint16 chassis_buffer_energy
+bool chassis_output_enabled
+
+uint16 remaining_gold_coin
+
+uint8[6] radar_mark_progress
+uint8 radar_double_effect_chance
+bool radar_double_effect_active
+
+uint8 dart_remaining_time
+uint8 dart_latest_hit_target
+uint8 dart_hit_count
+uint8 dart_selected_target
+
+uint8 ally_small_energy_activation_status
+uint8 ally_big_energy_activation_status
+uint8 ally_fortress_occupation_status
+
+float32[10] ally_robot_positions
+float32[12] opponent_robot_positions
+
+float32 map_command_target_position_x
+float32 map_command_target_position_y
+uint8 map_command_keyboard
+uint8 map_command_target_robot_id
+uint16 map_command_source
+uint32 map_command_sequence
+
+bool sentry_can_confirm_free_revive
+bool sentry_can_exchange_instant_revive
+uint16 sentry_instant_revive_cost
+uint16 sentry_exchanged_bullet_allowance
+uint8 sentry_remote_bullet_exchange_count
+uint16 sentry_exchangeable_bullet_allowance
+uint8 sentry_mode
+bool sentry_energy_mechanism_activatable
