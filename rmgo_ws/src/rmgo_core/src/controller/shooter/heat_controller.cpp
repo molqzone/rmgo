@@ -7,10 +7,13 @@
 
 #include <controller_interface/chainable_controller_interface.hpp>
 #include <pluginlib/class_list_macros.hpp>
+#include <rclcpp/qos.hpp>
+#include <rclcpp/time.hpp>
 #include <rclcpp_lifecycle/state.hpp>
+#include <realtime_tools/realtime_buffer.hpp>
 
 #include "rmgo_core/heat_controller_config.hpp"
-#include "rmgo_core/interface/io_state_interfaces.hpp"
+#include "rmgo_msg/msg/game_robot_status.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 
@@ -23,6 +26,7 @@ class HeatController
 public:
     controller_interface::CallbackReturn on_init() override {
         init_parameters(param_listener_, params_);
+        robot_status_buffer_.initRT(BufferedRobotStatus{});
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
@@ -32,11 +36,10 @@ public:
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        using namespace rmgo_core::io_state_interfaces;
-        return build_individual_config(std::array{
-            std::string{referee_shooter_cooling},
-            std::string{referee_shooter_heat_limit},
-        });
+        return {
+            controller_interface::interface_configuration_type::NONE,
+            {},
+        };
     }
 
     std::vector<hardware_interface::CommandInterface::SharedPtr>
@@ -48,6 +51,25 @@ public:
     controller_interface::CallbackReturn
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
         update_parameters(param_listener_, params_);
+        if (game_robot_status_topic_ != params_.game_robot_status_topic) {
+            game_robot_status_subscriber_.reset();
+        }
+        game_robot_status_topic_ = params_.game_robot_status_topic;
+        status_timeout_ = params_.status_timeout;
+        if (!game_robot_status_subscriber_) {
+            game_robot_status_subscriber_ =
+                get_node()->create_subscription<rmgo_msg::msg::GameRobotStatus>(
+                    game_robot_status_topic_, rclcpp::SystemDefaultsQoS(),
+                    [this](const rmgo_msg::msg::GameRobotStatus& msg) {
+                        robot_status_buffer_.writeFromNonRT(
+                            BufferedRobotStatus{
+                                .cooling = static_cast<double>(msg.shooter_cooling),
+                                .heat_limit = static_cast<double>(msg.shooter_heat_limit),
+                                .stamp = steady_clock_.now(),
+                                .valid = true,
+                            });
+                    });
+        }
         reset();
         return controller_interface::CallbackReturn::SUCCESS;
     }
@@ -76,8 +98,10 @@ public:
 
     controller_interface::return_type update_and_write_commands(
         const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
-        const double cooling = read_state(cooling_index);
-        const double heat_limit = read_state(heat_limit_index);
+        const auto robot = *robot_status_buffer_.readFromRT();
+        const bool robot_status_fresh = is_fresh(robot, steady_clock_.now());
+        const double cooling = robot_status_fresh ? robot.cooling : 0.0;
+        const double heat_limit = robot_status_fresh ? robot.heat_limit : 0.0;
         heat_ = std::max(0.0, heat_ - std::max(0.0, cooling) * std::max(0.0, period.seconds()));
 
         const bool bullet_fired = reference_[0] > 0.5;
@@ -97,11 +121,17 @@ private:
     static constexpr std::array<const char*, 1> bullet_allowance_suffixes = {
         "control_bullet_allowance/limited_by_heat",
     };
-    static constexpr std::size_t cooling_index = 0;
-    static constexpr std::size_t heat_limit_index = 1;
 
-    double read_state(std::size_t index) const {
-        return read_interface_value(state_interfaces_, index);
+    struct BufferedRobotStatus {
+        double cooling = 0.0;
+        double heat_limit = 0.0;
+        rclcpp::Time stamp{0, 0, RCL_STEADY_TIME};
+        bool valid = false;
+    };
+
+    bool is_fresh(const BufferedRobotStatus& packet, const rclcpp::Time& now) const {
+        return packet.valid
+            && (status_timeout_ <= 0.0 || (now - packet.stamp).seconds() <= status_timeout_);
     }
 
     void reset() {
@@ -118,6 +148,11 @@ private:
     }
 
     std::array<double, 1> reference_{0.0};
+    std::string game_robot_status_topic_;
+    double status_timeout_ = 0.0;
+    rclcpp::Clock steady_clock_{RCL_STEADY_TIME};
+    realtime_tools::RealtimeBuffer<BufferedRobotStatus> robot_status_buffer_;
+    rclcpp::Subscription<rmgo_msg::msg::GameRobotStatus>::SharedPtr game_robot_status_subscriber_;
     double heat_ = 0.0;
     bool last_bullet_fired_ = false;
     std::shared_ptr<::heat_controller::ParamListener> param_listener_;

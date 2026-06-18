@@ -21,6 +21,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(realtime_tools REQUIRED)
 find_package(rmgo_description REQUIRED)
+find_package(rmgo_msg REQUIRED)
 find_package(rmgo_utility REQUIRED)
 find_package(std_msgs REQUIRED)
 
@@ -62,8 +63,7 @@ generate_parameter_library(
 )
 
 generate_parameter_library(
-  heat_controller_config
-  config/controller/shooter/heat_controller_config.yaml
+  heat_controller_config config/controller/shooter/heat_controller_config.yaml
 )
 
 generate_parameter_library(
@@ -83,8 +83,7 @@ add_library(
   src/controller/shooter/bullet_feeder_controller_17mm.cpp
   src/controller/shooter/friction_wheel_controller.cpp
   src/controller/shooter/heat_controller.cpp
-  src/interface/command_gz_interface.cpp
-  src/interface/omni_infantry_gz_interface.cpp
+  src/hardware/omni_infantry/omni_infantry_gz_interface.cpp
 )
 
 target_compile_features(rmgo_chassis_controller PUBLIC cxx_std_23)
@@ -102,6 +101,7 @@ ament_target_dependencies(
   rclcpp_lifecycle
   realtime_tools
   rmgo_description
+  rmgo_msg
   rmgo_utility
   std_msgs
 )
@@ -122,20 +122,25 @@ target_link_libraries(
 )
 
 target_include_directories(
-  rmgo_chassis_controller PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-                                 $<INSTALL_INTERFACE:include>
+  rmgo_chassis_controller
+  PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+         $<INSTALL_INTERFACE:include>
+  PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
 )
 
 install(TARGETS rmgo_chassis_controller DESTINATION lib/${PROJECT_NAME})
 
 pluginlib_export_plugin_description_file(controller_interface rmgo_core_plugins.xml)
 pluginlib_export_plugin_description_file(gz_ros2_control rmgo_hardware_plugins.xml)
+pluginlib_export_plugin_description_file(hardware_interface rmgo_hardware_plugins.xml)
 
 install(FILES rmgo_core_plugins.xml rmgo_hardware_plugins.xml
         DESTINATION share/${PROJECT_NAME}
 )
 
 install(DIRECTORY include/ DESTINATION include)
+
+ament_export_include_directories(include)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
