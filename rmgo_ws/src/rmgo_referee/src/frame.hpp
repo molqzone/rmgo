@@ -101,9 +101,13 @@ public:
     void reset() noexcept;
 
 private:
+    std::span<const std::byte> readable_buffer() const noexcept;
+    void drop_prefix(std::size_t count);
+    void compact_buffer();
     std::optional<RefereeFrame> try_parse();
 
     std::vector<std::byte> buffer_;
+    std::size_t head_ = 0;
     std::size_t max_payload_size_ = max_referee_payload_size;
 };
 
@@ -117,6 +121,7 @@ static_assert(std::endian::native == std::endian::little);
 constexpr std::size_t header_size = referee_frame_header_size;
 constexpr std::size_t command_id_size = referee_frame_command_id_size;
 constexpr std::size_t frame_crc_size = referee_frame_crc_size;
+constexpr std::size_t parser_compact_threshold = 256;
 
 const referee_wire::FrameHeader* header_as(std::span<const std::byte> data) noexcept {
     if (data.size() < sizeof(referee_wire::FrameHeader)) {
@@ -363,7 +368,7 @@ inline RefereeFrameParser::RefereeFrameParser(std::size_t max_payload_size)
 }
 
 inline std::optional<RefereeFrame> RefereeFrameParser::push(std::byte byte) {
-    if (buffer_.empty() && byte != frame_sof) {
+    if (readable_buffer().empty() && byte != frame_sof) {
         return std::nullopt;
     }
 
@@ -371,46 +376,75 @@ inline std::optional<RefereeFrame> RefereeFrameParser::push(std::byte byte) {
     return try_parse();
 }
 
-inline void RefereeFrameParser::reset() noexcept { buffer_.clear(); }
+inline void RefereeFrameParser::reset() noexcept {
+    buffer_.clear();
+    head_ = 0;
+}
+
+inline std::span<const std::byte> RefereeFrameParser::readable_buffer() const noexcept {
+    return std::span<const std::byte>{buffer_}.subspan(head_);
+}
+
+inline void RefereeFrameParser::drop_prefix(std::size_t count) {
+    head_ = std::min(buffer_.size(), head_ + count);
+    compact_buffer();
+}
+
+inline void RefereeFrameParser::compact_buffer() {
+    if (head_ == 0) {
+        return;
+    }
+    if (head_ == buffer_.size()) {
+        buffer_.clear();
+        head_ = 0;
+        return;
+    }
+    if (head_ >= parser_compact_threshold && head_ * 2 >= buffer_.size()) {
+        buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(head_));
+        head_ = 0;
+    }
+}
 
 inline std::optional<RefereeFrame> RefereeFrameParser::try_parse() {
-    while (!buffer_.empty() && buffer_.front() != frame_sof) {
-        buffer_.erase(buffer_.begin());
+    auto readable = readable_buffer();
+    while (!readable.empty() && readable.front() != frame_sof) {
+        drop_prefix(1);
+        readable = readable_buffer();
     }
-    if (buffer_.size() < header_size) {
+    if (readable.size() < header_size) {
         return std::nullopt;
     }
 
-    if (!has_valid_header_crc(std::span<const std::byte>{buffer_}.first<header_size>())) {
-        buffer_.erase(buffer_.begin());
+    if (!has_valid_header_crc(readable.first<header_size>())) {
+        drop_prefix(1);
         return std::nullopt;
     }
 
-    const auto* header = header_as(std::span<const std::byte>{buffer_});
+    const auto* header = header_as(readable);
     if (header == nullptr) {
-        buffer_.erase(buffer_.begin());
+        drop_prefix(1);
         return std::nullopt;
     }
 
     const std::size_t payload_size = header->data_length;
     if (payload_size > max_payload_size_) {
-        buffer_.erase(buffer_.begin());
+        drop_prefix(1);
         return std::nullopt;
     }
 
     const std::size_t frame_size = header_size + command_id_size + payload_size + frame_crc_size;
-    if (buffer_.size() < frame_size) {
+    if (readable.size() < frame_size) {
         return std::nullopt;
     }
 
-    const auto frame_bytes = std::span<const std::byte>{buffer_}.first(frame_size);
+    const auto frame_bytes = readable.first(frame_size);
     if (!has_valid_frame_crc(frame_bytes)) {
-        buffer_.erase(buffer_.begin());
+        drop_prefix(1);
         return std::nullopt;
     }
     const auto* body = body_as(frame_bytes);
     if (body == nullptr) {
-        buffer_.erase(buffer_.begin());
+        drop_prefix(1);
         return std::nullopt;
     }
 
@@ -420,7 +454,7 @@ inline std::optional<RefereeFrame> RefereeFrameParser::try_parse() {
         .payload = {},
     };
     frame.payload.assign(body->data, body->data + payload_size);
-    buffer_.erase(buffer_.begin(), buffer_.begin() + frame_size);
+    drop_prefix(frame_size);
     return frame;
 }
 
