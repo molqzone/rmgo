@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "command/endpoint.hpp"
+#include "app/ui/shape/remote_shape.hpp"
 
 namespace rmgo_referee::ui {
 
@@ -46,9 +47,18 @@ private:
   void run_queue_erase(Shape &shape) noexcept;
   void requeue_selected(std::span<Shape *const> selected);
   void unmark_modified(Shape &shape) noexcept;
+  bool try_assign_remote_id(Shape &shape);
+  bool predict_try_assign_remote_id(const Shape &shape,
+                                    std::uint8_t &existence_confidence) const;
+  void enable_remote_swapping(Shape &shape);
+  void disable_remote_swapping(Shape &shape) noexcept;
+  void revoke_remote_id(Shape &shape);
+  std::uint8_t increase_remote_existence_confidence(Shape &shape);
+  void force_revoke_remote_ids();
 
   std::vector<Shape *> shapes_;
   std::unique_ptr<CfsScheduler<Shape>> cfs_scheduler_;
+  std::unique_ptr<RemoteShape<Shape>::Allocator> remote_shape_allocator_;
   std::uint8_t pending_clear_all_count_ = 0;
   std::chrono::steady_clock::time_point next_interaction_send_{};
   std::chrono::milliseconds interaction_period_;

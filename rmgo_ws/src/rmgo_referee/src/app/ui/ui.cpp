@@ -51,6 +51,7 @@ std::chrono::milliseconds frame_budget_period(std::size_t frame_size, double byt
 
 Ui::Ui(std::chrono::milliseconds interaction_period)
     : cfs_scheduler_(std::make_unique<CfsScheduler<Shape>>())
+    , remote_shape_allocator_(std::make_unique<RemoteShape<Shape>::Allocator>())
     , interaction_period_(interaction_period) {}
 
 Ui::~Ui() = default;
@@ -185,14 +186,14 @@ void Ui::register_shape(Shape& shape) { shapes_.push_back(&shape); }
 void Ui::mark_modified(Shape& shape) { run_queue_insert(shape); }
 
 void Ui::remove(Shape& shape) noexcept {
-    shape.disable_swapping();
+    disable_remote_swapping(shape);
     std::erase(shapes_, &shape);
     run_queue_erase(shape);
 }
 
 void Ui::reset_remote_state() {
     cfs_scheduler_->clear();
-    RemoteShape<Shape>::force_revoke_all_id();
+    force_revoke_remote_ids();
     pending_clear_all_count_ = 4;
     for (auto* shape : shapes_) {
         cfs_scheduler_->clear_entity(*shape);
@@ -211,5 +212,30 @@ void Ui::requeue_selected(std::span<Shape* const> selected) {
         mark_modified(*shape);
     }
 }
+
+bool Ui::try_assign_remote_id(Shape& shape) {
+    return remote_shape_allocator_->try_assign_id(shape);
+}
+
+bool Ui::predict_try_assign_remote_id(
+    const Shape& shape, std::uint8_t& existence_confidence) const {
+    return remote_shape_allocator_->predict_try_assign_id(shape, existence_confidence);
+}
+
+void Ui::enable_remote_swapping(Shape& shape) {
+    remote_shape_allocator_->enable_swapping(shape);
+}
+
+void Ui::disable_remote_swapping(Shape& shape) noexcept {
+    remote_shape_allocator_->disable_swapping(shape);
+}
+
+void Ui::revoke_remote_id(Shape& shape) { remote_shape_allocator_->revoke_id(shape); }
+
+std::uint8_t Ui::increase_remote_existence_confidence(Shape& shape) {
+    return remote_shape_allocator_->increase_existence_confidence(shape);
+}
+
+void Ui::force_revoke_remote_ids() { remote_shape_allocator_->force_revoke_all_id(); }
 
 } // namespace rmgo_referee::ui

@@ -183,7 +183,10 @@ private:
             });
         transport_watchdog_timer_ = create_wall_timer(
             std::chrono::duration_cast<std::chrono::nanoseconds>(transport_watchdog_period_),
-            [this] { maintain_transport(); });
+            [this] {
+                maintain_transport();
+                diagnostic_updater_.update();
+            });
     }
 
     void maintain_transport() {

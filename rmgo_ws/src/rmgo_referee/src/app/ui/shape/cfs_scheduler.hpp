@@ -13,22 +13,34 @@ namespace rmgo_referee::ui {
 template <typename ShapeT>
 class CfsScheduler {
 public:
-    class Entity {
+    static constexpr std::uint64_t vruntime_period = 65536;
+
+    class __attribute__((packed, aligned(sizeof(void*)))) Entity
+        : private RedBlackTree<Entity>::Node {
     public:
-        bool queued() const noexcept { return queued_; }
+        friend class CfsScheduler;
+        friend class RedBlackTree<Entity>;
+
+        bool queued() const noexcept { return is_in_run_queue(); }
 
     private:
-        void clear_queued() noexcept {
-            queued_ = false;
-            queued_weight_ = 0;
+        bool is_in_run_queue() const noexcept {
+            return !RedBlackTree<Entity>::Node::is_dangling();
         }
 
-        friend class CfsScheduler<ShapeT>;
+        bool operator<(const Entity& other) const noexcept {
+            if (vruntime_ != other.vruntime_) {
+                return vruntime_ < other.vruntime_;
+            }
+            if (queued_weight_ != other.queued_weight_) {
+                return queued_weight_ > other.queued_weight_;
+            }
+            return this < &other;
+        }
 
-        static constexpr std::uint64_t initial_vruntime = 65536;
-        std::uint64_t vruntime_ = initial_vruntime;
+        static constexpr std::uint64_t initial_vruntime = vruntime_period;
+        std::uint64_t vruntime_ : 48 = initial_vruntime;
         std::uint16_t queued_weight_ = 0;
-        bool queued_ = false;
     };
 
     bool empty() const noexcept { return run_queue_.empty(); }
@@ -39,88 +51,60 @@ public:
     ShapeT* next(std::optional<FrameKind> frame_kind, std::span<ShapeT* const> ignored) const;
     void select(ShapeT& shape);
 
-    static constexpr std::uint64_t vruntime_period = 65536;
-
 private:
-    struct ShapeCompare {
-        bool operator()(const ShapeT* lhs, const ShapeT* rhs) const noexcept;
-    };
-
-    RedBlackTree<ShapeT, ShapeCompare> run_queue_;
+    RedBlackTree<Entity> run_queue_;
     std::uint64_t min_vruntime_ = 0;
 };
 
 template <typename ShapeT>
-inline bool CfsScheduler<ShapeT>::ShapeCompare::operator()(
-    const ShapeT* lhs, const ShapeT* rhs) const noexcept {
-    const auto& lhs_entity = static_cast<const Entity&>(*lhs);
-    const auto& rhs_entity = static_cast<const Entity&>(*rhs);
-    if (lhs_entity.vruntime_ != rhs_entity.vruntime_) {
-        return lhs_entity.vruntime_ < rhs_entity.vruntime_;
-    }
-    if (lhs->priority() != rhs->priority()) {
-        return lhs->priority() > rhs->priority();
-    }
-    return lhs < rhs;
-}
-
-template <typename ShapeT>
 inline void CfsScheduler<ShapeT>::clear() noexcept {
-    for (auto* shape = run_queue_.first(); shape != nullptr; shape = run_queue_.next(*shape)) {
-        auto& entity = static_cast<Entity&>(*shape);
-        entity.clear_queued();
+    while (auto* entity = run_queue_.first()) {
+        run_queue_.erase(*entity);
     }
-    run_queue_.clear();
     min_vruntime_ = 0;
 }
 
 template <typename ShapeT>
 inline void CfsScheduler<ShapeT>::clear_entity(ShapeT& shape) noexcept {
-    auto& entity = static_cast<Entity&>(shape);
-    entity.clear_queued();
+    erase(shape);
 }
 
 template <typename ShapeT>
 inline void CfsScheduler<ShapeT>::insert(ShapeT& shape) {
     auto& entity = static_cast<Entity&>(shape);
     const auto weight = shape.scheduling_weight();
-    if (entity.queued_) {
-        if (entity.queued_weight_ != weight) {
-            if (entity.queued_weight_ > weight) {
-                entity.vruntime_ += static_cast<std::uint64_t>(entity.queued_weight_ - weight);
-            } else {
-                const auto delta = static_cast<std::uint64_t>(weight - entity.queued_weight_);
-                entity.vruntime_ =
-                    delta < entity.vruntime_ ? entity.vruntime_ - delta : std::uint64_t{0};
-            }
-            run_queue_.erase(shape);
-            entity.vruntime_ = std::max(entity.vruntime_, min_vruntime_);
-            entity.queued_weight_ = weight;
-            run_queue_.insert(shape);
+    if (entity.queued_weight_ != weight) {
+        entity.vruntime_ += entity.queued_weight_;
+        entity.vruntime_ -= weight;
+        if (entity.vruntime_ < min_vruntime_) {
+            entity.vruntime_ = min_vruntime_;
         }
+
+        entity.queued_weight_ = weight;
+
+        if (entity.is_in_run_queue()) {
+            run_queue_.erase(entity);
+        }
+    } else if (entity.is_in_run_queue()) {
         return;
     }
 
-    entity.vruntime_ = std::max(entity.vruntime_, min_vruntime_);
-    entity.queued_weight_ = weight;
-    entity.queued_ = true;
-    run_queue_.insert(shape);
+    run_queue_.insert(entity);
 }
 
 template <typename ShapeT>
 inline void CfsScheduler<ShapeT>::erase(ShapeT& shape) noexcept {
     auto& entity = static_cast<Entity&>(shape);
-    if (!entity.queued_) {
-        return;
+    if (entity.is_in_run_queue()) {
+        run_queue_.erase(entity);
     }
-    run_queue_.erase(shape);
-    entity.clear_queued();
 }
 
 template <typename ShapeT>
 inline ShapeT* CfsScheduler<ShapeT>::next(
     std::optional<FrameKind> frame_kind, std::span<ShapeT* const> ignored) const {
-    for (auto* shape = run_queue_.first(); shape != nullptr; shape = run_queue_.next(*shape)) {
+    for (auto* entity = run_queue_.first(); entity != nullptr; entity = entity->next()) {
+        auto* shape = static_cast<ShapeT*>(entity);
         if (std::find(ignored.begin(), ignored.end(), shape) != ignored.end()) {
             continue;
         }
@@ -135,13 +119,14 @@ inline ShapeT* CfsScheduler<ShapeT>::next(
 template <typename ShapeT>
 inline void CfsScheduler<ShapeT>::select(ShapeT& shape) {
     auto& entity = static_cast<Entity&>(shape);
-    if (!entity.queued_) {
+    if (!entity.is_in_run_queue()) {
         return;
     }
+
     min_vruntime_ = entity.vruntime_;
     const auto shift = std::max<std::uint64_t>(1, vruntime_period - entity.queued_weight_);
     entity.vruntime_ += shift;
-    erase(shape);
+    run_queue_.erase(entity);
 }
 
 } // namespace rmgo_referee::ui

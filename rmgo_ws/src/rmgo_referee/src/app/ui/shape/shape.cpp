@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 
 #include "command/interaction.hpp"
 
@@ -42,6 +43,13 @@ std::uint32_t
          | ((static_cast<std::uint32_t>(end_y) & 0x07FFU) << 21U);
 }
 
+std::uint32_t
+    pack_radius_xy_detail_cde(Color color, std::uint16_t radius_x, std::uint16_t radius_y) noexcept {
+    return (static_cast<std::uint32_t>(color) & 0x00FFU)
+         | ((static_cast<std::uint32_t>(radius_x) & 0x07FFU) << 10U)
+         | ((static_cast<std::uint32_t>(radius_y) & 0x07FFU) << 21U);
+}
+
 void append_text_content(
     std::span<std::byte> payload, std::size_t& written, std::string_view content) {
     const auto size = std::min(content.size(), text_content_size);
@@ -65,7 +73,12 @@ Shape::Shape(Ui& interaction_ui, Color color, std::uint8_t layer, std::uint16_t 
     interaction_ui_.register_shape(*this);
 }
 
-Shape::~Shape() { interaction_ui_.remove(*this); }
+Shape::~Shape() {
+    if (has_id()) {
+        interaction_ui_.revoke_remote_id(*this);
+    }
+    interaction_ui_.remove(*this);
+}
 
 void Shape::set_visible(bool visible) {
     if (visible_ == visible) {
@@ -75,17 +88,17 @@ void Shape::set_visible(bool visible) {
     if (!visible_) {
         if (existence_confidence() == 0) {
             if (has_id()) {
-                revoke_id();
+                interaction_ui_.revoke_remote_id(*this);
             } else {
-                disable_swapping();
+                interaction_ui_.disable_remote_swapping(*this);
             }
             interaction_ui_.unmark_modified(*this);
             sync_confidence_ = max_update_times;
             return;
         }
-        enable_swapping();
+        interaction_ui_.enable_remote_swapping(*this);
     } else {
-        disable_swapping();
+        interaction_ui_.disable_remote_swapping(*this);
     }
     sync_confidence_ = 0;
     interaction_ui_.mark_modified(*this);
@@ -142,7 +155,7 @@ void Shape::set_modified() {
     if (!visible_) {
         return;
     }
-    disable_swapping();
+    interaction_ui_.disable_remote_swapping(*this);
     sync_confidence_ = 0;
     interaction_ui_.mark_modified(*this);
 }
@@ -185,7 +198,7 @@ Operation Shape::predict_update() const {
 
     auto predicted_existence = existence_confidence();
     auto predicted_sync = sync_confidence_;
-    if (!has_id() && !predict_try_assign_id(predicted_existence)) {
+    if (!has_id() && !interaction_ui_.predict_try_assign_remote_id(*this, predicted_existence)) {
         return Operation::none;
     }
 
@@ -205,14 +218,14 @@ bool Shape::ensure_id() {
     if (has_id()) {
         return true;
     }
-    return try_assign_id();
+    return interaction_ui_.try_assign_remote_id(*this);
 }
 
 void Shape::mark_sent(Operation operation) {
     if (operation == Operation::add) {
         last_time_modified_ = false;
         if (existence_confidence() < max_update_times) {
-            increase_existence_confidence();
+            interaction_ui_.increase_remote_existence_confidence(*this);
         }
         if (existence_confidence() < max_update_times || sync_confidence_ < max_update_times) {
             interaction_ui_.mark_modified(*this);
@@ -346,6 +359,122 @@ void Circle::write_description(
         y(), pack_detail_cde(radius_, 0, 0));
 }
 
+Ellipse::Ellipse(
+    Ui& interaction_ui, Color color, std::uint16_t width, std::uint16_t x, std::uint16_t y,
+    std::uint16_t radius_x, std::uint16_t radius_y, bool visible)
+    : Shape(interaction_ui, color, 0, width) {
+    set_xy(x, y);
+    set_radius_x(radius_x);
+    set_radius_y(radius_y);
+    set_visible(visible);
+}
+
+void Ellipse::set_radius_x(std::uint16_t radius_x) {
+    radius_x = std::min<std::uint16_t>(radius_x, 2047);
+    if (radius_x_ == radius_x) {
+        return;
+    }
+    radius_x_ = radius_x;
+    set_modified();
+}
+
+void Ellipse::set_radius_y(std::uint16_t radius_y) {
+    radius_y = std::min<std::uint16_t>(radius_y, 2047);
+    if (radius_y_ == radius_y) {
+        return;
+    }
+    radius_y_ = radius_y;
+    set_modified();
+}
+
+void Ellipse::set_radius(std::uint16_t radius) {
+    set_radius_x(radius);
+    set_radius_y(radius);
+}
+
+void Ellipse::write_description(
+    std::span<std::byte> payload, std::size_t& written, Operation operation) const {
+    append_graphic_description(
+        payload, written, id(), operation, ShapeType::ellipse, layer(), color(), 0, 0, width(), x(),
+        y(), pack_radius_xy_detail_cde(color(), radius_x_, radius_y_));
+}
+
+Arc::Arc(
+    Ui& interaction_ui, Color color, std::uint16_t width, std::uint16_t x, std::uint16_t y,
+    std::uint16_t angle_start, std::uint16_t angle_end, std::uint16_t radius_x,
+    std::uint16_t radius_y, bool visible)
+    : Shape(interaction_ui, color, 0, width) {
+    set_xy(x, y);
+    set_angle_start(angle_start);
+    set_angle_end(angle_end);
+    set_radius_x(radius_x);
+    set_radius_y(radius_y);
+    set_visible(visible);
+}
+
+void Arc::set_angle_start(std::uint16_t angle_start) {
+    angle_start %= 360;
+    if (angle_start_ == angle_start) {
+        return;
+    }
+    angle_start_ = angle_start;
+    set_modified();
+}
+
+void Arc::set_angle_end(std::uint16_t angle_end) {
+    angle_end %= 360;
+    if (angle_end_ == angle_end) {
+        return;
+    }
+    angle_end_ = angle_end;
+    set_modified();
+}
+
+void Arc::set_angle(std::uint16_t midpoint, std::uint16_t half_central_angle) {
+    const auto midpoint_i = static_cast<int>(midpoint % 360);
+    const auto half_i = static_cast<int>(half_central_angle % 360);
+    auto start = midpoint_i - half_i;
+    if (start < 0) {
+        start += 360;
+    }
+    auto end = midpoint_i + half_i;
+    if (end >= 360) {
+        end -= 360;
+    }
+    set_angle_start(static_cast<std::uint16_t>(start));
+    set_angle_end(static_cast<std::uint16_t>(end));
+}
+
+void Arc::set_radius_x(std::uint16_t radius_x) {
+    radius_x = std::min<std::uint16_t>(radius_x, 2047);
+    if (radius_x_ == radius_x) {
+        return;
+    }
+    radius_x_ = radius_x;
+    set_modified();
+}
+
+void Arc::set_radius_y(std::uint16_t radius_y) {
+    radius_y = std::min<std::uint16_t>(radius_y, 2047);
+    if (radius_y_ == radius_y) {
+        return;
+    }
+    radius_y_ = radius_y;
+    set_modified();
+}
+
+void Arc::set_radius(std::uint16_t radius) {
+    set_radius_x(radius);
+    set_radius_y(radius);
+}
+
+void Arc::write_description(
+    std::span<std::byte> payload, std::size_t& written, Operation operation) const {
+    append_graphic_description(
+        payload, written, id(), operation, ShapeType::arc, layer(), color(), angle_start_,
+        angle_end_, width(), x(), y(), pack_radius_xy_detail_cde(color(), radius_x_, radius_y_));
+}
+
 Integer::Integer(
     Ui& interaction_ui, Color color, std::uint16_t font_size, std::uint16_t width, std::uint16_t x,
     std::uint16_t y, std::int32_t value, bool visible)
@@ -389,6 +518,62 @@ void Integer::write_description(
     std::span<std::byte> payload, std::size_t& written, Operation operation) const {
     append_graphic_description(
         payload, written, id(), operation, ShapeType::integer, layer(), color(), font_size_, 0,
+        width(), x(), y(), std::bit_cast<std::uint32_t>(value_));
+}
+
+Float::Float(
+    Ui& interaction_ui, Color color, std::uint16_t font_size, std::uint16_t width, std::uint16_t x,
+    std::uint16_t y, double value, bool visible)
+    : Shape(interaction_ui, color, 0, width)
+    , font_size_(font_size)
+    , value_(static_cast<std::int32_t>(std::lround(value * 1000.0))) {
+    set_xy(x, y);
+    set_visible(visible);
+}
+
+void Float::set_value(double value) {
+    const auto fixed_value = static_cast<std::int32_t>(std::lround(value * 1000.0));
+    if (value_ == fixed_value) {
+        return;
+    }
+    value_ = fixed_value;
+    set_modified();
+}
+
+void Float::set_font_size(std::uint16_t font_size) {
+    font_size = std::min<std::uint16_t>(font_size, 511);
+    if (font_size_ == font_size) {
+        return;
+    }
+    font_size_ = font_size;
+    set_modified();
+}
+
+void Float::set_center_x(std::uint16_t x) {
+    auto value = value_;
+    auto digits = value < 0 ? 1 : 0;
+    auto integer_part = value / 1000;
+    if (integer_part == 0) {
+        ++digits;
+    }
+    while (integer_part != 0) {
+        integer_part /= 10;
+        ++digits;
+    }
+    auto decimal_part = std::abs(value % 1000);
+    digits += 2 * (decimal_part != 0);
+    digits += decimal_part % 100 != 0;
+    digits += decimal_part % 10 != 0;
+
+    const auto centered = static_cast<int>(x) - static_cast<int>(font_size_ * digits / 2)
+                        + static_cast<int>(font_size_ / 5);
+    set_xy(static_cast<std::uint16_t>(std::clamp(centered, 0, 2047)), y());
+}
+
+void Float::write_description(
+    std::span<std::byte> payload, std::size_t& written, Operation operation) const {
+    append_graphic_description(
+        payload, written, id(), operation, ShapeType::floating, layer(), color(), font_size_, 0,
         width(), x(), y(), std::bit_cast<std::uint32_t>(value_));
 }
 

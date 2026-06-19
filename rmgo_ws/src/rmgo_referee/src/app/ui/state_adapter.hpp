@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -46,7 +47,15 @@ public:
         create_timer();
     }
 
-    ~UiStateAdapter() { deactivate_profile(); }
+    ~UiStateAdapter() {
+        stopping_.store(true, std::memory_order_release);
+        stop_callbacks();
+        {
+            const std::scoped_lock lock{state_mutex_};
+        }
+        const std::scoped_lock lock{ui_mutex_};
+        deactivate_profile();
+    }
 
     UiStateAdapter(const UiStateAdapter&) = delete;
     UiStateAdapter& operator=(const UiStateAdapter&) = delete;
@@ -108,6 +117,19 @@ private:
         if (profile_ != nullptr) {
             profile_->on_deactivate();
         }
+    }
+
+    void stop_callbacks() noexcept {
+        if (timer_ != nullptr) {
+            timer_->cancel();
+        }
+        timer_.reset();
+        chassis_status_subscriber_.reset();
+        gimbal_status_subscriber_.reset();
+        shooter_status_subscriber_.reset();
+        remote_status_subscriber_.reset();
+        target_status_subscriber_.reset();
+        capacitor_status_subscriber_.reset();
     }
 
     void update(const ChassisStatus& msg) {
@@ -172,10 +194,18 @@ private:
     }
 
     void update() {
+        if (stopping_.load(std::memory_order_acquire)) {
+            return;
+        }
+
         auto state = state_snapshot();
         apply_referee_state(state);
-        reset_remote_state_if_needed(state);
 
+        const std::scoped_lock lock{ui_mutex_};
+        if (stopping_.load(std::memory_order_acquire)) {
+            return;
+        }
+        reset_remote_state_if_needed(state);
         if (profile_ != nullptr) {
             profile_->update(state);
         }
@@ -216,7 +246,13 @@ private:
 
     template <typename Update>
     void update_state(Update&& update) {
+        if (stopping_.load(std::memory_order_acquire)) {
+            return;
+        }
         const std::scoped_lock lock{state_mutex_};
+        if (stopping_.load(std::memory_order_acquire)) {
+            return;
+        }
         std::forward<Update>(update)(state_);
     }
 
@@ -241,6 +277,8 @@ private:
     static constexpr double unknown_game_stage = 0.0;
     static constexpr double preparation_game_stage = 1.0;
     mutable std::mutex state_mutex_;
+    mutable std::mutex ui_mutex_;
+    std::atomic_bool stopping_{false};
     UiState state_;
     bool last_online_ = false;
     double last_game_stage_ = unknown_game_stage;

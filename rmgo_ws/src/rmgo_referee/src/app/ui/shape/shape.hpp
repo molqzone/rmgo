@@ -172,6 +172,53 @@ private:
     std::uint16_t radius_ = 0;
 };
 
+class Ellipse final : public Shape {
+public:
+    Ellipse(
+        Ui& interaction_ui, Color color, std::uint16_t width, std::uint16_t x, std::uint16_t y,
+        std::uint16_t radius_x, std::uint16_t radius_y, bool visible = true);
+
+    std::uint16_t radius_x() const noexcept { return radius_x_; }
+    std::uint16_t radius_y() const noexcept { return radius_y_; }
+    void set_radius_x(std::uint16_t radius_x);
+    void set_radius_y(std::uint16_t radius_y);
+    void set_radius(std::uint16_t radius);
+
+private:
+    void write_description(
+        std::span<std::byte> payload, std::size_t& written, Operation operation) const override;
+
+    std::uint16_t radius_x_ = 0;
+    std::uint16_t radius_y_ = 0;
+};
+
+class Arc final : public Shape {
+public:
+    Arc(
+        Ui& interaction_ui, Color color, std::uint16_t width, std::uint16_t x, std::uint16_t y,
+        std::uint16_t angle_start, std::uint16_t angle_end, std::uint16_t radius_x,
+        std::uint16_t radius_y, bool visible = true);
+
+    void set_angle_start(std::uint16_t angle_start);
+    void set_angle_end(std::uint16_t angle_end);
+    void set_angle(std::uint16_t midpoint, std::uint16_t half_central_angle);
+
+    std::uint16_t radius_x() const noexcept { return radius_x_; }
+    std::uint16_t radius_y() const noexcept { return radius_y_; }
+    void set_radius_x(std::uint16_t radius_x);
+    void set_radius_y(std::uint16_t radius_y);
+    void set_radius(std::uint16_t radius);
+
+private:
+    void write_description(
+        std::span<std::byte> payload, std::size_t& written, Operation operation) const override;
+
+    std::uint16_t angle_start_ = 0;
+    std::uint16_t angle_end_ = 0;
+    std::uint16_t radius_x_ = 0;
+    std::uint16_t radius_y_ = 0;
+};
+
 class Integer final : public Shape {
 public:
     Integer(
@@ -180,6 +227,27 @@ public:
 
     std::int32_t value() const noexcept { return value_; }
     void set_value(std::int32_t value);
+
+    std::uint16_t font_size() const noexcept { return font_size_; }
+    void set_font_size(std::uint16_t font_size);
+    void set_center_x(std::uint16_t x);
+
+private:
+    void write_description(
+        std::span<std::byte> payload, std::size_t& written, Operation operation) const override;
+
+    std::uint16_t font_size_ = 15;
+    std::int32_t value_ = 0;
+};
+
+class Float final : public Shape {
+public:
+    Float(
+        Ui& interaction_ui, Color color, std::uint16_t font_size, std::uint16_t width,
+        std::uint16_t x, std::uint16_t y, double value = 0.0, bool visible = true);
+
+    double value() const noexcept { return static_cast<double>(value_) / 1000.0; }
+    void set_value(double value);
 
     std::uint16_t font_size() const noexcept { return font_size_; }
     void set_font_size(std::uint16_t font_size);
