@@ -171,6 +171,7 @@ public:
                    0.0,
                    enabled_gimbal,
                    disabled_shooter,
+                   disabled_shooter,
                    0.0,
                })
                  ? controller_interface::CallbackReturn::SUCCESS
@@ -196,6 +197,7 @@ public:
             0.0,
             0.0,
             disabled_gimbal,
+            disabled_shooter,
             disabled_shooter,
             0.0,
         });
@@ -244,6 +246,7 @@ public:
                    gimbal_values[0],
                    gimbal_values[1],
                    gimbal_values[2],
+                   shooter_values[0],
                    shooter_values[0],
                    shooter_fire.request_sequence,
                })
