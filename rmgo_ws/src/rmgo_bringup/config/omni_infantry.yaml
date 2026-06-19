@@ -67,10 +67,16 @@ chassis_power_controller:
     target_controller_name: omni_wheel_controller
     game_robot_status_topic: /referee/game_robot_status
     power_heat_data_topic: /referee/power_heat_data
+    remote_status_topic: /remote/status
+    capacitor_status_topic: /capacitor/status
     status_timeout: 1.0
+    remote_status_timeout: 1.0
+    capacitor_timeout: 1.0
+    safety_power: 45.0
+    charge_power_ratio: 0.70
+    capacitor_threshold: 0.30
     buffer_threshold: 30.0
-    power_gain: 0.5
-    max_power_limit: 95.0
+    burst_power: 95.0
 
 omni_wheel_controller:
   ros__parameters:

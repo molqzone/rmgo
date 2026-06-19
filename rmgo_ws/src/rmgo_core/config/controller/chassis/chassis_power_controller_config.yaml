@@ -14,23 +14,53 @@ chassis_power_controller:
     description: "Referee power heat topic mirrored into a realtime buffer."
     validation:
       not_empty<>: []
+  remote_status_topic:
+    type: string
+    description: "Semantic remote status topic carrying the requested power-limit mode."
+    validation:
+      not_empty<>: []
+  capacitor_status_topic:
+    type: string
+    description: "Semantic capacitor status topic used to gate burst mode."
+    validation:
+      not_empty<>: []
   status_timeout:
     type: double
     description: "Maximum age in seconds before referee packet data is considered stale."
     validation:
       gt_eq<>: [0.0]
+  remote_status_timeout:
+    type: double
+    description: "Maximum age in seconds before remote power mode is considered stale."
+    validation:
+      gt_eq<>: [0.0]
+  capacitor_timeout:
+    type: double
+    description: "Maximum age in seconds before capacitor status is considered stale."
+    validation:
+      gt_eq<>: [0.0]
+  safety_power:
+    type: double
+    description: "Power limit used when referee or remote semantic data is stale or invalid."
+    validation:
+      gt_eq<>: [0.0]
+  charge_power_ratio:
+    type: double
+    description: "Fraction of referee chassis power limit used in charge mode."
+    validation:
+      gt_eq<>: [0.0]
+  capacitor_threshold:
+    type: double
+    description: "Minimum capacitor charge ratio required to allow burst mode."
+    validation:
+      gt_eq<>: [0.0]
   buffer_threshold:
     type: double
-    description: "Referee buffer threshold above which rm_control-style extra power is allowed."
+    description: "Minimum referee buffer energy required to allow burst mode."
     validation:
       gt_eq<>: [0.0]
-  power_gain:
+  burst_power:
     type: double
-    description: "Additional power per joule of referee buffer energy above buffer_threshold."
-    validation:
-      gt_eq<>: [0.0]
-  max_power_limit:
-    type: double
-    description: "Upper bound for the computed chassis control power limit."
+    description: "Power limit used in burst mode when all new-style capacitor gates pass."
     validation:
       gt_eq<>: [0.0]

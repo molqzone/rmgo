@@ -346,7 +346,8 @@ private:
         msg.fire_pressed = fire_pressed;
         msg.cover_open = false;
         msg.gimbal_eject = false;
-        msg.power_limit_state = rmgo_msg::msg::RemoteStatus::POWER_LIMIT_UNKNOWN;
+        msg.power_limit_state = active ? rmgo_msg::msg::RemoteStatus::POWER_LIMIT_NORMAL
+                                       : rmgo_msg::msg::RemoteStatus::POWER_LIMIT_UNKNOWN;
         msg.shoot_frequency = rmgo_msg::msg::RemoteStatus::SHOOT_FREQUENCY_UNKNOWN;
         msg.target = rmgo_msg::msg::RemoteStatus::TARGET_UNKNOWN;
         msg.armor_target = rmgo_msg::msg::RemoteStatus::ARMOR_UNKNOWN;
