@@ -68,6 +68,7 @@ chassis_power_controller:
     game_robot_status_topic: /referee/game_robot_status
     power_heat_data_topic: /referee/power_heat_data
     status_timeout: 1.0
+    safety_power_limit: 45.0
     buffer_threshold: 30.0
     power_gain: 0.5
     max_power_limit: 95.0

@@ -19,6 +19,11 @@ chassis_power_controller:
     description: "Maximum age in seconds before referee packet data is considered stale."
     validation:
       gt_eq<>: [0.0]
+  safety_power_limit:
+    type: double
+    description: "Fallback chassis power limit used when referee robot status is stale or unavailable."
+    validation:
+      gt_eq<>: [0.0]
   buffer_threshold:
     type: double
     description: "Referee buffer threshold above which rm_control-style extra power is allowed."

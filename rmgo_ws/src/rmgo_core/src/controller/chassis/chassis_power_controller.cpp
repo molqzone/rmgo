@@ -67,6 +67,7 @@ public:
         power_heat_data_topic_ = params_.power_heat_data_topic;
         status_timeout_ = params_.status_timeout;
         policy_ = ChassisPowerPolicy{
+            .safety_power_limit = params_.safety_power_limit,
             .buffer_threshold = params_.buffer_threshold,
             .power_gain = params_.power_gain,
             .max_power_limit = params_.max_power_limit,
@@ -147,6 +148,7 @@ private:
     };
 
     struct ChassisPowerPolicy {
+        double safety_power_limit = 0.0;
         double buffer_threshold = 0.0;
         double power_gain = 0.0;
         double max_power_limit = 0.0;
@@ -154,7 +156,7 @@ private:
         double calculate(
             std::optional<double> referee_power_limit, std::optional<double> buffer_energy) const {
             if (!referee_power_limit.has_value() || !std::isfinite(*referee_power_limit)) {
-                return 0.0;
+                return std::clamp(safety_power_limit, 0.0, max_power_limit);
             }
 
             const double extra_power = buffer_energy.has_value() && std::isfinite(*buffer_energy)
