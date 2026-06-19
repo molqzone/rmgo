@@ -177,9 +177,11 @@ const T* payload_as(std::span<const std::byte> data) noexcept {
 } // namespace
 
 inline bool has_valid_header_crc(std::span<const std::byte> header) noexcept {
+    if (header.size() != header_size) {
+        return false;
+    }
     const auto* frame_header = header_as(header);
-    return header.size() == header_size && frame_header != nullptr
-        && frame_header->sof == referee_frame_sof_value
+    return frame_header->sof == referee_frame_sof_value
         && rmgo_utility::utility::crc8_dji(header.first<header_size - 1>()) == frame_header->crc8;
 }
 
@@ -188,9 +190,8 @@ inline bool has_valid_frame_crc(std::span<const std::byte> frame) noexcept {
         return false;
     }
     const auto* crc = crc_as(frame);
-    return crc != nullptr
-        && rmgo_utility::utility::crc16_dji(frame.first(frame.size() - frame_crc_size))
-               == crc->crc16;
+    return rmgo_utility::utility::crc16_dji(frame.first(frame.size() - frame_crc_size))
+        == crc->crc16;
 }
 
 inline std::vector<std::byte> pack_frame(
@@ -200,9 +201,7 @@ inline std::vector<std::byte> pack_frame(
     }
     const std::size_t frame_size = header_size + command_id_size + payload.size() + frame_crc_size;
     auto frame = std::vector<std::byte>(frame_size);
-    if (!pack_frame(std::span<std::byte>{frame}, sequence, command_id, payload).has_value()) {
-        return {};
-    }
+    (void)pack_frame(std::span<std::byte>{frame}, sequence, command_id, payload);
     return frame;
 }
 
@@ -222,9 +221,6 @@ inline std::optional<std::size_t> pack_frame(
     auto* header = header_as(frame);
     auto* body = body_as(frame);
     auto* crc = crc_as(frame);
-    if (header == nullptr || body == nullptr || crc == nullptr) {
-        return std::nullopt;
-    }
 
     const auto payload_size = static_cast<std::uint16_t>(payload.size());
     header->sof = referee_frame_sof_value;
@@ -421,11 +417,6 @@ inline std::optional<RefereeFrame> RefereeFrameParser::try_parse() {
     }
 
     const auto* header = header_as(readable);
-    if (header == nullptr) {
-        drop_prefix(1);
-        return std::nullopt;
-    }
-
     const std::size_t payload_size = header->data_length;
     if (payload_size > max_payload_size_) {
         drop_prefix(1);
@@ -443,10 +434,6 @@ inline std::optional<RefereeFrame> RefereeFrameParser::try_parse() {
         return std::nullopt;
     }
     const auto* body = body_as(frame_bytes);
-    if (body == nullptr) {
-        drop_prefix(1);
-        return std::nullopt;
-    }
 
     auto frame = RefereeFrame{
         .sequence = header->sequence,

@@ -149,10 +149,7 @@ private:
         if (!device_.empty()) {
             transport_ = std::make_unique<RefereeSerialTransport>(
                 device_, rx_buffer_size_, tx_queue_capacity_, [this](const RefereeFrame& frame) {
-                    if (translator_ != nullptr) {
-                        publish_referee_events(
-                            translator_->handle_frame(frame), get_clock()->now());
-                    }
+                    publish_referee_events(translator_->handle_frame(frame), get_clock()->now());
                 });
         } else {
             RCLCPP_INFO(get_logger(), "Referee serial transport disabled because device is empty");
@@ -267,27 +264,18 @@ private:
     }
 
     void publish_game_status(const rclcpp::Time& stamp) {
-        if (!game_status_publisher_) {
-            return;
-        }
         auto msg = status_.to_game_status_message();
         fill_referee_header(msg, stamp);
         game_status_publisher_->publish(msg);
     }
 
     void publish_game_robot_status(const rclcpp::Time& stamp) {
-        if (!game_robot_status_publisher_) {
-            return;
-        }
         auto msg = status_.to_game_robot_status_message();
         fill_referee_header(msg, stamp);
         game_robot_status_publisher_->publish(msg);
     }
 
     void publish_power_heat_data(const rclcpp::Time& stamp) {
-        if (!power_heat_data_publisher_) {
-            return;
-        }
         auto msg = status_.to_power_heat_data_message();
         fill_referee_header(msg, stamp);
         power_heat_data_publisher_->publish(msg);

@@ -390,9 +390,6 @@ private:
                 std::span<const std::byte>{tx_frame.payload}.first(tx_frame.payload_size);
             const auto packed_size =
                 pack_frame(packed, next_tx_sequence_++, tx_frame.command_id, payload);
-            if (!packed_size.has_value()) {
-                continue;
-            }
             const auto written = write_referee_serial_all(
                 stop_token, fd, std::span<const std::byte>{packed}.first(*packed_size));
             if (!written.has_value() && !stop_token.stop_requested()) {
@@ -457,9 +454,6 @@ private:
                 return std::unexpected{"Referee serial write made no progress"};
             }
             written += static_cast<std::size_t>(count);
-        }
-        if (!stop_token.stop_requested() && written != bytes.size()) {
-            return std::unexpected{"Referee serial write stopped before completion"};
         }
         return {};
     }

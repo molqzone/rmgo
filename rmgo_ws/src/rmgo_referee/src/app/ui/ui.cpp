@@ -33,9 +33,7 @@ RefereeTransferResult send_clear_all(RefereeTransferEndpoint& endpoint) {
     if (!header.has_value()) {
         return RefereeTransferResult::Inactive;
     }
-    if (!pack_interactive_payload(payload, *header, std::span<const std::byte>{}).has_value()) {
-        return RefereeTransferResult::InvalidFrame;
-    }
+    (void)pack_interactive_payload(payload, *header, std::span<const std::byte>{});
     std::size_t payload_size = interaction_header_size;
     payload[payload_size++] = std::byte{2};
     payload[payload_size++] = std::byte{0};
@@ -149,10 +147,7 @@ std::optional<RefereeTransferResult>
         requeue_selected(std::span<Shape* const>{selected}.first(selected_count));
         return RefereeTransferResult::Inactive;
     }
-    if (!pack_interactive_payload(payload, *header, std::span<const std::byte>{}).has_value()) {
-        requeue_selected(std::span<Shape* const>{selected}.first(selected_count));
-        return RefereeTransferResult::InvalidFrame;
-    }
+    (void)pack_interactive_payload(payload, *header, std::span<const std::byte>{});
     if (frame_kind == FrameKind::graphics) {
         for (std::size_t index = operation_count; index < target_count; ++index) {
             Shape::write_no_operation_description(payload, payload_size);
