@@ -14,6 +14,18 @@ heat_controller:
     description: "Maximum age in seconds before referee robot status is considered stale."
     validation:
       gt_eq<>: [0.0]
+  safety_shooter_cooling:
+    type: double
+    default_value: 40.0
+    description: "Fallback shooter cooling rate used when referee robot status is stale or unavailable."
+    validation:
+      gt_eq<>: [0.0]
+  safety_shooter_heat_limit:
+    type: double
+    default_value: 50000.0
+    description: "Fallback shooter heat limit used when referee robot status is stale or unavailable."
+    validation:
+      gt<>: [0.0]
   heat_per_shot:
     type: double
     description: "Local heat added per detected shot."

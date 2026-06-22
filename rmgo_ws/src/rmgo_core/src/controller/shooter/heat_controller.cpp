@@ -100,8 +100,10 @@ public:
         const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
         const auto robot = *robot_status_buffer_.readFromRT();
         const bool robot_status_fresh = is_fresh(robot, steady_clock_.now());
-        const double cooling = robot_status_fresh ? robot.cooling : 0.0;
-        const double heat_limit = robot_status_fresh ? robot.heat_limit : 0.0;
+        const double cooling =
+            robot_status_fresh ? robot.cooling : params_.safety_shooter_cooling;
+        const double heat_limit =
+            robot_status_fresh ? robot.heat_limit : params_.safety_shooter_heat_limit;
         heat_ = std::max(0.0, heat_ - std::max(0.0, cooling) * std::max(0.0, period.seconds()));
 
         const bool bullet_fired = reference_[0] > 0.5;
