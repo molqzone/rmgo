@@ -100,13 +100,16 @@ omni_wheel_controller:
 
 teleop_remote_controller:
   ros__parameters:
+    chassis_controller_name: chassis_controller
+    gimbal_controller_name: simple_gimbal_controller
+    shooter_controller_name: friction_wheel_controller
+    bullet_feeder_controller_name: bullet_feeder_controller
     cmd_vel_topic: /cmd_vel
     cmd_gimbal_topic: /cmd_gimbal
     mode_topic: /cmd_chassis_mode
     shooter_mode_topic: /cmd_shooter_mode
     shooter_fire_topic: /cmd_shooter_fire
     status_topic: /remote/status
-    bullet_feeder_controller_name: bullet_feeder_controller
     command_timeout: 2.0
 
 referee:
@@ -207,6 +210,8 @@ heat_controller:
     target_bullet_feeder_controller_name: bullet_feeder_controller
     game_robot_status_topic: /referee/game_robot_status
     status_timeout: 1.0
+    safety_shooter_cooling: 40.0
+    safety_shooter_heat_limit: 50000.0
     heat_per_shot: 10000.0
     extra_heat_per_shot: 10.0
     reserved_heat: 10000.0

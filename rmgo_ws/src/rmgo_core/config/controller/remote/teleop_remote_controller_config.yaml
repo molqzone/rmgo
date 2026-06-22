@@ -1,25 +1,21 @@
 teleop_remote_controller:
   chassis_controller_name:
     type: string
-    default_value: chassis_controller
     description: "Controller that exports chassis motion reference interfaces."
     validation:
       not_empty<>: []
   gimbal_controller_name:
     type: string
-    default_value: simple_gimbal_controller
     description: "Controller that exports gimbal reference interfaces."
     validation:
       not_empty<>: []
   shooter_controller_name:
     type: string
-    default_value: friction_wheel_controller
     description: "Controller that exports shooter mode reference interfaces."
     validation:
       not_empty<>: []
   bullet_feeder_controller_name:
     type: string
-    default_value: bullet_feeder_controller
     description: "Controller that exports bullet feeder trigger reference interfaces."
     validation:
       not_empty<>: []
@@ -45,7 +41,6 @@ teleop_remote_controller:
       not_empty<>: []
   shooter_fire_topic:
     type: string
-    default_value: /cmd_shooter_fire
     description: "Teleop shooter fire command topic."
     validation:
       not_empty<>: []
@@ -54,7 +49,6 @@ teleop_remote_controller:
     description: "Maximum age of cmd_vel before zeroing velocity. Non-positive disables timeout."
   status_topic:
     type: string
-    default_value: /remote/status
     description: "Semantic remote status topic consumed by non-RT observers such as referee UI."
     validation:
       not_empty<>: []

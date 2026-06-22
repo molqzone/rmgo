@@ -71,7 +71,6 @@ friction_wheel_controller:
     description: "Primary wheel velocity margin below working velocity required for bullet detection."
   status_topic:
     type: string
-    default_value: /shooter/status
     description: "Semantic shooter status topic consumed by non-RT observers such as referee UI."
     validation:
       not_empty<>: []
