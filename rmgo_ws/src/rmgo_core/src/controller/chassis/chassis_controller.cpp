@@ -61,7 +61,8 @@ public:
         yaw_joint_name_ = params_.yaw_joint_name;
         yaw_state_interface_name_ = params_.yaw_state_interface_name;
         auto& node = *get_node();
-        follow_pid_ = rmgo_core::pid::make_pid_calculator(node, "follow_", 0.0, 0.0, 0.0);
+        follow_pid_ = rmgo_core::pid::make_pid_calculator(
+            node, "follow_", rmgo_core::pid::OutputLimitPolicy::Required);
         if (status_publisher_ && status_topic_ != params_.status_topic) {
             status_publisher_.reset();
         }

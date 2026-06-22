@@ -30,3 +30,18 @@ chassis_controller:
     description: "Semantic chassis status topic consumed by non-RT observers such as referee UI."
     validation:
       not_empty<>: []
+  follow_kp:
+    type: double
+    description: "Follow-mode proportional gain."
+  follow_ki:
+    type: double
+    description: "Follow-mode integral gain."
+  follow_kd:
+    type: double
+    description: "Follow-mode derivative gain."
+  follow_output_min:
+    type: double
+    description: "Minimum follow-mode control output."
+  follow_output_max:
+    type: double
+    description: "Maximum follow-mode control output."

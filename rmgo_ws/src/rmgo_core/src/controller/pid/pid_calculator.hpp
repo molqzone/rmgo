@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <optional>
+#include <stdexcept>
 #include <string>
 
 namespace rmgo_core {
@@ -66,44 +66,36 @@ private:
     double err_integral_ = 0.0;
 };
 
+enum class OutputLimitPolicy {
+    Unbounded,
+    Required,
+};
+
 template <typename NodeT>
 PidCalculator make_pid_calculator(
-    NodeT& node, const std::string& prefix, std::optional<double> kp_default = std::nullopt,
-    std::optional<double> ki_default = std::nullopt,
-    std::optional<double> kd_default = std::nullopt) {
-    const auto declare_if_missing = [&node](const std::string& name, double default_value) {
+    NodeT& node, const std::string& prefix, OutputLimitPolicy output_limits) {
+    const auto required_parameter = [&node, &prefix](const char* suffix) {
+        const auto name = prefix + suffix;
         if (!node.has_parameter(name)) {
-            node.template declare_parameter<double>(name, default_value);
+            throw std::invalid_argument("Missing required PID parameter '" + name + "'");
         }
+        return node.get_parameter(name).as_double();
     };
-
-    const auto parameter_or_default =
-        [&node, &declare_if_missing](const std::string& name, std::optional<double> default_value) {
-            if (default_value.has_value()) {
-                declare_if_missing(name, *default_value);
-            }
-            return node.get_parameter(name).as_double();
-        };
-
-    declare_if_missing(prefix + "integral_min", std::numeric_limits<double>::lowest());
-    declare_if_missing(prefix + "integral_max", std::numeric_limits<double>::max());
-    declare_if_missing(prefix + "integral_split_min", std::numeric_limits<double>::lowest());
-    declare_if_missing(prefix + "integral_split_max", std::numeric_limits<double>::max());
-    declare_if_missing(prefix + "output_min", std::numeric_limits<double>::lowest());
-    declare_if_missing(prefix + "output_max", std::numeric_limits<double>::max());
 
     auto calculator = PidCalculator{
-        parameter_or_default(prefix + "kp", kp_default),
-        parameter_or_default(prefix + "ki", ki_default),
-        parameter_or_default(prefix + "kd", kd_default),
+        required_parameter("kp"),
+        required_parameter("ki"),
+        required_parameter("kd"),
     };
 
-    calculator.integral_min = node.get_parameter(prefix + "integral_min").as_double();
-    calculator.integral_max = node.get_parameter(prefix + "integral_max").as_double();
-    calculator.integral_split_min = node.get_parameter(prefix + "integral_split_min").as_double();
-    calculator.integral_split_max = node.get_parameter(prefix + "integral_split_max").as_double();
-    calculator.output_min = node.get_parameter(prefix + "output_min").as_double();
-    calculator.output_max = node.get_parameter(prefix + "output_max").as_double();
+    if (output_limits == OutputLimitPolicy::Required) {
+        calculator.output_min = required_parameter("output_min");
+        calculator.output_max = required_parameter("output_max");
+    }
+    if (calculator.output_min > calculator.output_max) {
+        throw std::invalid_argument(
+            "PID parameter '" + prefix + "output_min' must not exceed '" + prefix + "output_max'");
+    }
     return calculator;
 }
 

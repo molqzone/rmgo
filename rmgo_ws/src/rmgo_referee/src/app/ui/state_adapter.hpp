@@ -4,6 +4,7 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -105,10 +106,7 @@ private:
     void activate_profile() {
         profile_ = ui::make_ui_profile(config_.profile_name, ui_);
         if (profile_ == nullptr) {
-            RCLCPP_ERROR(
-                node_.get_logger(), "Unknown referee UI profile '%s'",
-                config_.profile_name.c_str());
-            return;
+            throw std::invalid_argument("Unknown referee UI profile '" + config_.profile_name + "'");
         }
         profile_->on_activate();
     }

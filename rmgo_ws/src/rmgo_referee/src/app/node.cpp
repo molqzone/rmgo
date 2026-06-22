@@ -6,6 +6,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include <diagnostic_updater/diagnostic_updater.hpp>
@@ -81,36 +82,63 @@ private:
     using Publisher = typename rclcpp::Publisher<Message>::SharedPtr;
 
     void declare_parameters() {
-        device_ = declare_parameter<std::string>("device", "/dev/usbReferee");
-        rx_buffer_size_ = declare_parameter<int>("rx_buffer_size", 1024);
-        tx_queue_capacity_ = declare_parameter<int>("tx_queue_capacity", 64);
-        online_timeout_ = declare_parameter<double>("online_timeout", 1.0);
-        status_topic_ = declare_parameter<std::string>("status_topic", "/referee/status");
-        game_status_topic_ =
-            declare_parameter<std::string>("game_status_topic", "/referee/game_status");
+        device_ = declare_required_parameter<std::string>("device");
+        rx_buffer_size_ = declare_required_parameter<int>("rx_buffer_size");
+        tx_queue_capacity_ = declare_required_parameter<int>("tx_queue_capacity");
+        online_timeout_ = declare_required_parameter<double>("online_timeout");
+        status_topic_ = declare_required_parameter<std::string>("status_topic");
+        game_status_topic_ = declare_required_parameter<std::string>("game_status_topic");
         game_robot_status_topic_ =
-            declare_parameter<std::string>("game_robot_status_topic", "/referee/game_robot_status");
-        power_heat_data_topic_ =
-            declare_parameter<std::string>("power_heat_data_topic", "/referee/power_heat_data");
-        chassis_status_topic_ =
-            declare_parameter<std::string>("chassis_status_topic", "/chassis/status");
-        gimbal_status_topic_ =
-            declare_parameter<std::string>("gimbal_status_topic", "/gimbal/status");
-        shooter_status_topic_ =
-            declare_parameter<std::string>("shooter_status_topic", "/shooter/status");
-        remote_status_topic_ =
-            declare_parameter<std::string>("remote_status_topic", "/remote/status");
-        target_status_topic_ =
-            declare_parameter<std::string>("target_status_topic", "/target/status");
-        capacitor_status_topic_ =
-            declare_parameter<std::string>("capacitor_status_topic", "/capacitor/status");
-        profile_name_ = declare_parameter<std::string>("profile", "omni_infantry");
+            declare_required_parameter<std::string>("game_robot_status_topic");
+        power_heat_data_topic_ = declare_required_parameter<std::string>("power_heat_data_topic");
+        chassis_status_topic_ = declare_required_parameter<std::string>("chassis_status_topic");
+        gimbal_status_topic_ = declare_required_parameter<std::string>("gimbal_status_topic");
+        shooter_status_topic_ = declare_required_parameter<std::string>("shooter_status_topic");
+        remote_status_topic_ = declare_required_parameter<std::string>("remote_status_topic");
+        target_status_topic_ = declare_required_parameter<std::string>("target_status_topic");
+        capacitor_status_topic_ = declare_required_parameter<std::string>("capacitor_status_topic");
+        profile_name_ = declare_required_parameter<std::string>("profile");
         publish_period_ =
-            std::chrono::duration<double>{declare_parameter<double>("publish_period", 0.02)};
-        ui_period_ = std::chrono::duration<double>{declare_parameter<double>("ui_period", 0.01)};
+            std::chrono::duration<double>{declare_required_parameter<double>("publish_period")};
+        ui_period_ =
+            std::chrono::duration<double>{declare_required_parameter<double>("ui_period")};
         transport_watchdog_period_ = std::chrono::duration<double>{
-            declare_parameter<double>("transport_watchdog_period", 0.5)};
+            declare_required_parameter<double>("transport_watchdog_period")};
 
+        validate_parameters();
+    }
+
+    template <typename T>
+    T declare_required_parameter(const std::string& name) {
+        try {
+            return declare_parameter<T>(name);
+        } catch (const std::exception& exception) {
+            throw std::invalid_argument(
+                "Missing or invalid required referee parameter '" + name + "': "
+                + exception.what());
+        }
+    }
+
+    static void require_non_empty(std::string_view name, const std::string& value) {
+        if (value.empty()) {
+            throw std::invalid_argument(
+                "Required referee parameter '" + std::string{name} + "' must not be empty");
+        }
+    }
+
+    void validate_parameters() const {
+        require_non_empty("device", device_);
+        require_non_empty("status_topic", status_topic_);
+        require_non_empty("game_status_topic", game_status_topic_);
+        require_non_empty("game_robot_status_topic", game_robot_status_topic_);
+        require_non_empty("power_heat_data_topic", power_heat_data_topic_);
+        require_non_empty("chassis_status_topic", chassis_status_topic_);
+        require_non_empty("gimbal_status_topic", gimbal_status_topic_);
+        require_non_empty("shooter_status_topic", shooter_status_topic_);
+        require_non_empty("remote_status_topic", remote_status_topic_);
+        require_non_empty("target_status_topic", target_status_topic_);
+        require_non_empty("capacitor_status_topic", capacitor_status_topic_);
+        require_non_empty("profile", profile_name_);
         if (rx_buffer_size_ <= 0 || tx_queue_capacity_ <= 0) {
             throw std::invalid_argument("rx_buffer_size and tx_queue_capacity must be positive");
         }
@@ -130,7 +158,7 @@ private:
     static rclcpp::SystemDefaultsQoS default_qos() { return rclcpp::SystemDefaultsQoS{}; }
 
     void create_diagnostics() {
-        diagnostic_updater_.setHardwareID(device_.empty() ? "disabled" : device_);
+        diagnostic_updater_.setHardwareID(device_);
         diagnostic_updater_.add(
             "referee_serial_transport", this, &RefereeNode::fill_transport_diagnostics);
     }
@@ -146,14 +174,10 @@ private:
 
     void create_referee_pipeline() {
         translator_ = std::make_unique<RefereeStatusTranslator>(status_);
-        if (!device_.empty()) {
-            transport_ = std::make_unique<RefereeSerialTransport>(
-                device_, rx_buffer_size_, tx_queue_capacity_, [this](const RefereeFrame& frame) {
-                    publish_referee_events(translator_->handle_frame(frame), get_clock()->now());
-                });
-        } else {
-            RCLCPP_INFO(get_logger(), "Referee serial transport disabled because device is empty");
-        }
+        transport_ = std::make_unique<RefereeSerialTransport>(
+            device_, rx_buffer_size_, tx_queue_capacity_, [this](const RefereeFrame& frame) {
+                publish_referee_events(translator_->handle_frame(frame), get_clock()->now());
+            });
         endpoint_ = std::make_shared<NodeTransferEndpoint>(status_, transport_);
     }
 
@@ -199,10 +223,7 @@ private:
 
     void fill_transport_diagnostics(diagnostic_updater::DiagnosticStatusWrapper& status) {
         if (transport_ == nullptr) {
-            status.summary(
-                device_.empty() ? DiagnosticStatus::OK : DiagnosticStatus::WARN,
-                device_.empty() ? "Referee serial transport disabled"
-                                : "Referee serial transport not created");
+            status.summary(DiagnosticStatus::ERROR, "Referee serial transport not created");
             status.add("device", device_);
             return;
         }

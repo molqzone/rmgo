@@ -94,10 +94,6 @@ private:
 
     void update_pid_from_parameters() {
         pid_ = rmgo_core::pid::PidCalculator{params_.kp, params_.ki, params_.kd};
-        pid_.integral_min = params_.integral_min;
-        pid_.integral_max = params_.integral_max;
-        pid_.integral_split_min = params_.integral_split_min;
-        pid_.integral_split_max = params_.integral_split_max;
         pid_.output_min = params_.output_min;
         pid_.output_max = params_.output_max;
     }

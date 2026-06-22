@@ -121,7 +121,7 @@ def launch_setup(context: LaunchContext, *args, **kwargs):
             package="rmgo_referee",
             executable="referee_node",
             name="referee",
-            parameters=[config_file, {"device": ""}],
+            parameters=[config_file],
             output="screen",
         ),
         Node(

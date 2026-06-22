@@ -68,9 +68,12 @@ public:
         base_link_to_wheel_ = make_base_link_to_wheel_matrix();
         wheel_to_base_link_ = make_wheel_to_base_link_matrix(base_link_to_wheel_);
         auto& node = *get_node();
-        linear_x_pid_ = rmgo_core::pid::make_pid_calculator(node, "linear_x_", 0.0, 0.0, 0.0);
-        linear_y_pid_ = rmgo_core::pid::make_pid_calculator(node, "linear_y_", 0.0, 0.0, 0.0);
-        angular_z_pid_ = rmgo_core::pid::make_pid_calculator(node, "angular_z_", 0.0, 0.0, 0.0);
+        linear_x_pid_ = rmgo_core::pid::make_pid_calculator(
+            node, "linear_x_", rmgo_core::pid::OutputLimitPolicy::Unbounded);
+        linear_y_pid_ = rmgo_core::pid::make_pid_calculator(
+            node, "linear_y_", rmgo_core::pid::OutputLimitPolicy::Unbounded);
+        angular_z_pid_ = rmgo_core::pid::make_pid_calculator(
+            node, "angular_z_", rmgo_core::pid::OutputLimitPolicy::Unbounded);
 
         reset_references(base_link_velocity_reference_);
         reset_pid_calculators();

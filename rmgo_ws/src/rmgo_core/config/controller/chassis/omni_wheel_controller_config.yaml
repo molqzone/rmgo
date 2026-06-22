@@ -37,3 +37,30 @@ omni_wheel_controller:
     description: "Power limit at which wheel commands are fully available."
     validation:
       gt<>: [0.0]
+  linear_x_kp:
+    type: double
+    description: "Base-link x velocity proportional gain."
+  linear_x_ki:
+    type: double
+    description: "Base-link x velocity integral gain."
+  linear_x_kd:
+    type: double
+    description: "Base-link x velocity derivative gain."
+  linear_y_kp:
+    type: double
+    description: "Base-link y velocity proportional gain."
+  linear_y_ki:
+    type: double
+    description: "Base-link y velocity integral gain."
+  linear_y_kd:
+    type: double
+    description: "Base-link y velocity derivative gain."
+  angular_z_kp:
+    type: double
+    description: "Base-link angular z velocity proportional gain."
+  angular_z_ki:
+    type: double
+    description: "Base-link angular z velocity integral gain."
+  angular_z_kd:
+    type: double
+    description: "Base-link angular z velocity derivative gain."
