@@ -209,7 +209,7 @@ private:
             std::chrono::duration_cast<std::chrono::nanoseconds>(transport_watchdog_period_),
             [this] {
                 maintain_transport();
-                diagnostic_updater_.update();
+                diagnostic_updater_.force_update();
             });
     }
 
