@@ -100,8 +100,7 @@ private:
         profile_name_ = declare_required_parameter<std::string>("profile");
         publish_period_ =
             std::chrono::duration<double>{declare_required_parameter<double>("publish_period")};
-        ui_period_ =
-            std::chrono::duration<double>{declare_required_parameter<double>("ui_period")};
+        ui_period_ = std::chrono::duration<double>{declare_required_parameter<double>("ui_period")};
         transport_watchdog_period_ = std::chrono::duration<double>{
             declare_required_parameter<double>("transport_watchdog_period")};
 
@@ -114,8 +113,8 @@ private:
             return declare_parameter<T>(name);
         } catch (const std::exception& exception) {
             throw std::invalid_argument(
-                "Missing or invalid required referee parameter '" + name + "': "
-                + exception.what());
+                "Missing or invalid required referee parameter '" + name
+                + "': " + exception.what());
         }
     }
 
@@ -209,7 +208,7 @@ private:
             std::chrono::duration_cast<std::chrono::nanoseconds>(transport_watchdog_period_),
             [this] {
                 maintain_transport();
-                diagnostic_updater_.update();
+                update_diagnostics_if_due();
             });
     }
 
@@ -219,6 +218,17 @@ private:
         }
 
         transport_->maintain();
+    }
+
+    void update_diagnostics_if_due() {
+        constexpr auto diagnostic_update_period = std::chrono::seconds{1};
+        const auto now = std::chrono::steady_clock::now();
+        if (now < next_diagnostic_update_time_) {
+            return;
+        }
+
+        diagnostic_updater_.force_update();
+        next_diagnostic_update_time_ = now + diagnostic_update_period;
     }
 
     void fill_transport_diagnostics(diagnostic_updater::DiagnosticStatusWrapper& status) {
@@ -329,6 +339,7 @@ private:
     std::shared_ptr<NodeTransferEndpoint> endpoint_;
     std::unique_ptr<UiStateAdapter> ui_state_adapter_;
     diagnostic_updater::Updater diagnostic_updater_;
+    std::chrono::steady_clock::time_point next_diagnostic_update_time_{};
     Publisher<RefereeStatus> status_publisher_;
     Publisher<GameStatus> game_status_publisher_;
     Publisher<GameRobotStatus> game_robot_status_publisher_;

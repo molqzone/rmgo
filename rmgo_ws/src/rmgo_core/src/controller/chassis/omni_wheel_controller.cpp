@@ -53,10 +53,9 @@ public:
         power_limit_reference_ = 0.0;
         auto interfaces =
             make_reference_interfaces(base_link_velocity_suffixes, base_link_velocity_reference_);
-        interfaces.emplace_back(
-            std::make_shared<hardware_interface::CommandInterface>(
-                node_name(), rmgo_core::reference_interfaces::chassis_power_limit,
-                &power_limit_reference_));
+        interfaces.emplace_back(std::make_shared<hardware_interface::CommandInterface>(
+            node_name(), rmgo_core::reference_interfaces::chassis_power_limit,
+            &power_limit_reference_));
         return interfaces;
     }
 

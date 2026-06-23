@@ -36,7 +36,7 @@ namespace rmgo_referee {
 class RefereeSerialTransport final {
 public:
     // Called synchronously from the RX thread; keep handlers short and non-blocking.
-    using FrameHandler = std::function<void(const RefereeFrame&)>;
+    using FrameHandler = std::move_only_function<void(const RefereeFrame&)>;
     using Result = std::expected<void, std::string>;
     using FdResult = std::expected<int, std::string>;
     using ReadResult = std::expected<std::optional<ssize_t>, std::string>;
@@ -64,9 +64,8 @@ public:
         : device_(std::move(device))
         , rx_buffer_size_(rx_buffer_size)
         , on_frame_(std::move(on_frame))
-        , tx_queue_(
-              std::make_unique<rmgo_utility::utility::RingBuffer<TxFrame>>(
-                  std::max(tx_queue_capacity, 1))) {}
+        , tx_queue_(std::make_unique<rmgo_utility::utility::RingBuffer<TxFrame>>(
+              std::max(tx_queue_capacity, 1))) {}
 
     ~RefereeSerialTransport() {
         const std::scoped_lock lock{transport_mutex_};
