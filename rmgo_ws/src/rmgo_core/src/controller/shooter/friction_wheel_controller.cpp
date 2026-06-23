@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -15,6 +16,7 @@
 #include <rclcpp/time.hpp>
 #include <rclcpp_lifecycle/lifecycle_publisher.hpp>
 #include <rclcpp_lifecycle/state.hpp>
+#include <realtime_tools/realtime_publisher.hpp>
 
 #include "rmgo_core/friction_wheel_controller_config.hpp"
 #include "rmgo_core/interface/reference_interfaces.hpp"
@@ -68,12 +70,17 @@ public:
         on_configure(const rclcpp_lifecycle::State& /*previous_state*/) override {
         update_parameters(param_listener_, params_);
         if (status_publisher_ && status_topic_ != params_.status_topic) {
+            status_realtime_publisher_.reset();
             status_publisher_.reset();
         }
         status_topic_ = params_.status_topic;
         if (!status_publisher_) {
             status_publisher_ = get_node()->create_publisher<rmgo_msg::msg::ShooterStatus>(
                 status_topic_, rclcpp::SystemDefaultsQoS());
+            status_realtime_publisher_ =
+                std::make_unique<StatusRealtimePublisher>(status_publisher_);
+            const std::lock_guard lock{*status_realtime_publisher_};
+            status_realtime_publisher_->msg_.header.frame_id = "shooter";
         }
         reset_references(shooter_reference_);
         reset_internal_state();
@@ -297,13 +304,12 @@ private:
         const rclcpp::Time& time, const StateSnapshot& state, Mode mode,
         const std::array<double, 2>& commands, bool friction_requested, bool friction_ready,
         bool bullet_fired) {
-        if (!status_publisher_) {
+        if (status_realtime_publisher_ == nullptr || !status_realtime_publisher_->trylock()) {
             return;
         }
 
-        auto msg = rmgo_msg::msg::ShooterStatus{};
+        auto& msg = status_realtime_publisher_->msg_;
         msg.header.stamp = time;
-        msg.header.frame_id = "shooter";
         msg.mode = static_cast<std::uint8_t>(mode);
         msg.friction_requested = friction_requested;
         msg.friction_ready = friction_ready;
@@ -313,7 +319,7 @@ private:
         msg.right_friction_velocity = state.right_velocity;
         msg.left_control_velocity = commands[0];
         msg.right_control_velocity = commands[1];
-        status_publisher_->publish(msg);
+        status_realtime_publisher_->unlockAndPublish();
     }
 
     bool write_outputs(
@@ -361,8 +367,9 @@ private:
     double last_primary_friction_velocity_ = nan();
     double primary_friction_velocity_decrease_integral_ = 0.0;
     std::string status_topic_ = "/shooter/status";
-    rclcpp_lifecycle::LifecyclePublisher<rmgo_msg::msg::ShooterStatus>::SharedPtr
-        status_publisher_;
+    rclcpp_lifecycle::LifecyclePublisher<rmgo_msg::msg::ShooterStatus>::SharedPtr status_publisher_;
+    using StatusRealtimePublisher = realtime_tools::RealtimePublisher<rmgo_msg::msg::ShooterStatus>;
+    std::unique_ptr<StatusRealtimePublisher> status_realtime_publisher_;
     std::shared_ptr<::friction_wheel_controller::ParamListener> param_listener_;
     ::friction_wheel_controller::Params params_;
 };

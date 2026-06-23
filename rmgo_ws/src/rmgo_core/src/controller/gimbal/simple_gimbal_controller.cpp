@@ -3,6 +3,7 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -15,6 +16,7 @@
 #include <rclcpp/time.hpp>
 #include <rclcpp_lifecycle/lifecycle_publisher.hpp>
 #include <rclcpp_lifecycle/state.hpp>
+#include <realtime_tools/realtime_publisher.hpp>
 
 #include "gimbal_tf_builder.hpp"
 #include "rmgo_core/interface/io_state_interfaces.hpp"
@@ -77,12 +79,17 @@ public:
             params_.pitch_upper_limit,
         };
         if (status_publisher_ && status_topic_ != params_.status_topic) {
+            status_realtime_publisher_.reset();
             status_publisher_.reset();
         }
         status_topic_ = params_.status_topic;
         if (!status_publisher_) {
             status_publisher_ = get_node()->create_publisher<rmgo_msg::msg::GimbalStatus>(
                 status_topic_, rclcpp::SystemDefaultsQoS());
+            status_realtime_publisher_ =
+                std::make_unique<StatusRealtimePublisher>(status_publisher_);
+            const std::lock_guard lock{*status_realtime_publisher_};
+            status_realtime_publisher_->msg_.header.frame_id = "gimbal";
         }
         reset_references(gimbal_reference_);
         return controller_interface::CallbackReturn::SUCCESS;
@@ -307,19 +314,18 @@ private:
     }
 
     void publish_status(const rclcpp::Time& time, const StateSnapshot& state) {
-        if (!status_publisher_) {
+        if (status_realtime_publisher_ == nullptr || !status_realtime_publisher_->trylock()) {
             return;
         }
 
-        auto msg = rmgo_msg::msg::GimbalStatus{};
+        auto& msg = status_realtime_publisher_->msg_;
         msg.header.stamp = time;
-        msg.header.frame_id = "gimbal";
         msg.enabled = state.enabled;
         msg.yaw = state.yaw;
         msg.pitch = state.pitch;
         msg.yaw_reference = state.yaw_reference;
         msg.pitch_reference = state.pitch_reference;
-        status_publisher_->publish(msg);
+        status_realtime_publisher_->unlockAndPublish();
     }
 
     std::array<std::size_t, std::to_underlying(CommandInterfaceIndex::count)> command_indexes_ =
@@ -337,8 +343,9 @@ private:
         -std::numeric_limits<double>::infinity(),
     };
     std::string status_topic_ = "/gimbal/status";
-    rclcpp_lifecycle::LifecyclePublisher<rmgo_msg::msg::GimbalStatus>::SharedPtr
-        status_publisher_;
+    rclcpp_lifecycle::LifecyclePublisher<rmgo_msg::msg::GimbalStatus>::SharedPtr status_publisher_;
+    using StatusRealtimePublisher = realtime_tools::RealtimePublisher<rmgo_msg::msg::GimbalStatus>;
+    std::unique_ptr<StatusRealtimePublisher> status_realtime_publisher_;
     std::shared_ptr<::simple_gimbal_controller::ParamListener> param_listener_;
     ::simple_gimbal_controller::Params params_;
 };

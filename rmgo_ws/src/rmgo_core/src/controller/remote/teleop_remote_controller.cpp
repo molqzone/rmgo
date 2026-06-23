@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -15,6 +16,7 @@
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 #include <rclcpp_lifecycle/lifecycle_publisher.hpp>
 #include <realtime_tools/realtime_buffer.hpp>
+#include <realtime_tools/realtime_publisher.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/u_int8.hpp>
 
@@ -79,12 +81,25 @@ public:
         shooter_fire_topic_ = params_.shooter_fire_topic;
         command_timeout_ = params_.command_timeout;
         if (remote_status_publisher_ && status_topic_ != params_.status_topic) {
+            remote_status_realtime_publisher_.reset();
             remote_status_publisher_.reset();
         }
         status_topic_ = params_.status_topic;
         if (!remote_status_publisher_) {
             remote_status_publisher_ = node_->create_publisher<rmgo_msg::msg::RemoteStatus>(
                 status_topic_, rclcpp::SystemDefaultsQoS());
+            remote_status_realtime_publisher_ =
+                std::make_unique<RemoteStatusRealtimePublisher>(remote_status_publisher_);
+            const std::lock_guard lock{*remote_status_realtime_publisher_};
+            auto& msg = remote_status_realtime_publisher_->msg_;
+            msg.header.frame_id = "remote";
+            msg.cover_open = false;
+            msg.gimbal_eject = false;
+            msg.power_limit_state = rmgo_msg::msg::RemoteStatus::POWER_LIMIT_UNKNOWN;
+            msg.shoot_frequency = rmgo_msg::msg::RemoteStatus::SHOOT_FREQUENCY_UNKNOWN;
+            msg.target = rmgo_msg::msg::RemoteStatus::TARGET_UNKNOWN;
+            msg.armor_target = rmgo_msg::msg::RemoteStatus::ARMOR_UNKNOWN;
+            msg.target_color_red = false;
         }
 
         if (!cmd_vel_subscriber_) {
@@ -338,23 +353,16 @@ private:
     }
 
     void publish_remote_status(const rclcpp::Time& time, bool active, bool fire_pressed) {
-        if (!remote_status_publisher_) {
+        if (remote_status_realtime_publisher_ == nullptr
+            || !remote_status_realtime_publisher_->trylock()) {
             return;
         }
 
-        auto msg = rmgo_msg::msg::RemoteStatus{};
+        auto& msg = remote_status_realtime_publisher_->msg_;
         msg.header.stamp = time;
-        msg.header.frame_id = "remote";
         msg.active = active;
         msg.fire_pressed = fire_pressed;
-        msg.cover_open = false;
-        msg.gimbal_eject = false;
-        msg.power_limit_state = rmgo_msg::msg::RemoteStatus::POWER_LIMIT_UNKNOWN;
-        msg.shoot_frequency = rmgo_msg::msg::RemoteStatus::SHOOT_FREQUENCY_UNKNOWN;
-        msg.target = rmgo_msg::msg::RemoteStatus::TARGET_UNKNOWN;
-        msg.armor_target = rmgo_msg::msg::RemoteStatus::ARMOR_UNKNOWN;
-        msg.target_color_red = false;
-        remote_status_publisher_->publish(msg);
+        remote_status_realtime_publisher_->unlockAndPublish();
     }
 
     bool bind_command_interfaces() {
@@ -421,6 +429,9 @@ private:
     std::shared_ptr<rclcpp_lifecycle::LifecycleNode> node_;
     rclcpp_lifecycle::LifecyclePublisher<rmgo_msg::msg::RemoteStatus>::SharedPtr
         remote_status_publisher_;
+    using RemoteStatusRealtimePublisher =
+        realtime_tools::RealtimePublisher<rmgo_msg::msg::RemoteStatus>;
+    std::unique_ptr<RemoteStatusRealtimePublisher> remote_status_realtime_publisher_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_subscriber_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_gimbal_subscriber_;
     rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr mode_subscriber_;
