@@ -51,11 +51,10 @@ public:
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        auto config = build_individual_config(
-            std::array{
-                params_.left_friction_joint_name + "/" + params_.friction_state_interface_name,
-                params_.right_friction_joint_name + "/" + params_.friction_state_interface_name,
-            });
+        auto config = build_individual_config(std::array{
+            params_.left_friction_joint_name + "/" + params_.friction_state_interface_name,
+            params_.right_friction_joint_name + "/" + params_.friction_state_interface_name,
+        });
         return config;
     }
 
@@ -252,8 +251,8 @@ private:
         return !friction_faulted_;
     }
 
-    bool is_velocity_below_ratio(
-        const StateSnapshot& state, std::size_t index, double command, double ratio) const {
+    static bool is_velocity_below_ratio(
+        const StateSnapshot& state, std::size_t index, double command, double ratio) {
         const double command_abs = std::abs(command);
         if (!std::isfinite(command_abs)) {
             return true;

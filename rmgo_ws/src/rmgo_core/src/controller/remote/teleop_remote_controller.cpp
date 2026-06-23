@@ -106,27 +106,25 @@ public:
             cmd_vel_subscriber_ = node_->create_subscription<geometry_msgs::msg::Twist>(
                 cmd_vel_topic_, rclcpp::SystemDefaultsQoS(),
                 [this](const geometry_msgs::msg::Twist& msg) {
-                    command_buffer_.writeFromNonRT(
-                        BufferedCommand{
-                            msg.linear.x,
-                            msg.linear.y,
-                            msg.angular.z,
-                            steady_clock_.now(),
-                            true,
-                        });
+                    command_buffer_.writeFromNonRT(BufferedCommand{
+                        msg.linear.x,
+                        msg.linear.y,
+                        msg.angular.z,
+                        steady_clock_.now(),
+                        true,
+                    });
                 });
         }
         if (!cmd_gimbal_subscriber_) {
             cmd_gimbal_subscriber_ = node_->create_subscription<geometry_msgs::msg::Twist>(
                 cmd_gimbal_topic_, rclcpp::SystemDefaultsQoS(),
                 [this](const geometry_msgs::msg::Twist& msg) {
-                    gimbal_command_buffer_.writeFromNonRT(
-                        BufferedGimbalCommand{
-                            msg.angular.z,
-                            msg.angular.y,
-                            steady_clock_.now(),
-                            true,
-                        });
+                    gimbal_command_buffer_.writeFromNonRT(BufferedGimbalCommand{
+                        msg.angular.z,
+                        msg.angular.y,
+                        steady_clock_.now(),
+                        true,
+                    });
                 });
         }
         if (!mode_subscriber_) {
@@ -138,24 +136,22 @@ public:
             shooter_mode_subscriber_ = node_->create_subscription<std_msgs::msg::UInt8>(
                 shooter_mode_topic_, rclcpp::SystemDefaultsQoS(),
                 [this](const std_msgs::msg::UInt8& msg) {
-                    shooter_mode_buffer_.writeFromNonRT(
-                        BufferedShooterMode{
-                            msg.data,
-                            steady_clock_.now(),
-                            true,
-                        });
+                    shooter_mode_buffer_.writeFromNonRT(BufferedShooterMode{
+                        msg.data,
+                        steady_clock_.now(),
+                        true,
+                    });
                 });
         }
         if (!shooter_fire_subscriber_) {
             shooter_fire_subscriber_ = node_->create_subscription<std_msgs::msg::Bool>(
                 shooter_fire_topic_, rclcpp::SystemDefaultsQoS(),
                 [this](const std_msgs::msg::Bool& msg) {
-                    shooter_fire_buffer_.writeFromNonRT(
-                        BufferedShooterFire{
-                            msg.data,
-                            steady_clock_.now(),
-                            true,
-                        });
+                    shooter_fire_buffer_.writeFromNonRT(BufferedShooterFire{
+                        msg.data,
+                        steady_clock_.now(),
+                        true,
+                    });
                 });
         }
 

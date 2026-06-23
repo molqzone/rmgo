@@ -194,8 +194,7 @@ private:
 
 class Arc final : public Shape {
 public:
-    Arc(
-        Ui& interaction_ui, Color color, std::uint16_t width, std::uint16_t x, std::uint16_t y,
+    Arc(Ui& interaction_ui, Color color, std::uint16_t width, std::uint16_t x, std::uint16_t y,
         std::uint16_t angle_start, std::uint16_t angle_end, std::uint16_t radius_x,
         std::uint16_t radius_y, bool visible = true);
 
@@ -265,7 +264,7 @@ class Text final : public Shape {
 public:
     Text(
         Ui& interaction_ui, Color color, std::uint16_t font_size, std::uint16_t width,
-        std::uint16_t x, std::uint16_t y, std::string content = {}, bool visible = true);
+        std::uint16_t x, std::uint16_t y, std::string_view content = {}, bool visible = true);
 
     std::string_view content() const noexcept { return content_; }
     void set_content(std::string_view content);

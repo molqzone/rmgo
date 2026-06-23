@@ -100,8 +100,7 @@ private:
         profile_name_ = declare_required_parameter<std::string>("profile");
         publish_period_ =
             std::chrono::duration<double>{declare_required_parameter<double>("publish_period")};
-        ui_period_ =
-            std::chrono::duration<double>{declare_required_parameter<double>("ui_period")};
+        ui_period_ = std::chrono::duration<double>{declare_required_parameter<double>("ui_period")};
         transport_watchdog_period_ = std::chrono::duration<double>{
             declare_required_parameter<double>("transport_watchdog_period")};
 
@@ -114,8 +113,8 @@ private:
             return declare_parameter<T>(name);
         } catch (const std::exception& exception) {
             throw std::invalid_argument(
-                "Missing or invalid required referee parameter '" + name + "': "
-                + exception.what());
+                "Missing or invalid required referee parameter '" + name
+                + "': " + exception.what());
         }
     }
 

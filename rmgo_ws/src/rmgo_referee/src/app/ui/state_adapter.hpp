@@ -51,9 +51,7 @@ public:
     ~UiStateAdapter() {
         stopping_.store(true, std::memory_order_release);
         stop_callbacks();
-        {
-            const std::scoped_lock lock{state_mutex_};
-        }
+        { const std::scoped_lock lock{state_mutex_}; }
         const std::scoped_lock lock{ui_mutex_};
         deactivate_profile();
     }
@@ -106,7 +104,8 @@ private:
     void activate_profile() {
         profile_ = ui::make_ui_profile(config_.profile_name, ui_);
         if (profile_ == nullptr) {
-            throw std::invalid_argument("Unknown referee UI profile '" + config_.profile_name + "'");
+            throw std::invalid_argument(
+                "Unknown referee UI profile '" + config_.profile_name + "'");
         }
         profile_->on_activate();
     }

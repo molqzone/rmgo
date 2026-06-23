@@ -64,9 +64,8 @@ public:
         : device_(std::move(device))
         , rx_buffer_size_(rx_buffer_size)
         , on_frame_(std::move(on_frame))
-        , tx_queue_(
-              std::make_unique<rmgo_utility::utility::RingBuffer<TxFrame>>(
-                  std::max(tx_queue_capacity, 1))) {}
+        , tx_queue_(std::make_unique<rmgo_utility::utility::RingBuffer<TxFrame>>(
+              std::max(tx_queue_capacity, 1))) {}
 
     ~RefereeSerialTransport() {
         const std::scoped_lock lock{transport_mutex_};

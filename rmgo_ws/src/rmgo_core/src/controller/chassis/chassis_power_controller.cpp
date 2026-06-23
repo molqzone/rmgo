@@ -78,12 +78,11 @@ public:
                 get_node()->create_subscription<rmgo_msg::msg::GameRobotStatus>(
                     game_robot_status_topic_, rclcpp::SystemDefaultsQoS(),
                     [this](const rmgo_msg::msg::GameRobotStatus& msg) {
-                        robot_status_buffer_.writeFromNonRT(
-                            BufferedRobotStatus{
-                                .power_limit = static_cast<double>(msg.chassis_power_limit),
-                                .stamp = steady_clock_.now(),
-                                .valid = true,
-                            });
+                        robot_status_buffer_.writeFromNonRT(BufferedRobotStatus{
+                            .power_limit = static_cast<double>(msg.chassis_power_limit),
+                            .stamp = steady_clock_.now(),
+                            .valid = true,
+                        });
                     });
         }
         if (!power_heat_data_subscriber_) {
@@ -91,12 +90,11 @@ public:
                 get_node()->create_subscription<rmgo_msg::msg::PowerHeatData>(
                     power_heat_data_topic_, rclcpp::SystemDefaultsQoS(),
                     [this](const rmgo_msg::msg::PowerHeatData& msg) {
-                        power_heat_buffer_.writeFromNonRT(
-                            BufferedPowerHeatData{
-                                .buffer_energy = static_cast<double>(msg.chassis_buffer_energy),
-                                .stamp = steady_clock_.now(),
-                                .valid = true,
-                            });
+                        power_heat_buffer_.writeFromNonRT(BufferedPowerHeatData{
+                            .buffer_energy = static_cast<double>(msg.chassis_buffer_energy),
+                            .stamp = steady_clock_.now(),
+                            .valid = true,
+                        });
                     });
         }
 

@@ -24,9 +24,7 @@ public:
         bool queued() const noexcept { return is_in_run_queue(); }
 
     private:
-        bool is_in_run_queue() const noexcept {
-            return !RedBlackTree<Entity>::Node::is_dangling();
-        }
+        bool is_in_run_queue() const noexcept { return !RedBlackTree<Entity>::Node::is_dangling(); }
 
         bool operator<(const Entity& other) const noexcept {
             if (vruntime_ != other.vruntime_) {
