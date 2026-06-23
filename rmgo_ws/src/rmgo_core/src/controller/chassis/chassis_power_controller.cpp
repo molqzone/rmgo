@@ -1,46 +1,51 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <string>
-#include <vector>
+#include <string_view>
 
-#include <controller_interface/chainable_controller_interface.hpp>
-#include <hardware_interface/types/hardware_interface_type_values.hpp>
+#include <controller_interface/controller_interface.hpp>
 #include <pluginlib/class_list_macros.hpp>
+#include <rclcpp/qos.hpp>
+#include <rclcpp/time.hpp>
 #include <rclcpp_lifecycle/state.hpp>
+#include <realtime_tools/realtime_buffer.hpp>
 
 #include "rmgo_core/chassis_power_controller_config.hpp"
-#include "rmgo_core/interface/io_state_interfaces.hpp"
+#include "rmgo_core/interface/reference_interfaces.hpp"
+#include "rmgo_msg/msg/game_robot_status.hpp"
+#include "rmgo_msg/msg/power_heat_data.hpp"
 #include "rmgo_utility/controller_interface_mixin.hpp"
 #include "rmgo_utility/node_mixin.hpp"
 
 namespace rmgo_core::controller::chassis {
 
 class ChassisPowerController
-    : public controller_interface::ChainableControllerInterface
+    : public controller_interface::ControllerInterface
     , public rmgo_utility::ControllerInterfaceMixin
     , public rmgo_utility::NodeMixin {
 public:
     controller_interface::CallbackReturn on_init() override {
         init_parameters(param_listener_, params_);
-        target_controller_name_ = params_.target_controller_name;
+        robot_status_buffer_.initRT(BufferedRobotStatus{});
+        power_heat_buffer_.initRT(BufferedPowerHeatData{});
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
     controller_interface::InterfaceConfiguration command_interface_configuration() const override {
-        return build_individual_config(params_.target_controller_name, chassis_command_suffixes);
+        return build_individual_config(
+            params_.target_controller_name,
+            std::array{rmgo_core::reference_interfaces::chassis_power_limit});
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        return build_individual_config(
-            rmgo_core::io_state_interfaces::chassis_power_state_interfaces);
-    }
-
-    std::vector<hardware_interface::CommandInterface::SharedPtr>
-        on_export_reference_interfaces_list() override {
-        reset_references(chassis_reference_);
-        return make_reference_interfaces(chassis_command_suffixes, chassis_reference_);
+        return {
+            controller_interface::interface_configuration_type::NONE,
+            {},
+        };
     }
 
     controller_interface::CallbackReturn
@@ -51,94 +56,165 @@ public:
             logging::error("target_controller_name must not be empty");
             return controller_interface::CallbackReturn::ERROR;
         }
-        reset_references(chassis_reference_);
+
+        if (game_robot_status_topic_ != params_.game_robot_status_topic) {
+            game_robot_status_subscriber_.reset();
+        }
+        if (power_heat_data_topic_ != params_.power_heat_data_topic) {
+            power_heat_data_subscriber_.reset();
+        }
+        game_robot_status_topic_ = params_.game_robot_status_topic;
+        power_heat_data_topic_ = params_.power_heat_data_topic;
+        status_timeout_ = params_.status_timeout;
+        policy_ = ChassisPowerPolicy{
+            .safety_power_limit = params_.safety_power_limit,
+            .buffer_threshold = params_.buffer_threshold,
+            .power_gain = params_.power_gain,
+            .max_power_limit = params_.max_power_limit,
+        };
+
+        if (!game_robot_status_subscriber_) {
+            game_robot_status_subscriber_ =
+                get_node()->create_subscription<rmgo_msg::msg::GameRobotStatus>(
+                    game_robot_status_topic_, rclcpp::SystemDefaultsQoS(),
+                    [this](const rmgo_msg::msg::GameRobotStatus& msg) {
+                        robot_status_buffer_.writeFromNonRT(
+                            BufferedRobotStatus{
+                                .power_limit = static_cast<double>(msg.chassis_power_limit),
+                                .stamp = steady_clock_.now(),
+                                .valid = true,
+                            });
+                    });
+        }
+        if (!power_heat_data_subscriber_) {
+            power_heat_data_subscriber_ =
+                get_node()->create_subscription<rmgo_msg::msg::PowerHeatData>(
+                    power_heat_data_topic_, rclcpp::SystemDefaultsQoS(),
+                    [this](const rmgo_msg::msg::PowerHeatData& msg) {
+                        power_heat_buffer_.writeFromNonRT(
+                            BufferedPowerHeatData{
+                                .buffer_energy = static_cast<double>(msg.chassis_buffer_energy),
+                                .stamp = steady_clock_.now(),
+                                .valid = true,
+                            });
+                    });
+        }
+
         return controller_interface::CallbackReturn::SUCCESS;
     }
 
     controller_interface::CallbackReturn
         on_activate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        reset_references(chassis_reference_);
-        return write_chassis_commands({0.0, 0.0, 0.0})
-                 ? controller_interface::CallbackReturn::SUCCESS
-                 : controller_interface::CallbackReturn::ERROR;
+        if (!bind_power_limit_interface()) {
+            return controller_interface::CallbackReturn::ERROR;
+        }
+        return write_power_limit(0.0) ? controller_interface::CallbackReturn::SUCCESS
+                                      : controller_interface::CallbackReturn::ERROR;
     }
 
     controller_interface::CallbackReturn
         on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
-        reset_references(chassis_reference_);
-        return write_chassis_commands({0.0, 0.0, 0.0})
-                 ? controller_interface::CallbackReturn::SUCCESS
-                 : controller_interface::CallbackReturn::ERROR;
+        return write_power_limit(0.0) ? controller_interface::CallbackReturn::SUCCESS
+                                      : controller_interface::CallbackReturn::ERROR;
     }
 
-    controller_interface::return_type update_reference_from_subscribers(
-        const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
-        if (!is_in_chained_mode()) {
-            reset_references(chassis_reference_);
-        }
-        return controller_interface::return_type::OK;
-    }
+    controller_interface::return_type
+        update(const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
+        const auto now = steady_clock_.now();
+        const auto robot = *robot_status_buffer_.readFromRT();
+        const auto power_heat = *power_heat_buffer_.readFromRT();
+        const auto referee_power_limit =
+            is_fresh(robot, now) ? std::optional<double>{robot.power_limit} : std::nullopt;
+        const auto buffer_energy = is_fresh(power_heat, now)
+                                     ? std::optional<double>{power_heat.buffer_energy}
+                                     : std::nullopt;
+        const double power_limit = policy_.calculate(referee_power_limit, buffer_energy);
 
-    controller_interface::return_type update_and_write_commands(
-        const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) override {
-        const double control_power_limit = calculate_control_power_limit();
-        return write_chassis_commands(limit_chassis_command(control_power_limit))
-                 ? controller_interface::return_type::OK
-                 : controller_interface::return_type::ERROR;
+        return write_power_limit(power_limit) ? controller_interface::return_type::OK
+                                              : controller_interface::return_type::ERROR;
     }
 
 private:
-    static constexpr std::array<const char*, 3> chassis_command_suffixes = {
-        "linear/x/velocity",
-        "linear/y/velocity",
-        "angular/z/velocity",
+    struct BufferedRobotStatus {
+        double power_limit = 0.0;
+        rclcpp::Time stamp{0, 0, RCL_STEADY_TIME};
+        bool valid = false;
     };
-    static constexpr std::size_t power_buffer_index = 1;
-    static constexpr std::size_t power_limit_index = 2;
 
-    double calculate_control_power_limit() {
-        const double referee_power_limit = read_state(power_limit_index);
-        const double referee_buffer_energy = read_state(power_buffer_index);
-        const double extra_power =
-            (referee_buffer_energy - params_.buffer_threshold) * params_.power_gain;
-        return std::clamp(referee_power_limit + extra_power, 0.0, params_.max_power_limit);
-    }
+    struct BufferedPowerHeatData {
+        double buffer_energy = 0.0;
+        rclcpp::Time stamp{0, 0, RCL_STEADY_TIME};
+        bool valid = false;
+    };
 
-    std::array<double, 3> limit_chassis_command(double control_power_limit) const {
-        if (!std::isfinite(control_power_limit) || control_power_limit <= 0.0) {
-            return {0.0, 0.0, 0.0};
+    struct ChassisPowerPolicy {
+        double safety_power_limit = 0.0;
+        double buffer_threshold = 0.0;
+        double power_gain = 0.0;
+        double max_power_limit = 0.0;
+
+        double calculate(
+            std::optional<double> referee_power_limit, std::optional<double> buffer_energy) const {
+            if (!referee_power_limit.has_value() || !std::isfinite(*referee_power_limit)) {
+                return std::clamp(safety_power_limit, 0.0, max_power_limit);
+            }
+
+            const double extra_power = buffer_energy.has_value() && std::isfinite(*buffer_energy)
+                                         ? (*buffer_energy - buffer_threshold) * power_gain
+                                         : 0.0;
+            return std::clamp(*referee_power_limit + extra_power, 0.0, max_power_limit);
         }
+    };
 
-        const double power_ratio =
-            std::clamp(control_power_limit / params_.full_speed_power_limit, 0.0, 1.0);
-        const auto& [linear_x_reference, linear_y_reference, angular_z_reference] =
-            chassis_reference_;
-        return {
-            clamp_abs(linear_x_reference, params_.max_linear_x_velocity * power_ratio),
-            clamp_abs(linear_y_reference, params_.max_linear_y_velocity * power_ratio),
-            clamp_abs(angular_z_reference, params_.max_angular_z_velocity * power_ratio),
-        };
+    template <typename Packet>
+    bool is_fresh(const Packet& packet, const rclcpp::Time& now) const {
+        return packet.valid
+            && (status_timeout_ <= 0.0 || (now - packet.stamp).seconds() <= status_timeout_);
     }
 
-    static double clamp_abs(double value, double limit) {
-        if (!std::isfinite(value) || limit <= 0.0) {
-            return 0.0;
+    bool bind_power_limit_interface() {
+        power_limit_interface_index_ = invalid_index;
+        return bind_prefixed_interface_indexes(
+            command_interfaces_,
+            {
+                {
+                    &power_limit_interface_index_,
+                    target_controller_name_,
+                    rmgo_core::reference_interfaces::chassis_power_limit,
+                },
+            },
+            "chassis power limit reference interface");
+    }
+
+    bool write_power_limit(double value) {
+        if (power_limit_interface_index_ >= command_interfaces_.size()) [[unlikely]] {
+            logging::error(
+                "Chassis power limit reference interface '{}/{}' is not bound",
+                target_controller_name_, rmgo_core::reference_interfaces::chassis_power_limit);
+            return false;
         }
-        return std::clamp(value, -limit, limit);
+        if (!command_interfaces_[power_limit_interface_index_].set_value(value)) [[unlikely]] {
+            logging::error(
+                "Failed to write chassis power limit reference interface '{}/{}'",
+                target_controller_name_, rmgo_core::reference_interfaces::chassis_power_limit);
+            return false;
+        }
+        return true;
     }
 
-    double read_state(std::size_t index) const {
-        return read_interface_value(state_interfaces_, index);
-    }
-
-    bool write_chassis_commands(const std::array<double, 3>& commands) {
-        return write_safe_commands(
-            command_interfaces_, commands, target_controller_name_, chassis_command_suffixes,
-            "chained command");
-    }
+    static constexpr std::size_t invalid_index = std::numeric_limits<std::size_t>::max();
 
     std::string target_controller_name_;
-    std::array<double, 3> chassis_reference_{0.0, 0.0, 0.0};
+    std::string game_robot_status_topic_;
+    std::string power_heat_data_topic_;
+    double status_timeout_ = 0.0;
+    ChassisPowerPolicy policy_;
+    rclcpp::Clock steady_clock_{RCL_STEADY_TIME};
+    std::size_t power_limit_interface_index_ = invalid_index;
+    realtime_tools::RealtimeBuffer<BufferedRobotStatus> robot_status_buffer_;
+    realtime_tools::RealtimeBuffer<BufferedPowerHeatData> power_heat_buffer_;
+    rclcpp::Subscription<rmgo_msg::msg::GameRobotStatus>::SharedPtr game_robot_status_subscriber_;
+    rclcpp::Subscription<rmgo_msg::msg::PowerHeatData>::SharedPtr power_heat_data_subscriber_;
     std::shared_ptr<::chassis_power_controller::ParamListener> param_listener_;
     ::chassis_power_controller::Params params_;
 };
@@ -147,4 +223,4 @@ private:
 
 PLUGINLIB_EXPORT_CLASS(
     rmgo_core::controller::chassis::ChassisPowerController,
-    controller_interface::ChainableControllerInterface)
+    controller_interface::ControllerInterface)

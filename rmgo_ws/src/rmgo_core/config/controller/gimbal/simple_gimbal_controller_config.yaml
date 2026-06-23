@@ -30,3 +30,8 @@ simple_gimbal_controller:
   pitch_upper_limit:
     type: double
     description: "Upper pitch command limit."
+  status_topic:
+    type: string
+    description: "Semantic gimbal status topic consumed by non-RT observers such as referee UI."
+    validation:
+      not_empty<>: []

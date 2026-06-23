@@ -4,6 +4,26 @@ heat_controller:
     description: "Bullet feeder controller that receives heat-limited bullet allowance."
     validation:
       not_empty<>: []
+  game_robot_status_topic:
+    type: string
+    description: "Referee game robot status topic mirrored into a realtime buffer."
+    validation:
+      not_empty<>: []
+  status_timeout:
+    type: double
+    description: "Maximum age in seconds before referee robot status is considered stale."
+    validation:
+      gt_eq<>: [0.0]
+  safety_shooter_cooling:
+    type: double
+    description: "Fallback shooter cooling rate used when referee robot status is stale or unavailable."
+    validation:
+      gt_eq<>: [0.0]
+  safety_shooter_heat_limit:
+    type: double
+    description: "Fallback shooter heat limit used when referee robot status is stale or unavailable."
+    validation:
+      gt<>: [0.0]
   heat_per_shot:
     type: double
     description: "Local heat added per detected shot."
@@ -11,7 +31,7 @@ heat_controller:
       gt<>: [0.0]
   extra_heat_per_shot:
     type: double
-    description: "Additional RMCS-style conservative heat margin added per shot."
+    description: "Additional conservative heat margin added per shot."
     validation:
       gt_eq<>: [0.0]
   reserved_heat:

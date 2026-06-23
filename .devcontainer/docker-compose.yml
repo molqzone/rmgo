@@ -13,3 +13,17 @@ services:
       - type: bind
         source: ..
         target: /workspaces/rmgo
+      - type: volume
+        source: rmgo-ws-build
+        target: /workspaces/rmgo/rmgo_ws/build
+      - type: volume
+        source: rmgo-ws-install
+        target: /workspaces/rmgo/rmgo_ws/install
+      - type: volume
+        source: rmgo-ws-log
+        target: /workspaces/rmgo/rmgo_ws/log
+
+volumes:
+  rmgo-ws-build:
+  rmgo-ws-install:
+  rmgo-ws-log:

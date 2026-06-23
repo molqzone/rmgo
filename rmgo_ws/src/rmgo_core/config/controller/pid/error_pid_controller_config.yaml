@@ -21,18 +21,6 @@ error_pid_controller:
   feedforward:
     type: double
     description: "Constant feedforward added to the PID output."
-  integral_min:
-    type: double
-    description: "Minimum integral accumulator."
-  integral_max:
-    type: double
-    description: "Maximum integral accumulator."
-  integral_split_min:
-    type: double
-    description: "Minimum error that enables integral accumulation."
-  integral_split_max:
-    type: double
-    description: "Maximum error that enables integral accumulation."
   output_min:
     type: double
     description: "Minimum control output."

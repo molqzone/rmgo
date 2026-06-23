@@ -1,5 +1,17 @@
 CompileFlags:
-  CompilationDatabase: rmgo_ws/build/rmgo_core
+  CompilationDatabase: /workspaces/rmgo/rmgo_ws/build
+  Add:
+    # Clang 18 advertises C++20 concepts as 201907L, while GCC 14's
+    # libstdc++ gates <expected> on 202002L. This keeps clangd aligned
+    # with the GCC toolchain used by the ROS workspace build.
+    - -D__cpp_concepts=202002L
+    - -Wno-builtin-macro-redefined
+    - -I/workspaces/rmgo/rmgo_ws/src/rmgo_referee/src
+    - -I/workspaces/rmgo/rmgo_ws/src/rmgo_core/include
+    - -I/workspaces/rmgo/rmgo_ws/src/rmgo_core/src
+    - -I/workspaces/rmgo/rmgo_ws/src/rmgo_utility/include
+    - -I/workspaces/rmgo/rmgo_ws/install/rmgo_msg/include/rmgo_msg
+    - -I/workspaces/rmgo/rmgo_ws/install/rmgo_utility/include
 
 Index:
   Background: Build

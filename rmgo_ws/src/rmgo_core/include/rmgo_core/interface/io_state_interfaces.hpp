@@ -47,28 +47,4 @@ inline constexpr std::array gimbal_imu_state_interfaces{
     gimbal_yaw_velocity_imu,          gimbal_pitch_velocity_imu,
 };
 
-inline constexpr const char* referee_chassis_power = "referee/chassis/power";
-inline constexpr const char* referee_chassis_power_buffer = "referee/chassis/power_buffer";
-inline constexpr const char* referee_chassis_power_limit = "referee/chassis/power_limit";
-inline constexpr const char* referee_chassis_voltage = "referee/chassis/voltage";
-inline constexpr const char* referee_chassis_current = "referee/chassis/current";
-inline constexpr const char* referee_shooter_cooling = "referee/shooter/cooling";
-inline constexpr const char* referee_shooter_heat = "referee/shooter/heat";
-inline constexpr const char* referee_shooter_heat_limit = "referee/shooter/heat_limit";
-inline constexpr const char* referee_robot_hp = "referee/robot/hp";
-inline constexpr const char* referee_robot_max_hp = "referee/robot/max_hp";
-inline constexpr const char* referee_robot_level = "referee/robot/level";
-
-inline constexpr std::array chassis_power_state_interfaces{
-    referee_chassis_power,   referee_chassis_power_buffer, referee_chassis_power_limit,
-    referee_chassis_voltage, referee_chassis_current,
-};
-
-inline constexpr std::array referee_state_interfaces{
-    referee_chassis_power,   referee_chassis_power_buffer, referee_chassis_power_limit,
-    referee_chassis_voltage, referee_chassis_current,      referee_shooter_cooling,
-    referee_shooter_heat,    referee_shooter_heat_limit,   referee_robot_hp,
-    referee_robot_max_hp,    referee_robot_level,
-};
-
 } // namespace rmgo_core::io_state_interfaces

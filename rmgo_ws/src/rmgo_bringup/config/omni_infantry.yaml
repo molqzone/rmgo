@@ -49,12 +49,13 @@ controller_manager:
 
 chassis_controller:
   ros__parameters:
-    target_controller_name: chassis_power_controller
+    target_controller_name: omni_wheel_controller
     yaw_joint_name: yaw_joint
     yaw_state_interface_name: position
     command_source_frame: yaw
     twist_angular: 0.5235987755982988
     follow_velocity_feedforward: 0.0
+    status_topic: /chassis/status
     follow_kp: 7.0
     follow_ki: 0.0
     follow_kd: 0.0
@@ -64,13 +65,13 @@ chassis_controller:
 chassis_power_controller:
   ros__parameters:
     target_controller_name: omni_wheel_controller
+    game_robot_status_topic: /referee/game_robot_status
+    power_heat_data_topic: /referee/power_heat_data
+    status_timeout: 1.0
+    safety_power_limit: 45.0
     buffer_threshold: 30.0
     power_gain: 0.5
     max_power_limit: 95.0
-    full_speed_power_limit: 95.0
-    max_linear_x_velocity: 4.0
-    max_linear_y_velocity: 4.0
-    max_angular_z_velocity: 10.0
 
 omni_wheel_controller:
   ros__parameters:
@@ -85,6 +86,8 @@ omni_wheel_controller:
     chassis_radius_x: 0.15897
     chassis_radius_y: 0.15897
     max_wheel_velocity: 40.0
+
+    full_speed_power_limit: 95.0
     linear_x_kp: 0.0
     linear_x_ki: 0.0
     linear_x_kd: 0.0
@@ -97,11 +100,38 @@ omni_wheel_controller:
 
 teleop_remote_controller:
   ros__parameters:
+    chassis_controller_name: chassis_controller
+    gimbal_controller_name: simple_gimbal_controller
+    shooter_controller_name: friction_wheel_controller
+    bullet_feeder_controller_name: bullet_feeder_controller
     cmd_vel_topic: /cmd_vel
     cmd_gimbal_topic: /cmd_gimbal
     mode_topic: /cmd_chassis_mode
     shooter_mode_topic: /cmd_shooter_mode
+    shooter_fire_topic: /cmd_shooter_fire
+    status_topic: /remote/status
     command_timeout: 2.0
+
+referee:
+  ros__parameters:
+    device: /dev/usbReferee
+    rx_buffer_size: 1024
+    tx_queue_capacity: 64
+    online_timeout: 1.0
+    profile: omni_infantry
+    publish_period: 0.02
+    ui_period: 0.01
+    transport_watchdog_period: 0.5
+    status_topic: /referee/status
+    game_status_topic: /referee/game_status
+    game_robot_status_topic: /referee/game_robot_status
+    power_heat_data_topic: /referee/power_heat_data
+    chassis_status_topic: /chassis/status
+    gimbal_status_topic: /gimbal/status
+    shooter_status_topic: /shooter/status
+    remote_status_topic: /remote/status
+    target_status_topic: /target/status
+    capacitor_status_topic: /capacitor/status
 
 simple_gimbal_controller:
   ros__parameters:
@@ -112,6 +142,7 @@ simple_gimbal_controller:
     state_interface_name: position
     pitch_lower_limit: -0.5098
     pitch_upper_limit: 0.2262
+    status_topic: /gimbal/status
 
 yaw_angle_pid_controller:
   ros__parameters:
@@ -121,10 +152,6 @@ yaw_angle_pid_controller:
     ki: 0.0
     kd: 0.0
     feedforward: 0.0
-    integral_min: -1.7976931348623157e+308
-    integral_max: 1.7976931348623157e+308
-    integral_split_min: -1.7976931348623157e+308
-    integral_split_max: 1.7976931348623157e+308
     output_min: -10.0
     output_max: 10.0
 
@@ -138,10 +165,6 @@ yaw_velocity_pid_controller:
     ki: 0.001
     kd: 0.01
     velocity_feedforward: 0.0
-    integral_min: -1.7976931348623157e+308
-    integral_max: 1.7976931348623157e+308
-    integral_split_min: -1.7976931348623157e+308
-    integral_split_max: 1.7976931348623157e+308
     output_min: -25.0
     output_max: 25.0
 
@@ -153,10 +176,6 @@ pitch_angle_pid_controller:
     ki: 0.0
     kd: 0.1
     feedforward: 0.0
-    integral_min: -1.7976931348623157e+308
-    integral_max: 1.7976931348623157e+308
-    integral_split_min: -1.7976931348623157e+308
-    integral_split_max: 1.7976931348623157e+308
     output_min: -4.0
     output_max: 4.0
 
@@ -178,10 +197,15 @@ friction_wheel_controller:
     bullet_drop_integral_threshold: -14.0
     bullet_drop_recovery_threshold: 0.1
     bullet_drop_velocity_margin: 20.0
+    status_topic: /shooter/status
 
 heat_controller:
   ros__parameters:
     target_bullet_feeder_controller_name: bullet_feeder_controller
+    game_robot_status_topic: /referee/game_robot_status
+    status_timeout: 1.0
+    safety_shooter_cooling: 40.0
+    safety_shooter_heat_limit: 50000.0
     heat_per_shot: 10000.0
     extra_heat_per_shot: 10.0
     reserved_heat: 10000.0
@@ -211,10 +235,6 @@ left_friction_velocity_pid_controller:
     ki: 0.0
     kd: 0.009373434
     velocity_feedforward: 0.0
-    integral_min: -1.7976931348623157e+308
-    integral_max: 1.7976931348623157e+308
-    integral_split_min: -1.7976931348623157e+308
-    integral_split_max: 1.7976931348623157e+308
     output_min: -2.0
     output_max: 2.0
 
@@ -228,10 +248,6 @@ right_friction_velocity_pid_controller:
     ki: 0.0
     kd: 0.009373434
     velocity_feedforward: 0.0
-    integral_min: -1.7976931348623157e+308
-    integral_max: 1.7976931348623157e+308
-    integral_split_min: -1.7976931348623157e+308
-    integral_split_max: 1.7976931348623157e+308
     output_min: -2.0
     output_max: 2.0
 
@@ -245,9 +261,5 @@ bullet_feeder_velocity_pid_controller:
     ki: 0.0
     kd: 0.0
     velocity_feedforward: 0.0
-    integral_min: -1.7976931348623157e+308
-    integral_max: 1.7976931348623157e+308
-    integral_split_min: -1.7976931348623157e+308
-    integral_split_max: 1.7976931348623157e+308
     output_min: -4.0
     output_max: 4.0

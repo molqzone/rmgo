@@ -188,8 +188,7 @@ public:
 private:
     static constexpr std::size_t mock_state_count =
         rmgo_core::io_state_interfaces::remote_state_interfaces.size()
-        + rmgo_core::io_state_interfaces::gimbal_imu_state_interfaces.size()
-        + rmgo_core::io_state_interfaces::referee_state_interfaces.size();
+        + rmgo_core::io_state_interfaces::gimbal_imu_state_interfaces.size();
 
     struct JointCommandInterface {
         std::string name;
@@ -361,7 +360,6 @@ private:
         };
         append(rmgo_core::io_state_interfaces::remote_state_interfaces);
         append(rmgo_core::io_state_interfaces::gimbal_imu_state_interfaces);
-        append(rmgo_core::io_state_interfaces::referee_state_interfaces);
         return interfaces;
     }
 
@@ -558,7 +556,6 @@ private:
     void update_mock_states() {
         update_mock_remote_states();
         update_mock_gimbal_imu_states();
-        update_mock_referee_states();
     }
 
     void update_mock_remote_states() {
@@ -607,21 +604,6 @@ private:
         const auto world_pose = gz::sim::Link{pitch_link_entity_}.WorldPose(*ecm_);
         return world_pose.has_value() ? world_pose->Rot().Inverse()
                                       : gz::math::Quaterniond::Identity;
-    }
-
-    void update_mock_referee_states() {
-        using namespace rmgo_core::io_state_interfaces;
-        set_mock_state(referee_chassis_power, 0.0);
-        set_mock_state(referee_chassis_power_buffer, 60.0);
-        set_mock_state(referee_chassis_power_limit, 80.0);
-        set_mock_state(referee_chassis_voltage, 24.0);
-        set_mock_state(referee_chassis_current, 0.0);
-        set_mock_state(referee_shooter_cooling, 40.0);
-        set_mock_state(referee_shooter_heat, 0.0);
-        set_mock_state(referee_shooter_heat_limit, 50000.0);
-        set_mock_state(referee_robot_hp, 400.0);
-        set_mock_state(referee_robot_max_hp, 400.0);
-        set_mock_state(referee_robot_level, 1.0);
     }
 
     gz::sim::EntityComponentManager* ecm_ = nullptr;
