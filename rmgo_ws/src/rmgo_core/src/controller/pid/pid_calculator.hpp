@@ -72,8 +72,8 @@ enum class OutputLimitPolicy {
 };
 
 template <typename NodeT>
-PidCalculator make_pid_calculator(
-    NodeT& node, const std::string& prefix, OutputLimitPolicy output_limits) {
+PidCalculator
+    make_pid_calculator(NodeT& node, const std::string& prefix, OutputLimitPolicy output_limits) {
     const auto required_parameter = [&node, &prefix](const char* suffix) {
         const auto name = prefix + suffix;
         if (!node.has_parameter(name)) {

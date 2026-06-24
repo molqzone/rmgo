@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <numbers>
 #include <string>
 #include <utility>
@@ -16,6 +17,7 @@
 #include <rclcpp/time.hpp>
 #include <rclcpp_lifecycle/lifecycle_publisher.hpp>
 #include <rclcpp_lifecycle/state.hpp>
+#include <realtime_tools/realtime_publisher.hpp>
 
 #include "../pid/pid_calculator.hpp"
 #include "rmgo_core/chassis_controller_config.hpp"
@@ -64,12 +66,17 @@ public:
         follow_pid_ = rmgo_core::pid::make_pid_calculator(
             node, "follow_", rmgo_core::pid::OutputLimitPolicy::Required);
         if (status_publisher_ && status_topic_ != params_.status_topic) {
+            status_realtime_publisher_.reset();
             status_publisher_.reset();
         }
         status_topic_ = params_.status_topic;
         if (!status_publisher_) {
             status_publisher_ = get_node()->create_publisher<rmgo_msg::msg::ChassisStatus>(
                 status_topic_, rclcpp::SystemDefaultsQoS());
+            status_realtime_publisher_ =
+                std::make_unique<StatusRealtimePublisher>(status_publisher_);
+            const std::lock_guard lock{*status_realtime_publisher_};
+            status_realtime_publisher_->msg_.header.frame_id = "chassis";
         }
 
         reset_references(chassis_reference_);
@@ -193,8 +200,8 @@ private:
         }
     }
 
-    std::array<double, 3> calculate_command(
-        Mode mode, const ChassisReference& reference, double yaw) {
+    std::array<double, 3>
+        calculate_command(Mode mode, const ChassisReference& reference, double yaw) {
         std::array<double, 3> values = reference_to_base_link(reference, yaw);
         switch (mode) {
         case Mode::follow:
@@ -211,8 +218,8 @@ private:
         return values;
     }
 
-    std::array<double, 3> reference_to_base_link(
-        const ChassisReference& reference, double yaw) const {
+    std::array<double, 3>
+        reference_to_base_link(const ChassisReference& reference, double yaw) const {
         if (params_.command_source_frame == "base_link") {
             return {reference.vx, reference.vy, reference.wz};
         }
@@ -284,19 +291,18 @@ private:
     void reset_pid() { follow_pid_.reset(); }
 
     void publish_status(const rclcpp::Time& time, const StateSnapshot& state, Mode mode) {
-        if (!status_publisher_) {
+        if (status_realtime_publisher_ == nullptr || !status_realtime_publisher_->trylock()) {
             return;
         }
 
-        auto msg = rmgo_msg::msg::ChassisStatus{};
+        auto& msg = status_realtime_publisher_->msg_;
         msg.header.stamp = time;
-        msg.header.frame_id = "chassis";
         msg.mode = static_cast<std::uint8_t>(mode);
         msg.yaw = state.yaw;
         msg.linear_x_reference = state.reference.vx;
         msg.linear_y_reference = state.reference.vy;
         msg.angular_z_reference = state.reference.wz;
-        status_publisher_->publish(msg);
+        status_realtime_publisher_->unlockAndPublish();
     }
 
     void reset_internal_state() {
@@ -322,8 +328,9 @@ private:
     Mode last_mode_ = Mode::raw;
     rmgo_core::pid::PidCalculator follow_pid_;
     std::string status_topic_ = "/chassis/status";
-    rclcpp_lifecycle::LifecyclePublisher<rmgo_msg::msg::ChassisStatus>::SharedPtr
-        status_publisher_;
+    rclcpp_lifecycle::LifecyclePublisher<rmgo_msg::msg::ChassisStatus>::SharedPtr status_publisher_;
+    using StatusRealtimePublisher = realtime_tools::RealtimePublisher<rmgo_msg::msg::ChassisStatus>;
+    std::unique_ptr<StatusRealtimePublisher> status_realtime_publisher_;
     std::shared_ptr<::chassis_controller::ParamListener> param_listener_;
     ::chassis_controller::Params params_;
 };

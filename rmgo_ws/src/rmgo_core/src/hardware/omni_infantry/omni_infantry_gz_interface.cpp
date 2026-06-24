@@ -426,15 +426,15 @@ private:
         return joint == joint_interfaces_.end() ? nullptr : &*joint;
     }
 
-    const JointCommandInterface*
-        find_joint_command_interface(const JointInterface& joint, std::string_view name) const {
+    static const JointCommandInterface*
+        find_joint_command_interface(const JointInterface& joint, std::string_view name) {
         const auto command_interface = std::find_if(
             joint.command_interfaces.begin(), joint.command_interfaces.end(),
             [&](const JointCommandInterface& candidate) { return candidate.name == name; });
         return command_interface == joint.command_interfaces.end() ? nullptr : &*command_interface;
     }
 
-    double joint_state_value(const JointInterface& joint, std::string_view name) const {
+    static double joint_state_value(const JointInterface& joint, std::string_view name) {
         const auto state_interface = std::find_if(
             joint.state_interfaces.begin(), joint.state_interfaces.end(),
             [&](const JointStateInterface& candidate) { return candidate.name == name; });

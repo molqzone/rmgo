@@ -12,9 +12,7 @@ class Watchdog {
 public:
     using clock = std::chrono::steady_clock;
 
-    void disarm() noexcept {
-        state_.store(0, std::memory_order_release);
-    }
+    void disarm() noexcept { state_.store(0, std::memory_order_release); }
 
     void reset(clock::time_point now, clock::duration timeout) noexcept {
         const auto deadline = to_milliseconds(now + timeout);
@@ -43,8 +41,7 @@ public:
             }
             const auto reported_state = state | reported_mask;
             if (state_.compare_exchange_weak(
-                    state, reported_state, std::memory_order_acq_rel,
-                    std::memory_order_acquire)) {
+                    state, reported_state, std::memory_order_acq_rel, std::memory_order_acquire)) {
                 return true;
             }
         }
@@ -54,14 +51,14 @@ private:
     static constexpr std::uint64_t reported_mask = 1;
     static constexpr std::uint64_t generation_shift = 1;
     static constexpr std::uint64_t generation_bits = 16;
-    static constexpr std::uint64_t generation_mask =
-        ((std::uint64_t{1} << generation_bits) - 1U) << generation_shift;
+    static constexpr std::uint64_t generation_mask = ((std::uint64_t{1} << generation_bits) - 1U)
+                                                  << generation_shift;
     static constexpr std::uint64_t deadline_shift = generation_shift + generation_bits;
     static constexpr std::uint64_t deadline_max =
         std::numeric_limits<std::uint64_t>::max() >> deadline_shift;
 
-    static std::uint64_t pack_state(
-        std::uint64_t deadline, std::uint64_t generation, bool reported) noexcept {
+    static std::uint64_t
+        pack_state(std::uint64_t deadline, std::uint64_t generation, bool reported) noexcept {
         if (deadline == 0) {
             return 0;
         }
@@ -82,14 +79,11 @@ private:
         return (unpack_generation(state) + 1U) & ((std::uint64_t{1} << generation_bits) - 1U);
     }
 
-    static bool reported(std::uint64_t state) noexcept {
-        return (state & reported_mask) != 0;
-    }
+    static bool reported(std::uint64_t state) noexcept { return (state & reported_mask) != 0; }
 
     static std::uint64_t to_milliseconds(clock::time_point time) noexcept {
         const auto milliseconds =
-            std::chrono::duration_cast<std::chrono::milliseconds>(time.time_since_epoch())
-                .count();
+            std::chrono::duration_cast<std::chrono::milliseconds>(time.time_since_epoch()).count();
         if (milliseconds <= 0) {
             return 0;
         }

@@ -222,9 +222,7 @@ bool Ui::predict_try_assign_remote_id(
     return remote_shape_allocator_->predict_try_assign_id(shape, existence_confidence);
 }
 
-void Ui::enable_remote_swapping(Shape& shape) {
-    remote_shape_allocator_->enable_swapping(shape);
-}
+void Ui::enable_remote_swapping(Shape& shape) { remote_shape_allocator_->enable_swapping(shape); }
 
 void Ui::disable_remote_swapping(Shape& shape) noexcept {
     remote_shape_allocator_->disable_swapping(shape);

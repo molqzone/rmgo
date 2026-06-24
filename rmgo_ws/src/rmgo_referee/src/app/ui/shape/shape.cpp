@@ -43,8 +43,8 @@ std::uint32_t
          | ((static_cast<std::uint32_t>(end_y) & 0x07FFU) << 21U);
 }
 
-std::uint32_t
-    pack_radius_xy_detail_cde(Color color, std::uint16_t radius_x, std::uint16_t radius_y) noexcept {
+std::uint32_t pack_radius_xy_detail_cde(
+    Color color, std::uint16_t radius_x, std::uint16_t radius_y) noexcept {
     return (static_cast<std::uint32_t>(color) & 0x00FFU)
          | ((static_cast<std::uint32_t>(radius_x) & 0x07FFU) << 10U)
          | ((static_cast<std::uint32_t>(radius_y) & 0x07FFU) << 21U);
@@ -579,7 +579,7 @@ void Float::write_description(
 
 Text::Text(
     Ui& interaction_ui, Color color, std::uint16_t font_size, std::uint16_t width, std::uint16_t x,
-    std::uint16_t y, std::string content, bool visible)
+    std::uint16_t y, std::string_view content, bool visible)
     : Shape(interaction_ui, color, 0, width)
     , font_size_(font_size) {
     set_xy(x, y);

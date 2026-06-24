@@ -78,8 +78,7 @@ struct fast_tf::Joint<rmgo_description::YawLink> : fast_tf::ModificationTrackabl
 
     auto get_transform() const {
         Eigen::Isometry3d transform = Eigen::Isometry3d::Identity();
-        transform.translation() =
-            Eigen::Vector3d{0.0, 0.0, rmgo_description::gimbal_center_height};
+        transform.translation() = Eigen::Vector3d{0.0, 0.0, rmgo_description::gimbal_center_height};
         transform.linear() = Eigen::AngleAxisd{angle_, Eigen::Vector3d::UnitZ()}.matrix();
         return transform;
     }

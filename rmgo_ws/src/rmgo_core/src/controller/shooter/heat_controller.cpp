@@ -61,13 +61,12 @@ public:
                 get_node()->create_subscription<rmgo_msg::msg::GameRobotStatus>(
                     game_robot_status_topic_, rclcpp::SystemDefaultsQoS(),
                     [this](const rmgo_msg::msg::GameRobotStatus& msg) {
-                        robot_status_buffer_.writeFromNonRT(
-                            BufferedRobotStatus{
-                                .cooling = static_cast<double>(msg.shooter_cooling),
-                                .heat_limit = static_cast<double>(msg.shooter_heat_limit),
-                                .stamp = steady_clock_.now(),
-                                .valid = true,
-                            });
+                        robot_status_buffer_.writeFromNonRT(BufferedRobotStatus{
+                            .cooling = static_cast<double>(msg.shooter_cooling),
+                            .heat_limit = static_cast<double>(msg.shooter_heat_limit),
+                            .stamp = steady_clock_.now(),
+                            .valid = true,
+                        });
                     });
         }
         reset();
@@ -100,8 +99,7 @@ public:
         const rclcpp::Time& /*time*/, const rclcpp::Duration& period) override {
         const auto robot = *robot_status_buffer_.readFromRT();
         const bool robot_status_fresh = is_fresh(robot, steady_clock_.now());
-        const double cooling =
-            robot_status_fresh ? robot.cooling : params_.safety_shooter_cooling;
+        const double cooling = robot_status_fresh ? robot.cooling : params_.safety_shooter_cooling;
         const double heat_limit =
             robot_status_fresh ? robot.heat_limit : params_.safety_shooter_heat_limit;
         heat_ = std::max(0.0, heat_ - std::max(0.0, cooling) * std::max(0.0, period.seconds()));
