@@ -92,7 +92,7 @@ public:
         }
 
         const auto sender_guard = make_tx_sender_guard();
-        if (!accepting_tx_frames_.load(std::memory_order_acquire)) {
+        if (!accepting_tx_frames_.load(std::memory_order_seq_cst)) {
             return RefereeTransferResult::Inactive;
         }
 
@@ -179,7 +179,7 @@ private:
     public:
         explicit TxSenderGuard(RefereeSerialTransport& transport) noexcept
             : transport_(&transport) {
-            transport_->tx_active_senders_.fetch_add(1, std::memory_order_acq_rel);
+            transport_->tx_active_senders_.fetch_add(1, std::memory_order_seq_cst);
         }
 
         TxSenderGuard(const TxSenderGuard&) = delete;
@@ -255,7 +255,7 @@ private:
     };
 
     void stop_locked() {
-        accepting_tx_frames_.store(false, std::memory_order_release);
+        accepting_tx_frames_.store(false, std::memory_order_seq_cst);
         wait_for_tx_senders();
         active_.store(false, std::memory_order_release);
         if (rx_thread_.joinable()) {
@@ -392,7 +392,7 @@ private:
 
     void mark_fault(std::string message) {
         set_diagnostic(DiagnosticLevel::Error, std::move(message));
-        accepting_tx_frames_.store(false, std::memory_order_release);
+        accepting_tx_frames_.store(false, std::memory_order_seq_cst);
         wait_for_tx_senders();
         active_.store(false, std::memory_order_release);
         tx_queue_size_.notify_all();
@@ -494,10 +494,10 @@ private:
     }
 
     void wait_for_tx_senders() noexcept {
-        auto senders = tx_active_senders_.load(std::memory_order_acquire);
+        auto senders = tx_active_senders_.load(std::memory_order_seq_cst);
         while (senders != 0) {
             tx_active_senders_.wait(senders, std::memory_order_acquire);
-            senders = tx_active_senders_.load(std::memory_order_acquire);
+            senders = tx_active_senders_.load(std::memory_order_seq_cst);
         }
     }
 
