@@ -5,6 +5,9 @@ controller_manager:
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
+    wheel_velocity_pid_controller:
+      type: rmgo_core/WheelVelocityPidController
+
     omni_wheel_controller:
       type: rmgo_core/OmniWheelController
 
@@ -75,19 +78,17 @@ chassis_power_controller:
 
 omni_wheel_controller:
   ros__parameters:
+    target_controller_name: wheel_velocity_pid_controller
     wheel_joints:
       - left_front_wheel_joint
       - left_back_wheel_joint
       - right_back_wheel_joint
       - right_front_wheel_joint
-    command_interface_name: velocity
     wheel_state_interface_name: velocity
     wheel_radius: 0.07
     chassis_radius_x: 0.15897
     chassis_radius_y: 0.15897
     max_wheel_velocity: 40.0
-
-    full_speed_power_limit: 95.0
     linear_x_kp: 0.0
     linear_x_ki: 0.0
     linear_x_kd: 0.0
@@ -97,6 +98,25 @@ omni_wheel_controller:
     angular_z_kp: 0.0
     angular_z_ki: 0.0
     angular_z_kd: 0.0
+
+wheel_velocity_pid_controller:
+  ros__parameters:
+    wheel_joints:
+      - left_front_wheel_joint
+      - left_back_wheel_joint
+      - right_back_wheel_joint
+      - right_front_wheel_joint
+    command_interface_name: effort
+    wheel_state_interface_name: velocity
+    max_wheel_effort: 20.0
+    wheel_velocity_kp: 0.5
+    wheel_velocity_ki: 0.0
+    wheel_velocity_kd: 0.0
+    wheel_velocity_feedforward: 0.0
+
+    vel_coeff: 0.0048
+    effort_coeff: 12.0
+    power_offset: 0.0
 
 teleop_remote_controller:
   ros__parameters:

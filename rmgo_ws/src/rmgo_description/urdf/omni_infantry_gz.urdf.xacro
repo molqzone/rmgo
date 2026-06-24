@@ -326,22 +326,22 @@
     </hardware>
 
     <joint name="left_front_wheel_joint">
-      <command_interface name="velocity"/>
+      <command_interface name="effort"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
     <joint name="left_back_wheel_joint">
-      <command_interface name="velocity"/>
+      <command_interface name="effort"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
     <joint name="right_back_wheel_joint">
-      <command_interface name="velocity"/>
+      <command_interface name="effort"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
     <joint name="right_front_wheel_joint">
-      <command_interface name="velocity"/>
+      <command_interface name="effort"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>

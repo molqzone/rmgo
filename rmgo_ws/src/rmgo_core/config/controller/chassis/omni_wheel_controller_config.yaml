@@ -1,14 +1,14 @@
 omni_wheel_controller:
+  target_controller_name:
+    type: string
+    description: "Wheel velocity PID controller receiving wheel velocity references."
+    validation:
+      not_empty<>: []
   wheel_joints:
     type: string_array
     description: "Wheel joints ordered as left-front, left-back, right-back, right-front."
     validation:
       fixed_size<>: 4
-  command_interface_name:
-    type: string
-    description: "Wheel command interface."
-    validation:
-      not_empty<>: []
   wheel_state_interface_name:
     type: string
     description: "Wheel state interface used for chassis velocity feedback."
@@ -32,11 +32,6 @@ omni_wheel_controller:
   max_wheel_velocity:
     type: double
     description: "Maximum absolute wheel velocity command. Non-positive disables saturation."
-  full_speed_power_limit:
-    type: double
-    description: "Power limit at which wheel commands are fully available."
-    validation:
-      gt<>: [0.0]
   linear_x_kp:
     type: double
     description: "Base-link x velocity proportional gain."
