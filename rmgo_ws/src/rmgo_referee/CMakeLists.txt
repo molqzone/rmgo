@@ -12,6 +12,7 @@ find_package(diagnostic_msgs REQUIRED)
 find_package(diagnostic_updater REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
+find_package(realtime_tools REQUIRED)
 find_package(rmgo_msg REQUIRED)
 find_package(rmgo_utility REQUIRED)
 
@@ -31,6 +32,7 @@ ament_target_dependencies(
   diagnostic_updater
   rclcpp
   rclcpp_components
+  realtime_tools
   rmgo_msg
   rmgo_utility
 )

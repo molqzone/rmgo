@@ -5,7 +5,6 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
-#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -27,9 +26,10 @@
 #include <utility>
 #include <vector>
 
+#include <realtime_tools/lock_free_queue.hpp>
+
 #include "command/endpoint.hpp"
 #include "frame.hpp"
-#include "rmgo_utility/utility/ring_buffer.hpp"
 
 namespace rmgo_referee {
 
@@ -65,8 +65,8 @@ public:
         , rx_buffer_size_(rx_buffer_size)
         , on_frame_(std::move(on_frame))
         , tx_queue_(
-              std::make_unique<rmgo_utility::utility::RingBuffer<TxFrame>>(
-                  std::max(tx_queue_capacity, 1))) {}
+              std::make_unique<TxQueue>(static_cast<std::size_t>(std::max(tx_queue_capacity, 1)))) {
+    }
 
     ~RefereeSerialTransport() {
         const std::scoped_lock lock{transport_mutex_};
@@ -79,29 +79,35 @@ public:
 
     RefereeTransferResult
         send_frame(std::uint16_t command_id, std::span<const std::byte> payload) noexcept {
-        auto queued = false;
-        {
-            const std::scoped_lock lock{tx_queue_mutex_};
-            if (!active_.load(std::memory_order_acquire)) {
-                return RefereeTransferResult::Inactive;
-            }
-            if (command_id == 0 || payload.size() > max_referee_payload_size) {
-                return RefereeTransferResult::InvalidFrame;
-            }
-
-            auto frame = TxFrame{
-                .command_id = command_id,
-                .payload_size = static_cast<std::uint16_t>(payload.size()),
-                .payload = {},
-            };
-            std::copy(payload.begin(), payload.end(), frame.payload.begin());
-            queued = tx_queue_->push_back(std::move(frame));
+        const auto producer_guard = make_tx_producer_guard();
+        if (!producer_guard.has_value()) {
+            return RefereeTransferResult::Failed;
         }
-        if (!queued) {
+
+        if (!accepting_tx_frames_.load(std::memory_order_acquire)) {
+            return RefereeTransferResult::Inactive;
+        }
+        if (command_id == 0 || payload.size() > max_referee_payload_size) {
+            return RefereeTransferResult::InvalidFrame;
+        }
+
+        const auto sender_guard = make_tx_sender_guard();
+        if (!accepting_tx_frames_.load(std::memory_order_acquire)) {
+            return RefereeTransferResult::Inactive;
+        }
+
+        auto frame = TxFrame{
+            .command_id = command_id,
+            .payload_size = static_cast<std::uint16_t>(payload.size()),
+            .payload = {},
+        };
+        std::copy(payload.begin(), payload.end(), frame.payload.begin());
+        if (!tx_queue_->push(frame)) {
             set_diagnostic(DiagnosticLevel::Warn, "Referee serial TX queue full");
             return RefereeTransferResult::QueueFull;
         }
-        tx_queue_ready_.notify_one();
+        tx_queue_size_.fetch_add(1, std::memory_order_release);
+        tx_queue_size_.notify_one();
         return RefereeTransferResult::Accepted;
     }
 
@@ -143,10 +149,9 @@ public:
             snapshot.tx_thread_running = tx_thread_.joinable();
         }
         {
-            const std::scoped_lock lock{tx_queue_mutex_};
             snapshot.active = active_.load(std::memory_order_acquire);
-            snapshot.tx_queue_readable = tx_queue_->readable();
-            snapshot.tx_queue_capacity = tx_queue_->max_size();
+            snapshot.tx_queue_readable = tx_queue_size_.load(std::memory_order_acquire);
+            snapshot.tx_queue_capacity = tx_queue_->capacity();
         }
         return snapshot;
     }
@@ -167,19 +172,99 @@ private:
         std::uint16_t payload_size = 0;
         std::array<std::byte, max_referee_payload_size> payload{};
     };
+    // TX queue is SPSC: send_frame() must be called by a single producer path.
+    // The current producer is UiStateAdapter::update(), serialized by ui_mutex_.
+    using TxQueue = realtime_tools::LockFreeSPSCQueue<TxFrame>;
+    class TxSenderGuard {
+    public:
+        explicit TxSenderGuard(RefereeSerialTransport& transport) noexcept
+            : transport_(&transport) {
+            transport_->tx_active_senders_.fetch_add(1, std::memory_order_acq_rel);
+        }
+
+        TxSenderGuard(const TxSenderGuard&) = delete;
+        TxSenderGuard& operator=(const TxSenderGuard&) = delete;
+
+        TxSenderGuard(TxSenderGuard&& other) noexcept
+            : transport_(std::exchange(other.transport_, nullptr)) {}
+
+        TxSenderGuard& operator=(TxSenderGuard&& other) noexcept {
+            if (this != &other) {
+                release();
+                transport_ = std::exchange(other.transport_, nullptr);
+            }
+            return *this;
+        }
+
+        ~TxSenderGuard() { release(); }
+
+    private:
+        void release() noexcept {
+            if (transport_ == nullptr) {
+                return;
+            }
+            if (transport_->tx_active_senders_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                transport_->tx_active_senders_.notify_all();
+            }
+            transport_ = nullptr;
+        }
+
+        RefereeSerialTransport* transport_;
+    };
+
+    class TxProducerGuard {
+    public:
+        explicit TxProducerGuard(RefereeSerialTransport& transport) noexcept
+            : transport_(&transport) {
+#ifndef NDEBUG
+            if (transport_->tx_producer_busy_.test_and_set(std::memory_order_acquire)) {
+                transport_ = nullptr;
+            }
+#endif
+        }
+
+        TxProducerGuard(const TxProducerGuard&) = delete;
+        TxProducerGuard& operator=(const TxProducerGuard&) = delete;
+
+        TxProducerGuard(TxProducerGuard&& other) noexcept
+            : transport_(std::exchange(other.transport_, nullptr)) {}
+
+        TxProducerGuard& operator=(TxProducerGuard&& other) noexcept {
+            if (this != &other) {
+                release();
+                transport_ = std::exchange(other.transport_, nullptr);
+            }
+            return *this;
+        }
+
+        ~TxProducerGuard() { release(); }
+
+        [[nodiscard]] bool has_value() const noexcept { return transport_ != nullptr; }
+
+    private:
+        void release() noexcept {
+#ifndef NDEBUG
+            if (transport_ != nullptr) {
+                transport_->tx_producer_busy_.clear(std::memory_order_release);
+            }
+#endif
+            transport_ = nullptr;
+        }
+
+        RefereeSerialTransport* transport_;
+    };
 
     void stop_locked() {
-        {
-            const std::scoped_lock lock{tx_queue_mutex_};
-            active_.store(false, std::memory_order_release);
-        }
-        tx_queue_ready_.notify_all();
+        accepting_tx_frames_.store(false, std::memory_order_release);
+        wait_for_tx_senders();
+        active_.store(false, std::memory_order_release);
         if (rx_thread_.joinable()) {
             rx_thread_.request_stop();
             rx_thread_ = {};
         }
         if (tx_thread_.joinable()) {
             tx_thread_.request_stop();
+            tx_queue_size_.notify_all();
             tx_thread_ = {};
         }
     }
@@ -295,11 +380,9 @@ private:
         }
 
         parser_.reset();
-        {
-            const std::scoped_lock lock{tx_queue_mutex_};
-            tx_queue_->clear();
-            active_.store(true, std::memory_order_release);
-        }
+        clear_tx_queue();
+        active_.store(true, std::memory_order_release);
+        accepting_tx_frames_.store(true, std::memory_order_release);
         const int fd = serial_fd_;
         rx_thread_ =
             std::jthread{[this, fd](std::stop_token stop_token) { rx_loop(stop_token, fd); }};
@@ -309,11 +392,10 @@ private:
 
     void mark_fault(std::string message) {
         set_diagnostic(DiagnosticLevel::Error, std::move(message));
-        {
-            const std::scoped_lock lock{tx_queue_mutex_};
-            active_.store(false, std::memory_order_release);
-        }
-        tx_queue_ready_.notify_all();
+        accepting_tx_frames_.store(false, std::memory_order_release);
+        wait_for_tx_senders();
+        active_.store(false, std::memory_order_release);
+        tx_queue_size_.notify_all();
         faulted_.store(true, std::memory_order_release);
     }
 
@@ -372,19 +454,19 @@ private:
         auto tx_frame = TxFrame{};
         auto packed = std::array<std::byte, max_referee_frame_size>{};
         while (!stop_token.stop_requested()) {
-            {
-                std::unique_lock lock{tx_queue_mutex_};
-                tx_queue_ready_.wait(lock, stop_token, [this] {
-                    return !active_.load(std::memory_order_acquire) || tx_queue_->readable() > 0;
-                });
-                if (stop_token.stop_requested() || !active_.load(std::memory_order_acquire)) {
-                    return;
-                }
-                if (!tx_queue_->pop_front(
-                        [&](TxFrame&& frame) noexcept { tx_frame = std::move(frame); })) {
-                    continue;
-                }
+            auto queue_size = tx_queue_size_.load(std::memory_order_acquire);
+            while (!stop_token.stop_requested() && active_.load(std::memory_order_acquire)
+                   && queue_size == 0) {
+                tx_queue_size_.wait(0, std::memory_order_acquire);
+                queue_size = tx_queue_size_.load(std::memory_order_acquire);
             }
+            if (stop_token.stop_requested() || !active_.load(std::memory_order_acquire)) {
+                return;
+            }
+            if (!tx_queue_->pop(tx_frame)) {
+                continue;
+            }
+            tx_queue_size_.fetch_sub(1, std::memory_order_release);
 
             const auto payload =
                 std::span<const std::byte>{tx_frame.payload}.first(tx_frame.payload_size);
@@ -396,6 +478,26 @@ private:
                 mark_fault(written.error());
                 return;
             }
+        }
+    }
+
+    void clear_tx_queue() {
+        auto discarded = TxFrame{};
+        while (tx_queue_->pop(discarded)) {}
+        tx_queue_size_.store(0, std::memory_order_release);
+    }
+
+    [[nodiscard]] TxSenderGuard make_tx_sender_guard() noexcept { return TxSenderGuard{*this}; }
+
+    [[nodiscard]] TxProducerGuard make_tx_producer_guard() noexcept {
+        return TxProducerGuard{*this};
+    }
+
+    void wait_for_tx_senders() noexcept {
+        auto senders = tx_active_senders_.load(std::memory_order_acquire);
+        while (senders != 0) {
+            tx_active_senders_.wait(senders, std::memory_order_acquire);
+            senders = tx_active_senders_.load(std::memory_order_acquire);
         }
     }
 
@@ -474,12 +576,16 @@ private:
     mutable std::mutex transport_mutex_;
     std::chrono::steady_clock::time_point last_open_attempt_;
     RefereeFrameParser parser_;
-    mutable std::mutex tx_queue_mutex_;
-    std::condition_variable_any tx_queue_ready_;
-    std::unique_ptr<rmgo_utility::utility::RingBuffer<TxFrame>> tx_queue_;
+    std::unique_ptr<TxQueue> tx_queue_;
+    std::atomic_size_t tx_queue_size_{0};
+    std::atomic_size_t tx_active_senders_{0};
+#ifndef NDEBUG
+    std::atomic_flag tx_producer_busy_ = ATOMIC_FLAG_INIT;
+#endif
     std::jthread rx_thread_;
     std::jthread tx_thread_;
     std::atomic_bool active_{false};
+    std::atomic_bool accepting_tx_frames_{false};
     std::atomic_bool faulted_{false};
     std::uint8_t next_tx_sequence_ = 0;
 };
