@@ -8,12 +8,12 @@ wheel_velocity_pid_controller:
     type: string
     description: "Wheel command interface written by the PID controller."
     validation:
-      not_empty<>: []
+      one_of<>: [["effort"]]
   wheel_state_interface_name:
     type: string
     description: "Wheel state interface used as velocity feedback."
     validation:
-      not_empty<>: []
+      one_of<>: [["velocity"]]
   max_wheel_effort:
     type: double
     description: "Maximum absolute wheel effort command."
