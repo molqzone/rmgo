@@ -144,7 +144,7 @@ public:
         {
             const std::scoped_lock lock{transport_mutex_};
             snapshot.device = device_;
-            snapshot.serial_open = serial_fd_ != invalid_fd;
+            snapshot.serial_open = serial_is_open();
             snapshot.rx_thread_running = rx_thread_.joinable();
             snapshot.tx_thread_running = tx_thread_.joinable();
         }
@@ -331,7 +331,7 @@ private:
     }
 
     bool try_open_serial() {
-        if (serial_fd_ != invalid_fd) {
+        if (serial_is_open()) {
             return true;
         }
 
@@ -367,15 +367,17 @@ private:
         return {};
     }
 
+    [[nodiscard]] bool serial_is_open() const noexcept { return serial_fd_ != invalid_fd; }
+
     void close_serial() noexcept {
-        if (serial_fd_ != invalid_fd) {
+        if (serial_is_open()) {
             ::close(serial_fd_);
             serial_fd_ = invalid_fd;
         }
     }
 
     void start() {
-        if (serial_fd_ == invalid_fd || rx_thread_.joinable() || tx_thread_.joinable()) {
+        if (!serial_is_open() || rx_thread_.joinable() || tx_thread_.joinable()) {
             return;
         }
 
