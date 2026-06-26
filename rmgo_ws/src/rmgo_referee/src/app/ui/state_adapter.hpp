@@ -4,7 +4,6 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
-#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -42,8 +41,10 @@ public:
         , status_(status)
         , endpoint_(endpoint)
         , config_(std::move(config)) {
+        if (!activate_profile()) {
+            return;
+        }
         create_subscribers();
-        activate_profile();
         create_timer();
     }
 
@@ -57,6 +58,8 @@ public:
 
     UiStateAdapter(const UiStateAdapter&) = delete;
     UiStateAdapter& operator=(const UiStateAdapter&) = delete;
+
+    bool active() const noexcept { return profile_ != nullptr; }
 
 private:
     using ChassisStatus = rmgo_msg::msg::ChassisStatus;
@@ -100,13 +103,13 @@ private:
             [this] { update(); });
     }
 
-    void activate_profile() {
+    bool activate_profile() {
         profile_ = ui::make_ui_profile(config_.profile_name, ui_);
         if (profile_ == nullptr) {
-            throw std::invalid_argument(
-                "Unknown referee UI profile '" + config_.profile_name + "'");
+            return false;
         }
         profile_->on_activate();
+        return true;
     }
 
     void deactivate_profile() noexcept {

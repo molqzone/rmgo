@@ -2,9 +2,9 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <memory>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -18,6 +18,7 @@
 #include "rmgo_msg/msg/game_status.hpp"
 #include "rmgo_msg/msg/power_heat_data.hpp"
 #include "rmgo_msg/msg/referee_status.hpp"
+#include "rmgo_utility/node_mixin.hpp"
 #include "serial.hpp"
 #include "status/status.hpp"
 #include "translator.hpp"
@@ -48,14 +49,20 @@ private:
 
 } // namespace
 
-class RefereeNode final : public rclcpp::Node {
+class RefereeNode final
+    : public rclcpp::Node
+    , public rmgo_utility::NodeMixin {
 public:
     explicit RefereeNode(const rclcpp::NodeOptions& options)
         : rclcpp::Node("referee", options)
         , diagnostic_updater_(this) {
-        declare_parameters();
-        create_diagnostics();
         status_.reset();
+        const auto parameters_valid = declare_parameters();
+        create_diagnostics();
+        if (!parameters_valid) {
+            logging::error("Referee node disabled because configuration is invalid");
+            return;
+        }
         create_publishers();
         create_referee_pipeline();
         create_ui_pipeline();
@@ -70,6 +77,9 @@ public:
         transport_.reset();
     }
 
+    rclcpp::Node* get_node() noexcept { return this; }
+    const rclcpp::Node* get_node() const noexcept { return this; }
+
 private:
     using RefereeStatus = rmgo_msg::msg::RefereeStatus;
     using GameStatus = rmgo_msg::msg::GameStatus;
@@ -80,77 +90,89 @@ private:
     template <typename Message>
     using Publisher = typename rclcpp::Publisher<Message>::SharedPtr;
 
-    void declare_parameters() {
-        device_ = declare_required_parameter<std::string>("device");
-        rx_buffer_size_ = declare_required_parameter<int>("rx_buffer_size");
-        tx_queue_capacity_ = declare_required_parameter<int>("tx_queue_capacity");
-        online_timeout_ = declare_required_parameter<double>("online_timeout");
-        status_topic_ = declare_required_parameter<std::string>("status_topic");
-        game_status_topic_ = declare_required_parameter<std::string>("game_status_topic");
-        game_robot_status_topic_ =
-            declare_required_parameter<std::string>("game_robot_status_topic");
-        power_heat_data_topic_ = declare_required_parameter<std::string>("power_heat_data_topic");
-        chassis_status_topic_ = declare_required_parameter<std::string>("chassis_status_topic");
-        gimbal_status_topic_ = declare_required_parameter<std::string>("gimbal_status_topic");
-        shooter_status_topic_ = declare_required_parameter<std::string>("shooter_status_topic");
-        remote_status_topic_ = declare_required_parameter<std::string>("remote_status_topic");
-        target_status_topic_ = declare_required_parameter<std::string>("target_status_topic");
-        capacitor_status_topic_ = declare_required_parameter<std::string>("capacitor_status_topic");
-        profile_name_ = declare_required_parameter<std::string>("profile");
-        publish_period_ =
-            std::chrono::duration<double>{declare_required_parameter<double>("publish_period")};
-        ui_period_ = std::chrono::duration<double>{declare_required_parameter<double>("ui_period")};
-        transport_watchdog_period_ = std::chrono::duration<double>{
-            declare_required_parameter<double>("transport_watchdog_period")};
+    bool declare_parameters() {
+        auto valid = true;
+        valid &= declare_required_parameter("device", device_);
+        valid &= declare_required_parameter("rx_buffer_size", rx_buffer_size_);
+        valid &= declare_required_parameter("tx_queue_capacity", tx_queue_capacity_);
+        valid &= declare_required_parameter("online_timeout", online_timeout_);
+        valid &= declare_required_parameter("status_topic", status_topic_);
+        valid &= declare_required_parameter("game_status_topic", game_status_topic_);
+        valid &= declare_required_parameter("game_robot_status_topic", game_robot_status_topic_);
+        valid &= declare_required_parameter("power_heat_data_topic", power_heat_data_topic_);
+        valid &= declare_required_parameter("chassis_status_topic", chassis_status_topic_);
+        valid &= declare_required_parameter("gimbal_status_topic", gimbal_status_topic_);
+        valid &= declare_required_parameter("shooter_status_topic", shooter_status_topic_);
+        valid &= declare_required_parameter("remote_status_topic", remote_status_topic_);
+        valid &= declare_required_parameter("target_status_topic", target_status_topic_);
+        valid &= declare_required_parameter("capacitor_status_topic", capacitor_status_topic_);
+        valid &= declare_required_parameter("profile", profile_name_);
 
-        validate_parameters();
+        auto publish_period = publish_period_.count();
+        auto ui_period = ui_period_.count();
+        auto transport_watchdog_period = transport_watchdog_period_.count();
+        valid &= declare_required_parameter("publish_period", publish_period);
+        valid &= declare_required_parameter("ui_period", ui_period);
+        valid &= declare_required_parameter("transport_watchdog_period", transport_watchdog_period);
+        publish_period_ = std::chrono::duration<double>{publish_period};
+        ui_period_ = std::chrono::duration<double>{ui_period};
+        transport_watchdog_period_ = std::chrono::duration<double>{transport_watchdog_period};
+
+        return validate_parameters() && valid;
     }
 
     template <typename T>
-    T declare_required_parameter(const std::string& name) {
+    bool declare_required_parameter(const std::string& name, T& output) {
         try {
-            return declare_parameter<T>(name);
+            output = declare_parameter<T>(name);
+            return true;
         } catch (const std::exception& exception) {
-            throw std::invalid_argument(
-                "Missing or invalid required referee parameter '" + name
-                + "': " + exception.what());
+            logging::error(
+                "Missing or invalid required referee parameter '{}': {}", name, exception.what());
+            return false;
         }
     }
 
-    static void require_non_empty(std::string_view name, const std::string& value) {
+    bool require_non_empty(std::string_view name, const std::string& value) {
         if (value.empty()) {
-            throw std::invalid_argument(
-                "Required referee parameter '" + std::string{name} + "' must not be empty");
+            logging::error("Required referee parameter '{}' must not be empty", name);
+            return false;
         }
+        return true;
     }
 
-    void validate_parameters() const {
-        require_non_empty("device", device_);
-        require_non_empty("status_topic", status_topic_);
-        require_non_empty("game_status_topic", game_status_topic_);
-        require_non_empty("game_robot_status_topic", game_robot_status_topic_);
-        require_non_empty("power_heat_data_topic", power_heat_data_topic_);
-        require_non_empty("chassis_status_topic", chassis_status_topic_);
-        require_non_empty("gimbal_status_topic", gimbal_status_topic_);
-        require_non_empty("shooter_status_topic", shooter_status_topic_);
-        require_non_empty("remote_status_topic", remote_status_topic_);
-        require_non_empty("target_status_topic", target_status_topic_);
-        require_non_empty("capacitor_status_topic", capacitor_status_topic_);
-        require_non_empty("profile", profile_name_);
+    bool validate_parameters() {
+        auto valid = true;
+        valid &= require_non_empty("device", device_);
+        valid &= require_non_empty("status_topic", status_topic_);
+        valid &= require_non_empty("game_status_topic", game_status_topic_);
+        valid &= require_non_empty("game_robot_status_topic", game_robot_status_topic_);
+        valid &= require_non_empty("power_heat_data_topic", power_heat_data_topic_);
+        valid &= require_non_empty("chassis_status_topic", chassis_status_topic_);
+        valid &= require_non_empty("gimbal_status_topic", gimbal_status_topic_);
+        valid &= require_non_empty("shooter_status_topic", shooter_status_topic_);
+        valid &= require_non_empty("remote_status_topic", remote_status_topic_);
+        valid &= require_non_empty("target_status_topic", target_status_topic_);
+        valid &= require_non_empty("capacitor_status_topic", capacitor_status_topic_);
+        valid &= require_non_empty("profile", profile_name_);
         if (rx_buffer_size_ <= 0 || tx_queue_capacity_ <= 0) {
-            throw std::invalid_argument("rx_buffer_size and tx_queue_capacity must be positive");
+            logging::error("rx_buffer_size and tx_queue_capacity must be positive");
+            valid = false;
         }
         if (!std::isfinite(online_timeout_) || online_timeout_ < 0.0) {
-            throw std::invalid_argument("online_timeout must be finite and non-negative");
+            logging::error("online_timeout must be finite and non-negative");
+            valid = false;
         }
         if (!std::isfinite(publish_period_.count()) || publish_period_.count() <= 0.0
             || !std::isfinite(ui_period_.count()) || ui_period_.count() <= 0.0
             || !std::isfinite(transport_watchdog_period_.count())
             || transport_watchdog_period_.count() <= 0.0) {
-            throw std::invalid_argument(
+            logging::error(
                 "publish_period, ui_period, and transport_watchdog_period must be finite and "
                 "positive");
+            valid = false;
         }
+        return valid;
     }
 
     static rclcpp::SystemDefaultsQoS default_qos() { return rclcpp::SystemDefaultsQoS{}; }
@@ -193,6 +215,10 @@ private:
                 .online_timeout = online_timeout_,
                 .update_period = ui_period_,
             });
+        if (!ui_state_adapter_->active()) {
+            logging::error("Unknown referee UI profile '{}'", profile_name_);
+            ui_state_adapter_.reset();
+        }
     }
 
     void create_timers() {
@@ -259,16 +285,14 @@ private:
 
     void log_status_safety(const StatusEvents& events) const {
         if (events.game_status) {
-            RCLCPP_INFO(get_logger(), "Referee game status timeout; stage set to unknown");
+            logging::info("Referee game status timeout; stage set to unknown");
         }
         if (events.robot_status) {
-            RCLCPP_ERROR(
-                get_logger(), "Referee robot status timeout; "
-                              "shooter/chassis limits set to safe values");
+            logging::error(
+                "Referee robot status timeout; shooter/chassis limits set to safe values");
         }
         if (events.power_heat) {
-            RCLCPP_ERROR(
-                get_logger(), "Referee power heat data timeout; power state set to safe values");
+            logging::error("Referee power heat data timeout; power state set to safe values");
         }
     }
 
