@@ -1,8 +1,6 @@
 #include <chrono>
-#include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <span>
 
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include <diagnostic_updater/diagnostic_updater.hpp>
@@ -25,29 +23,6 @@
 #include "ui/state_adapter.hpp"
 
 namespace rmgo_referee {
-
-namespace {
-
-class NodeTransferEndpoint final : public TransferEndpoint {
-public:
-    NodeTransferEndpoint(StatusStore& status, std::unique_ptr<SerialTransport>& transport) noexcept
-        : status_(status)
-        , transport_(transport) {}
-
-    std::uint16_t self_robot_id() const noexcept override { return status_.robot_id(); }
-
-    TransferResult
-        send_frame(std::uint16_t command_id, std::span<const std::byte> payload) noexcept override {
-        return transport_ != nullptr ? transport_->send_frame(command_id, payload)
-                                     : TransferResult::Inactive;
-    }
-
-private:
-    StatusStore& status_;
-    std::unique_ptr<SerialTransport>& transport_;
-};
-
-} // namespace
 
 class RefereeNode final
     : public rclcpp_lifecycle::LifecycleNode
@@ -198,7 +173,7 @@ private:
             [this](const Frame& frame) {
                 publish_referee_events(translator_->handle_frame(frame), get_clock()->now());
             });
-        endpoint_ = std::make_shared<NodeTransferEndpoint>(status_, transport_);
+        endpoint_ = std::make_unique<TransferEndpoint>(status_, *transport_);
     }
 
     bool create_ui_pipeline() {
@@ -373,7 +348,7 @@ private:
     StatusStore status_;
     std::unique_ptr<StatusTranslator> translator_;
     std::unique_ptr<SerialTransport> transport_;
-    std::shared_ptr<NodeTransferEndpoint> endpoint_;
+    std::unique_ptr<TransferEndpoint> endpoint_;
     std::unique_ptr<UiStateAdapter> ui_state_adapter_;
     diagnostic_updater::Updater diagnostic_updater_;
     std::chrono::steady_clock::time_point next_diagnostic_update_time_{};

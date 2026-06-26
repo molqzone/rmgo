@@ -28,7 +28,7 @@
 
 #include <realtime_tools/lock_free_queue.hpp>
 
-#include "command/endpoint.hpp"
+#include "command/result.hpp"
 #include "frame.hpp"
 
 namespace rmgo_referee {
@@ -58,7 +58,7 @@ public:
         SerialErrorCode code = SerialErrorCode::EmptyDevicePath;
         int system_error = 0;
         short poll_events = 0;
-        std::string detail;
+        std::string detail{};
 
         [[nodiscard]] std::string message() const {
             switch (code) {
