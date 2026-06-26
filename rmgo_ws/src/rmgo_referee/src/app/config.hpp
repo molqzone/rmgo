@@ -96,7 +96,7 @@ private:
             if (node_.has_parameter(name)) {
                 output = node_.get_parameter(name).get_value<T>();
             } else {
-                output = node_.declare_parameter<T>(name);
+                output = node_.declare_parameter<T>(name, output);
             }
             return true;
         } catch (const std::exception& exception) {

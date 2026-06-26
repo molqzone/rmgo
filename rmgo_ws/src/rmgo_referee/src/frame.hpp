@@ -358,7 +358,7 @@ inline bool decode_referee_frame(const Frame& frame, Callbacks& callbacks) noexc
 }
 
 inline FrameParser::FrameParser(std::size_t max_payload_size)
-    : max_payload_size_(max_payload_size) {
+    : max_payload_size_(std::min(max_payload_size, max_referee_payload_size)) {
     buffer_.reserve(header_size + command_id_size + max_payload_size_ + frame_crc_size);
 }
 
