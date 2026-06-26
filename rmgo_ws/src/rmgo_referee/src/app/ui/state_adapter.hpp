@@ -4,11 +4,11 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
-#include <stdexcept>
 #include <string>
 #include <utility>
 
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp_lifecycle/lifecycle_node.hpp>
 
 #include "app/ui/ui.hpp"
 #include "command/endpoint.hpp"
@@ -37,14 +37,16 @@ public:
     };
 
     UiStateAdapter(
-        rclcpp::Node& node, RefereeStatusStore& status, RefereeTransferEndpoint& endpoint,
+        rclcpp_lifecycle::LifecycleNode& node, StatusStore& status, TransferEndpoint& endpoint,
         Config config)
         : node_(node)
         , status_(status)
         , endpoint_(endpoint)
         , config_(std::move(config)) {
+        if (!activate_profile()) {
+            return;
+        }
         create_subscribers();
-        activate_profile();
         create_timer();
     }
 
@@ -59,6 +61,8 @@ public:
     UiStateAdapter(const UiStateAdapter&) = delete;
     UiStateAdapter& operator=(const UiStateAdapter&) = delete;
 
+    bool active() const noexcept { return profile_ != nullptr; }
+
 private:
     using ChassisStatus = rmgo_msg::msg::ChassisStatus;
     using GimbalStatus = rmgo_msg::msg::GimbalStatus;
@@ -66,7 +70,7 @@ private:
     using RemoteStatus = rmgo_msg::msg::RemoteStatus;
     using TargetStatus = rmgo_msg::msg::TargetStatus;
     using CapacitorStatus = rmgo_msg::msg::CapacitorStatus;
-    using UiState = ui::RefereeUiState;
+    using UiState = ui::UiState;
     using UiProfile = ui::UiProfile;
 
     template <typename Message>
@@ -101,13 +105,13 @@ private:
             [this] { update(); });
     }
 
-    void activate_profile() {
+    bool activate_profile() {
         profile_ = ui::make_ui_profile(config_.profile_name, ui_);
         if (profile_ == nullptr) {
-            throw std::invalid_argument(
-                "Unknown referee UI profile '" + config_.profile_name + "'");
+            return false;
         }
         profile_->on_activate();
+        return true;
     }
 
     void deactivate_profile() noexcept {
@@ -210,22 +214,22 @@ private:
     }
 
     void apply_referee_state(UiState& state) const noexcept {
-        state.online = status_.get(RefereeStatusField::online) > 0.5
-                    && status_.is_fresh(config_.online_timeout);
-        state.robot_id = status_.get(RefereeStatusField::id);
-        state.game_stage = status_.get(RefereeStatusField::game_stage);
-        state.stage_remain_time = status_.get(RefereeStatusField::game_stage_remain_time);
-        state.hp = status_.get(RefereeStatusField::hp);
-        state.max_hp = status_.get(RefereeStatusField::max_hp);
-        state.shooter_cooling = status_.get(RefereeStatusField::shooter_cooling);
-        state.shooter_heat_limit = status_.get(RefereeStatusField::shooter_heat_limit);
-        state.shooter_bullet_allowance = status_.get(RefereeStatusField::shooter_bullet_allowance);
-        state.shooter_1_heat = status_.get(RefereeStatusField::shooter_1_heat);
-        state.shooter_2_heat = status_.get(RefereeStatusField::shooter_2_heat);
-        state.chassis_power_limit = status_.get(RefereeStatusField::chassis_power_limit);
-        state.chassis_power = status_.get(RefereeStatusField::chassis_power);
-        state.chassis_buffer_energy = status_.get(RefereeStatusField::chassis_buffer_energy);
-        state.chassis_output_status = status_.get(RefereeStatusField::chassis_output_status);
+        state.online =
+            status_.get(StatusField::online) > 0.5 && status_.is_fresh(config_.online_timeout);
+        state.robot_id = status_.get(StatusField::id);
+        state.game_stage = status_.get(StatusField::game_stage);
+        state.stage_remain_time = status_.get(StatusField::game_stage_remain_time);
+        state.hp = status_.get(StatusField::hp);
+        state.max_hp = status_.get(StatusField::max_hp);
+        state.shooter_cooling = status_.get(StatusField::shooter_cooling);
+        state.shooter_heat_limit = status_.get(StatusField::shooter_heat_limit);
+        state.shooter_bullet_allowance = status_.get(StatusField::shooter_bullet_allowance);
+        state.shooter_1_heat = status_.get(StatusField::shooter_1_heat);
+        state.shooter_2_heat = status_.get(StatusField::shooter_2_heat);
+        state.chassis_power_limit = status_.get(StatusField::chassis_power_limit);
+        state.chassis_power = status_.get(StatusField::chassis_power);
+        state.chassis_buffer_energy = status_.get(StatusField::chassis_buffer_energy);
+        state.chassis_output_status = status_.get(StatusField::chassis_output_status);
     }
 
     void reset_remote_state_if_needed(const UiState& state) {
@@ -258,9 +262,9 @@ private:
         return state_;
     }
 
-    rclcpp::Node& node_;
-    RefereeStatusStore& status_;
-    RefereeTransferEndpoint& endpoint_;
+    rclcpp_lifecycle::LifecycleNode& node_;
+    StatusStore& status_;
+    TransferEndpoint& endpoint_;
     Config config_;
     ui::Ui ui_;
     std::unique_ptr<UiProfile> profile_;

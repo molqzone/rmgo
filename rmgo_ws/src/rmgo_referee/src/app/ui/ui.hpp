@@ -30,8 +30,8 @@ public:
     Ui(const Ui&) = delete;
     Ui& operator=(const Ui&) = delete;
 
-    std::optional<RefereeTransferResult> update(
-        RefereeTransferEndpoint& endpoint,
+    std::optional<TransferResult> update(
+        TransferEndpoint& endpoint,
         std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
     void set_serial_budget(double bytes_per_second) noexcept;
     void reset_remote_state();
@@ -63,7 +63,7 @@ private:
     double serial_budget_bytes_per_second_ = 3720.0;
 };
 
-struct RefereeUiState {
+struct UiState {
     bool online = false;
     double robot_id = 0.0;
     double game_stage = 0.0;
@@ -118,7 +118,7 @@ public:
 
     virtual void on_activate() = 0;
     virtual void on_deactivate() = 0;
-    virtual void update(const RefereeUiState& state) = 0;
+    virtual void update(const UiState& state) = 0;
 };
 
 std::unique_ptr<UiProfile> make_ui_profile(std::string_view name, Ui& interaction_ui);

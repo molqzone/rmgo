@@ -4,23 +4,27 @@
 #include <cstdint>
 #include <span>
 
+#include "app/serial.hpp"
+#include "command/result.hpp"
+#include "status/status.hpp"
+
 namespace rmgo_referee {
 
-enum class RefereeTransferResult {
-    Accepted,
-    QueueFull,
-    Inactive,
-    InvalidFrame,
-    Failed,
-};
-
-class RefereeTransferEndpoint {
+class TransferEndpoint final {
 public:
-    virtual ~RefereeTransferEndpoint() = default;
+    TransferEndpoint(StatusStore& status, SerialTransport& transport) noexcept
+        : status_(status)
+        , transport_(transport) {}
 
-    virtual std::uint16_t self_robot_id() const noexcept = 0;
-    virtual RefereeTransferResult
-        send_frame(std::uint16_t command_id, std::span<const std::byte> payload) noexcept = 0;
+    std::uint16_t self_robot_id() const noexcept { return status_.robot_id(); }
+    TransferResult
+        send_frame(std::uint16_t command_id, std::span<const std::byte> payload) noexcept {
+        return transport_.send_frame(command_id, payload);
+    }
+
+private:
+    StatusStore& status_;
+    SerialTransport& transport_;
 };
 
 } // namespace rmgo_referee

@@ -170,7 +170,7 @@ public:
 
     void set_visible(bool visible) { set_shapes_visible(shapes(), visible); }
 
-    void update(const RefereeUiState& state) {
+    void update(const UiState& state) {
         const double pitch = std::clamp(state.gimbal_pitch, -0.8, 0.8);
         const double lane_top_y = 630.0 + pitch * 160.0;
         const double lane_inner_top_y = 700.0 + pitch * 140.0;
@@ -227,7 +227,7 @@ public:
 
     void set_visible(bool visible) { set_shapes_visible(shapes(), visible); }
 
-    void update(const RefereeUiState& state) {
+    void update(const UiState& state) {
         const auto chassis = chassis_mode_name(state.chassis_mode);
         chassis_.set_content("CHS " + chassis);
         chassis_.set_color(
@@ -357,7 +357,7 @@ public:
         capacitor_.set_visible(visible);
     }
 
-    void update(const RefereeUiState& state) {
+    void update(const UiState& state) {
         power_.update_load(state.chassis_power, state.chassis_power_limit, "W");
         const double charge_ratio = state.capacitor_online > 0.5
                                       ? state.capacitor_charge_ratio
@@ -384,7 +384,7 @@ public:
         cooling_.set_visible(visible);
     }
 
-    void update(const RefereeUiState& state) {
+    void update(const UiState& state) {
         const double heat = std::max(state.shooter_1_heat, state.shooter_2_heat);
         heat_.update_load(heat, state.shooter_heat_limit, "");
         cooling_.set_content(value_suffix("COOL", state.shooter_cooling, ""));
@@ -402,7 +402,7 @@ public:
 
     void set_visible(bool visible) { hp_.set_visible(visible); }
 
-    void update(const RefereeUiState& state) { hp_.update_remaining(state.hp, state.max_hp, ""); }
+    void update(const UiState& state) { hp_.update_remaining(state.hp, state.max_hp, ""); }
 
 private:
     BarWidget hp_;
@@ -425,7 +425,7 @@ public:
         used_.set_value(0);
     }
 
-    void update(const RefereeUiState& state) {
+    void update(const UiState& state) {
         const auto allowance = std::max(0, round_i32(state.shooter_bullet_allowance));
         if (!last_allowance_.has_value()) {
             last_allowance_ = allowance;
@@ -469,7 +469,7 @@ public:
 
     void set_visible(bool visible) { set_shapes_visible(shapes(), visible); }
 
-    void update(const RefereeUiState& state) {
+    void update(const UiState& state) {
         const auto name = target_name(state.remote_target, state.remote_armor_target);
         target_.set_content("TGT " + name);
         const bool locked = state.target_locked > 0.5;
@@ -499,7 +499,7 @@ public:
 
     void set_visible(bool visible) { active_ = visible; }
 
-    void update(const RefereeUiState& state) {
+    void update(const UiState& state) {
         text_.set_visible(active_ && state.remote_cover_open > 0.5);
     }
 
@@ -518,7 +518,7 @@ public:
 
     void set_visible(bool visible) { text_.set_visible(visible); }
 
-    void update(const RefereeUiState& state) {
+    void update(const UiState& state) {
         const double speed = (std::abs(state.shooter_left_control_velocity)
                               + std::abs(state.shooter_right_control_velocity))
                            * 0.5;
@@ -557,7 +557,7 @@ public:
 
     void on_deactivate() override { set_active(false); }
 
-    void update(const RefereeUiState& state) override {
+    void update(const UiState& state) override {
         const bool was_visible = visible_;
         online_ = state.online;
         apply_visibility();
@@ -621,7 +621,7 @@ class EmptyUiProfile final : public UiProfile {
 public:
     void on_activate() override {}
     void on_deactivate() override {}
-    void update(const RefereeUiState& /*state*/) override {}
+    void update(const UiState& /*state*/) override {}
 };
 
 } // namespace

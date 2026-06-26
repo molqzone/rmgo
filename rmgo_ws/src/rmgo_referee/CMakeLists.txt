@@ -10,8 +10,10 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(diagnostic_updater REQUIRED)
+find_package(lifecycle_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
 find_package(realtime_tools REQUIRED)
 find_package(rmgo_msg REQUIRED)
 find_package(rmgo_utility REQUIRED)
@@ -32,6 +34,7 @@ ament_target_dependencies(
   diagnostic_updater
   rclcpp
   rclcpp_components
+  rclcpp_lifecycle
   realtime_tools
   rmgo_msg
   rmgo_utility
@@ -50,7 +53,7 @@ rclcpp_components_register_nodes(
 add_executable(referee_node src/app/main.cpp)
 target_compile_features(referee_node PUBLIC cxx_std_23)
 target_link_libraries(referee_node referee_node_component)
-ament_target_dependencies(referee_node rclcpp)
+ament_target_dependencies(referee_node lifecycle_msgs rclcpp rclcpp_lifecycle)
 target_include_directories(
   referee_node
   PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>

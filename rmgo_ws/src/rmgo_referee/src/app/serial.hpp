@@ -7,7 +7,6 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <expected>
 #include <fcntl.h>
 #include <format>
@@ -19,6 +18,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <sys/types.h>
 #include <termios.h>
 #include <thread>
@@ -28,18 +28,87 @@
 
 #include <realtime_tools/lock_free_queue.hpp>
 
-#include "command/endpoint.hpp"
+#include "command/result.hpp"
 #include "frame.hpp"
 
 namespace rmgo_referee {
 
-class RefereeSerialTransport final {
+class SerialTransport final {
 public:
     // Called synchronously from the RX thread; keep handlers short and non-blocking.
-    using FrameHandler = std::move_only_function<void(const RefereeFrame&)>;
-    using Result = std::expected<void, std::string>;
-    using FdResult = std::expected<int, std::string>;
-    using ReadResult = std::expected<std::optional<ssize_t>, std::string>;
+    using FrameHandler = std::move_only_function<void(const Frame&)>;
+
+    enum class SerialErrorCode {
+        EmptyDevicePath,
+        OpenDeviceFailed,
+        ReadOptionsFailed,
+        SetBaudrateFailed,
+        ApplyOptionsFailed,
+        ReadPollFailed,
+        ReadPollErrorEvents,
+        ReadFailed,
+        EndOfStream,
+        WritePollFailed,
+        WritePollErrorEvents,
+        WriteFailed,
+        WriteNoProgress,
+    };
+
+    struct SerialError {
+        SerialErrorCode code = SerialErrorCode::EmptyDevicePath;
+        int system_error = 0;
+        short poll_events = 0;
+        std::string detail{};
+
+        [[nodiscard]] std::string message() const {
+            switch (code) {
+            case SerialErrorCode::EmptyDevicePath:
+                return "Referee serial device path is empty";
+            case SerialErrorCode::OpenDeviceFailed:
+                return system_failure(
+                    std::format("Failed to open referee serial device '{}'", detail));
+            case SerialErrorCode::ReadOptionsFailed:
+                return system_failure("Failed to read referee serial options");
+            case SerialErrorCode::SetBaudrateFailed:
+                return system_failure("Failed to set referee serial baudrate");
+            case SerialErrorCode::ApplyOptionsFailed:
+                return system_failure("Failed to apply referee serial options");
+            case SerialErrorCode::ReadPollFailed:
+                return system_failure("Referee serial read poll failed");
+            case SerialErrorCode::ReadPollErrorEvents:
+                return poll_error_message("read");
+            case SerialErrorCode::ReadFailed:
+                return system_failure("Referee serial read failed");
+            case SerialErrorCode::EndOfStream:
+                return "Referee serial read reached end of stream";
+            case SerialErrorCode::WritePollFailed:
+                return system_failure("Referee serial write poll failed");
+            case SerialErrorCode::WritePollErrorEvents:
+                return poll_error_message("write");
+            case SerialErrorCode::WriteFailed:
+                return system_failure("Referee serial write failed");
+            case SerialErrorCode::WriteNoProgress:
+                return "Referee serial write made no progress";
+            }
+            return "Unknown referee serial error";
+        }
+
+    private:
+        [[nodiscard]] std::string system_failure(std::string_view prefix) const {
+            const auto error = std::error_code{system_error, std::generic_category()};
+            return std::format("{}: {}", prefix, error.message());
+        }
+
+        [[nodiscard]] std::string poll_error_message(std::string_view operation) const {
+            return std::format(
+                "Referee serial {} poll reported error events: 0x{:x}", operation,
+                static_cast<unsigned int>(static_cast<unsigned short>(poll_events)));
+        }
+    };
+
+    using Result = std::expected<void, SerialError>;
+    using FdResult = std::expected<int, SerialError>;
+    using ReadResult = std::expected<std::optional<ssize_t>, SerialError>;
 
     enum class DiagnosticLevel {
         Ok,
@@ -59,7 +128,7 @@ public:
         std::size_t tx_queue_capacity = 0;
     };
 
-    RefereeSerialTransport(
+    SerialTransport(
         std::string device, int rx_buffer_size, int tx_queue_capacity, FrameHandler on_frame)
         : device_(std::move(device))
         , rx_buffer_size_(rx_buffer_size)
@@ -68,32 +137,32 @@ public:
               std::make_unique<TxQueue>(static_cast<std::size_t>(std::max(tx_queue_capacity, 1)))) {
     }
 
-    ~RefereeSerialTransport() {
+    ~SerialTransport() {
         const std::scoped_lock lock{transport_mutex_};
         stop_locked();
         close_serial();
     }
 
-    RefereeSerialTransport(const RefereeSerialTransport&) = delete;
-    RefereeSerialTransport& operator=(const RefereeSerialTransport&) = delete;
+    SerialTransport(const SerialTransport&) = delete;
+    SerialTransport& operator=(const SerialTransport&) = delete;
 
-    RefereeTransferResult
+    TransferResult
         send_frame(std::uint16_t command_id, std::span<const std::byte> payload) noexcept {
         const auto producer_guard = make_tx_producer_guard();
         if (!producer_guard.has_value()) {
-            return RefereeTransferResult::Failed;
+            return TransferResult::Failed;
         }
 
         if (!accepting_tx_frames_.load(std::memory_order_acquire)) {
-            return RefereeTransferResult::Inactive;
+            return TransferResult::Inactive;
         }
         if (command_id == 0 || payload.size() > max_referee_payload_size) {
-            return RefereeTransferResult::InvalidFrame;
+            return TransferResult::InvalidFrame;
         }
 
         const auto sender_guard = make_tx_sender_guard();
         if (!accepting_tx_frames_.load(std::memory_order_seq_cst)) {
-            return RefereeTransferResult::Inactive;
+            return TransferResult::Inactive;
         }
 
         auto frame = TxFrame{
@@ -104,11 +173,11 @@ public:
         std::copy(payload.begin(), payload.end(), frame.payload.begin());
         if (!tx_queue_->push(frame)) {
             set_diagnostic(DiagnosticLevel::Warn, "Referee serial TX queue full");
-            return RefereeTransferResult::QueueFull;
+            return TransferResult::QueueFull;
         }
         tx_queue_size_.fetch_add(1, std::memory_order_release);
         tx_queue_size_.notify_one();
-        return RefereeTransferResult::Accepted;
+        return TransferResult::Accepted;
     }
 
     void maintain() {
@@ -144,7 +213,7 @@ public:
         {
             const std::scoped_lock lock{transport_mutex_};
             snapshot.device = device_;
-            snapshot.serial_open = serial_fd_ != invalid_fd;
+            snapshot.serial_open = serial_is_open();
             snapshot.rx_thread_running = rx_thread_.joinable();
             snapshot.tx_thread_running = tx_thread_.joinable();
         }
@@ -177,7 +246,7 @@ private:
     using TxQueue = realtime_tools::LockFreeSPSCQueue<TxFrame>;
     class TxSenderGuard {
     public:
-        explicit TxSenderGuard(RefereeSerialTransport& transport) noexcept
+        explicit TxSenderGuard(SerialTransport& transport) noexcept
             : transport_(&transport) {
             transport_->tx_active_senders_.fetch_add(1, std::memory_order_seq_cst);
         }
@@ -209,12 +278,12 @@ private:
             transport_ = nullptr;
         }
 
-        RefereeSerialTransport* transport_;
+        SerialTransport* transport_;
     };
 
     class TxProducerGuard {
     public:
-        explicit TxProducerGuard(RefereeSerialTransport& transport) noexcept
+        explicit TxProducerGuard(SerialTransport& transport) noexcept
             : transport_(&transport) {
 #ifndef NDEBUG
             if (transport_->tx_producer_busy_.test_and_set(std::memory_order_acquire)) {
@@ -251,7 +320,7 @@ private:
             transport_ = nullptr;
         }
 
-        RefereeSerialTransport* transport_;
+        SerialTransport* transport_;
     };
 
     void stop_locked() {
@@ -271,16 +340,18 @@ private:
 
     static FdResult open_referee_serial_device(std::string_view device) {
         if (device.empty()) {
-            return std::unexpected{"Referee serial device path is empty"};
+            return std::unexpected{SerialError{.code = SerialErrorCode::EmptyDevicePath}};
         }
 
         const auto path = std::string{device};
         const int fd = ::open(path.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
         if (fd == invalid_fd) {
             const int error_code = errno;
-            return std::unexpected{std::format(
-                "Failed to open referee serial device '{}': {}", device,
-                std::strerror(error_code))};
+            return std::unexpected{SerialError{
+                .code = SerialErrorCode::OpenDeviceFailed,
+                .system_error = error_code,
+                .detail = std::string{device},
+            }};
         }
         return fd;
     }
@@ -289,8 +360,10 @@ private:
         auto options = termios{};
         if (::tcgetattr(fd, &options) != 0) {
             const int error_code = errno;
-            return std::unexpected{std::format(
-                "Failed to read referee serial options: {}", std::strerror(error_code))};
+            return std::unexpected{SerialError{
+                .code = SerialErrorCode::ReadOptionsFailed,
+                .system_error = error_code,
+            }};
         }
 
         ::cfmakeraw(&options);
@@ -303,13 +376,17 @@ private:
 
         if (::cfsetispeed(&options, B115200) != 0 || ::cfsetospeed(&options, B115200) != 0) {
             const int error_code = errno;
-            return std::unexpected{std::format(
-                "Failed to set referee serial baudrate: {}", std::strerror(error_code))};
+            return std::unexpected{SerialError{
+                .code = SerialErrorCode::SetBaudrateFailed,
+                .system_error = error_code,
+            }};
         }
         if (::tcsetattr(fd, TCSANOW, &options) != 0) {
             const int error_code = errno;
-            return std::unexpected{std::format(
-                "Failed to apply referee serial options: {}", std::strerror(error_code))};
+            return std::unexpected{SerialError{
+                .code = SerialErrorCode::ApplyOptionsFailed,
+                .system_error = error_code,
+            }};
         }
 
         ::tcflush(fd, TCIOFLUSH);
@@ -331,7 +408,7 @@ private:
     }
 
     bool try_open_serial() {
-        if (serial_fd_ != invalid_fd) {
+        if (serial_is_open()) {
             return true;
         }
 
@@ -343,7 +420,7 @@ private:
         last_open_attempt_ = now;
         const auto opened = open_serial();
         if (!opened.has_value()) {
-            set_diagnostic(DiagnosticLevel::Error, opened.error());
+            set_diagnostic(DiagnosticLevel::Error, opened.error().message());
             return false;
         }
 
@@ -354,28 +431,30 @@ private:
         close_serial();
         const auto fd = open_referee_serial_device(device_);
         if (!fd.has_value()) {
-            return std::unexpected<std::string>{fd.error()};
+            return std::unexpected{fd.error()};
         }
 
         serial_fd_ = *fd;
         const auto configured = configure_referee_serial_device(serial_fd_);
         if (!configured.has_value()) {
-            const auto message = configured.error();
+            const auto error = configured.error();
             close_serial();
-            return std::unexpected<std::string>{message};
+            return std::unexpected{error};
         }
         return {};
     }
 
+    [[nodiscard]] bool serial_is_open() const noexcept { return serial_fd_ != invalid_fd; }
+
     void close_serial() noexcept {
-        if (serial_fd_ != invalid_fd) {
+        if (serial_is_open()) {
             ::close(serial_fd_);
             serial_fd_ = invalid_fd;
         }
     }
 
     void start() {
-        if (serial_fd_ == invalid_fd || rx_thread_.joinable() || tx_thread_.joinable()) {
+        if (!serial_is_open() || rx_thread_.joinable() || tx_thread_.joinable()) {
             return;
         }
 
@@ -390,8 +469,8 @@ private:
             std::jthread{[this, fd](std::stop_token stop_token) { tx_loop(stop_token, fd); }};
     }
 
-    void mark_fault(std::string message) {
-        set_diagnostic(DiagnosticLevel::Error, std::move(message));
+    void mark_fault(const SerialError& error) {
+        set_diagnostic(DiagnosticLevel::Error, error.message());
         accepting_tx_frames_.store(false, std::memory_order_seq_cst);
         wait_for_tx_senders();
         active_.store(false, std::memory_order_release);
@@ -413,15 +492,20 @@ private:
                 if (error_code == EINTR) {
                     continue;
                 }
-                mark_fault(
-                    std::format("Referee serial read poll failed: {}", std::strerror(error_code)));
+                mark_fault(SerialError{
+                    .code = SerialErrorCode::ReadPollFailed,
+                    .system_error = error_code,
+                });
                 return;
             }
             if (ready == 0) {
                 continue;
             }
             if ((poll_fd.revents & poll_error_events) != 0) {
-                mark_fault(format_poll_error("read", poll_fd.revents));
+                mark_fault(SerialError{
+                    .code = SerialErrorCode::ReadPollErrorEvents,
+                    .poll_events = poll_fd.revents,
+                });
                 return;
             }
             if ((poll_fd.revents & POLLIN) == 0) {
@@ -437,7 +521,7 @@ private:
                 continue;
             }
             if (**count == 0) {
-                mark_fault("Referee serial read reached end of stream");
+                mark_fault(SerialError{.code = SerialErrorCode::EndOfStream});
                 return;
             }
 
@@ -508,8 +592,10 @@ private:
             if (error_code == EAGAIN || error_code == EWOULDBLOCK || error_code == EINTR) {
                 return std::optional<ssize_t>{};
             }
-            return std::unexpected{
-                std::format("Referee serial read failed: {}", std::strerror(error_code))};
+            return std::unexpected{SerialError{
+                .code = SerialErrorCode::ReadFailed,
+                .system_error = error_code,
+            }};
         }
         return std::optional<ssize_t>{count};
     }
@@ -529,14 +615,19 @@ private:
                 if (error_code == EINTR) {
                     continue;
                 }
-                return std::unexpected{
-                    std::format("Referee serial write poll failed: {}", std::strerror(error_code))};
+                return std::unexpected{SerialError{
+                    .code = SerialErrorCode::WritePollFailed,
+                    .system_error = error_code,
+                }};
             }
             if (ready == 0) {
                 continue;
             }
             if ((poll_fd.revents & poll_error_events) != 0) {
-                return std::unexpected{format_poll_error("write", poll_fd.revents)};
+                return std::unexpected{SerialError{
+                    .code = SerialErrorCode::WritePollErrorEvents,
+                    .poll_events = poll_fd.revents,
+                }};
             }
             if ((poll_fd.revents & POLLOUT) == 0) {
                 continue;
@@ -549,21 +640,17 @@ private:
                 if (error_code == EAGAIN || error_code == EWOULDBLOCK || error_code == EINTR) {
                     continue;
                 }
-                return std::unexpected{
-                    std::format("Referee serial write failed: {}", std::strerror(error_code))};
+                return std::unexpected{SerialError{
+                    .code = SerialErrorCode::WriteFailed,
+                    .system_error = error_code,
+                }};
             }
             if (count == 0) {
-                return std::unexpected{"Referee serial write made no progress"};
+                return std::unexpected{SerialError{.code = SerialErrorCode::WriteNoProgress}};
             }
             written += static_cast<std::size_t>(count);
         }
         return {};
-    }
-
-    static std::string format_poll_error(std::string_view operation, short revents) {
-        return std::format(
-            "Referee serial {} poll reported error events: 0x{:x}", operation,
-            static_cast<unsigned int>(static_cast<unsigned short>(revents)));
     }
 
     std::string device_;
@@ -575,7 +662,7 @@ private:
     int serial_fd_ = invalid_fd;
     mutable std::mutex transport_mutex_;
     std::chrono::steady_clock::time_point last_open_attempt_;
-    RefereeFrameParser parser_;
+    FrameParser parser_;
     std::unique_ptr<TxQueue> tx_queue_;
     std::atomic_size_t tx_queue_size_{0};
     std::atomic_size_t tx_active_senders_{0};
