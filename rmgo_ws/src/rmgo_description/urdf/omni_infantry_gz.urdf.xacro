@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <robot name="omni_infantry" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:arg name="hardware_plugin" default="rmgo_core/OmniInfantryGzInterface"/>
-  <xacro:arg name="controllers_file" default="$(find rmgo_description)/config/omni_infantry_controllers.yaml"/>
+  <xacro:arg name="controllers_file" default="$(find rmgo_bringup)/config/omni_infantry_gz.yaml"/>
   <xacro:arg name="debug_visuals" default="false"/>
 
   <xacro:property name="wheel_distance_x" value="0.31794"/>
@@ -326,22 +326,22 @@
     </hardware>
 
     <joint name="left_front_wheel_joint">
-      <command_interface name="velocity"/>
+      <command_interface name="effort"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
     <joint name="left_back_wheel_joint">
-      <command_interface name="velocity"/>
+      <command_interface name="effort"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
     <joint name="right_back_wheel_joint">
-      <command_interface name="velocity"/>
+      <command_interface name="effort"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
     <joint name="right_front_wheel_joint">
-      <command_interface name="velocity"/>
+      <command_interface name="effort"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>

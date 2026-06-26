@@ -4,13 +4,11 @@
 #include <cmath>
 #include <memory>
 #include <numbers>
-#include <span>
 #include <string>
 #include <vector>
 
 #include <controller_interface/chainable_controller_interface.hpp>
 #include <eigen3/Eigen/Dense>
-#include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <pluginlib/class_list_macros.hpp>
 #include <rclcpp_lifecycle/state.hpp>
 
@@ -29,7 +27,7 @@ class OmniWheelController
 public:
     using BaseLinkVelocityCommand = Eigen::Vector3d;
     using WheelState = Eigen::Vector4d;
-    using WheelCommand = Eigen::Vector4d;
+    using WheelVelocityCommand = Eigen::Vector4d;
     using BaseLinkToWheelMatrix = Eigen::Matrix<double, 4, 3>;
     using WheelToBaseLinkMatrix = Eigen::Matrix<double, 3, 4>;
 
@@ -39,7 +37,13 @@ public:
     }
 
     controller_interface::InterfaceConfiguration command_interface_configuration() const override {
-        return build_joint_interface_config(params_.wheel_joints, params_.command_interface_name);
+        controller_interface::InterfaceConfiguration config;
+        config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
+        append_prefixed_interface_names(
+            config.names, params_.target_controller_name, wheel_velocity_suffixes);
+        append_prefixed_interface_names(
+            config.names, params_.target_controller_name, power_limit_suffixes);
+        return config;
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
@@ -51,11 +55,13 @@ public:
         on_export_reference_interfaces_list() override {
         reset_references(base_link_velocity_reference_);
         power_limit_reference_ = 0.0;
+
         auto interfaces =
             make_reference_interfaces(base_link_velocity_suffixes, base_link_velocity_reference_);
-        interfaces.emplace_back(std::make_shared<hardware_interface::CommandInterface>(
-            node_name(), rmgo_core::reference_interfaces::chassis_power_limit,
-            &power_limit_reference_));
+        interfaces.emplace_back(
+            std::make_shared<hardware_interface::CommandInterface>(
+                node_name(), rmgo_core::reference_interfaces::chassis_power_limit,
+                &power_limit_reference_));
         return interfaces;
     }
 
@@ -75,6 +81,7 @@ public:
             node, "angular_z_", rmgo_core::pid::OutputLimitPolicy::Unbounded);
 
         reset_references(base_link_velocity_reference_);
+        power_limit_reference_ = 0.0;
         reset_pid_calculators();
         return controller_interface::CallbackReturn::SUCCESS;
     }
@@ -84,7 +91,7 @@ public:
         reset_references(base_link_velocity_reference_);
         power_limit_reference_ = 0.0;
         reset_pid_calculators();
-        return write_wheel_commands(WheelCommand::Zero())
+        return write_downstream_commands(WheelVelocityCommand::Zero(), 0.0)
                  ? controller_interface::CallbackReturn::SUCCESS
                  : controller_interface::CallbackReturn::ERROR;
     }
@@ -94,7 +101,7 @@ public:
         reset_references(base_link_velocity_reference_);
         power_limit_reference_ = 0.0;
         reset_pid_calculators();
-        return write_wheel_commands(WheelCommand::Zero())
+        return write_downstream_commands(WheelVelocityCommand::Zero(), 0.0)
                  ? controller_interface::CallbackReturn::SUCCESS
                  : controller_interface::CallbackReturn::ERROR;
     }
@@ -120,24 +127,26 @@ public:
         };
         if (!base_link_velocity_command.allFinite()) {
             reset_pid_calculators();
-            return write_wheel_commands(WheelCommand::Zero())
+            return write_downstream_commands(WheelVelocityCommand::Zero(), 0.0)
                      ? controller_interface::return_type::OK
                      : controller_interface::return_type::ERROR;
         }
 
-        const BaseLinkVelocityCommand measured_velocity = measure_base_link_velocity();
+        const WheelState wheel_state = read_wheel_state();
+        const BaseLinkVelocityCommand measured_velocity = measure_base_link_velocity(wheel_state);
         BaseLinkVelocityCommand control_velocity = base_link_velocity_command;
         if (measured_velocity.allFinite()) {
             control_velocity = apply_pid(base_link_velocity_command, measured_velocity);
         } else {
             reset_pid_calculators();
         }
-        WheelCommand wheel_commands = inverse_kinematics(control_velocity);
-        constrain_wheel_commands(wheel_commands);
-        constrain_chassis_power(wheel_commands);
 
-        return write_wheel_commands(wheel_commands) ? controller_interface::return_type::OK
-                                                    : controller_interface::return_type::ERROR;
+        WheelVelocityCommand wheel_velocity_commands = inverse_kinematics(control_velocity);
+        constrain_wheel_velocity_commands(wheel_velocity_commands);
+
+        return write_downstream_commands(wheel_velocity_commands, power_limit_reference_)
+                 ? controller_interface::return_type::OK
+                 : controller_interface::return_type::ERROR;
     }
 
 private:
@@ -149,6 +158,17 @@ private:
         "linear/x/velocity",
         "linear/y/velocity",
         "angular/z/velocity",
+    };
+
+    static constexpr std::array<const char*, wheel_count> wheel_velocity_suffixes = {
+        "left_front_wheel/control_velocity",
+        "left_back_wheel/control_velocity",
+        "right_back_wheel/control_velocity",
+        "right_front_wheel/control_velocity",
+    };
+
+    static constexpr std::array<const char*, 1> power_limit_suffixes = {
+        rmgo_core::reference_interfaces::chassis_power_limit,
     };
 
     BaseLinkToWheelMatrix make_base_link_to_wheel_matrix() const {
@@ -167,12 +187,12 @@ private:
              * base_link_to_wheel.transpose();
     }
 
-    WheelCommand
+    WheelVelocityCommand
         inverse_kinematics(const BaseLinkVelocityCommand& base_link_velocity_command) const {
         return base_link_to_wheel_ * base_link_velocity_command;
     }
 
-    BaseLinkVelocityCommand measure_base_link_velocity() const {
+    WheelState read_wheel_state() const {
         assert(state_interfaces_.size() == params_.wheel_joints.size());
 
         WheelState wheel_state;
@@ -180,7 +200,10 @@ private:
             wheel_state[static_cast<Eigen::Index>(index)] =
                 read_interface_value(state_interfaces_, index);
         }
+        return wheel_state;
+    }
 
+    BaseLinkVelocityCommand measure_base_link_velocity(const WheelState& wheel_state) const {
         return wheel_to_base_link_ * wheel_state;
     }
 
@@ -194,29 +217,17 @@ private:
         return control_command;
     }
 
-    void constrain_wheel_commands(WheelCommand& wheel_commands) const {
+    void constrain_wheel_velocity_commands(WheelVelocityCommand& wheel_velocity_commands) const {
         if (params_.max_wheel_velocity <= 0.0) {
             return;
         }
 
-        const double max_command = wheel_commands.cwiseAbs().maxCoeff();
+        const double max_command = wheel_velocity_commands.cwiseAbs().maxCoeff();
         if (max_command <= params_.max_wheel_velocity) {
             return;
         }
 
-        wheel_commands *= params_.max_wheel_velocity / max_command;
-    }
-
-    void constrain_chassis_power(WheelCommand& wheel_commands) const {
-        const double control_power_limit = power_limit_reference_;
-        if (!std::isfinite(control_power_limit) || control_power_limit <= 0.0) {
-            wheel_commands.setZero();
-            return;
-        }
-
-        const double power_ratio =
-            std::clamp(control_power_limit / params_.full_speed_power_limit, 0.0, 1.0);
-        wheel_commands *= power_ratio;
+        wheel_velocity_commands *= params_.max_wheel_velocity / max_command;
     }
 
     void reset_pid_calculators() {
@@ -225,12 +236,24 @@ private:
         angular_z_pid_.reset();
     }
 
-    bool write_wheel_commands(const WheelCommand& wheel_commands) {
-        return write_safe_joint_commands(
-            command_interfaces_,
-            std::span<const double, wheel_count>{wheel_commands.data(), wheel_count},
-            std::span<const std::string, wheel_count>{wheel_joints_},
-            params_.command_interface_name);
+    bool write_downstream_commands(
+        const WheelVelocityCommand& wheel_velocity_commands, double power_limit) {
+        std::array<double, wheel_count> wheel_velocity_values{};
+        for (std::size_t index = 0; index < wheel_count; ++index) {
+            wheel_velocity_values[index] =
+                wheel_velocity_commands[static_cast<Eigen::Index>(index)];
+        }
+
+        std::size_t offset = 0;
+        bool ok = write_safe_commands(
+            command_interfaces_, wheel_velocity_values, params_.target_controller_name,
+            wheel_velocity_suffixes, "wheel velocity reference", offset);
+        offset += wheel_velocity_suffixes.size();
+        ok = ok
+          && write_safe_commands(
+                 command_interfaces_, std::array{power_limit}, params_.target_controller_name,
+                 power_limit_suffixes, "chassis power limit reference", offset);
+        return ok;
     }
 
     std::array<std::string, wheel_count> wheel_joints_{};

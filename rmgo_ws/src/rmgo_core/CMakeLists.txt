@@ -54,6 +54,11 @@ generate_parameter_library(
 )
 
 generate_parameter_library(
+  wheel_velocity_pid_controller_config
+  config/controller/pid/wheel_velocity_pid_controller_config.yaml
+)
+
+generate_parameter_library(
   error_pid_controller_config config/controller/pid/error_pid_controller_config.yaml
 )
 
@@ -79,6 +84,7 @@ add_library(
   src/controller/gimbal/simple_gimbal_controller.cpp
   src/controller/pid/error_pid_controller.cpp
   src/controller/pid/joint_velocity_pid_controller.cpp
+  src/controller/pid/wheel_velocity_pid_controller.cpp
   src/controller/remote/teleop_remote_controller.cpp
   src/controller/shooter/bullet_feeder_controller_17mm.cpp
   src/controller/shooter/friction_wheel_controller.cpp
@@ -117,6 +123,7 @@ target_link_libraries(
   heat_controller_config
   joint_velocity_pid_controller_config
   omni_wheel_controller_config
+  wheel_velocity_pid_controller_config
   teleop_remote_controller_config
   simple_gimbal_controller_config
 )

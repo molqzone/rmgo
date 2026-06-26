@@ -1,0 +1,46 @@
+wheel_velocity_pid_controller:
+  wheel_joints:
+    type: string_array
+    description: "Wheel joints ordered as left-front, left-back, right-back, right-front."
+    validation:
+      fixed_size<>: 4
+  command_interface_name:
+    type: string
+    description: "Wheel command interface written by the PID controller."
+    validation:
+      one_of<>: [["effort"]]
+  wheel_state_interface_name:
+    type: string
+    description: "Wheel state interface used as velocity feedback."
+    validation:
+      one_of<>: [["velocity"]]
+  max_wheel_effort:
+    type: double
+    description: "Maximum absolute wheel effort command."
+    validation:
+      gt<>: [0.0]
+  wheel_velocity_kp:
+    type: double
+    description: "Wheel velocity proportional gain."
+  wheel_velocity_ki:
+    type: double
+    description: "Wheel velocity integral gain."
+  wheel_velocity_kd:
+    type: double
+    description: "Wheel velocity derivative gain."
+  wheel_velocity_feedforward:
+    type: double
+    description: "Feedforward multiplier from target wheel velocity to effort command."
+  vel_coeff:
+    type: double
+    description: "rm_controllers-style velocity coefficient for effort-command power limiting."
+    validation:
+      gt_eq<>: [0.0]
+  effort_coeff:
+    type: double
+    description: "rm_controllers-style effort coefficient for effort-command power limiting."
+    validation:
+      gt_eq<>: [0.0]
+  power_offset:
+    type: double
+    description: "rm_controllers-style power offset for effort-command power limiting."

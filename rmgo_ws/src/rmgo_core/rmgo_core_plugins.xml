@@ -48,6 +48,14 @@
     </description>
   </class>
   <class
+    name="rmgo_core/WheelVelocityPidController"
+    type="rmgo_core::controller::pid::WheelVelocityPidController"
+    base_class_type="controller_interface::ChainableControllerInterface">
+    <description>
+      Grouped wheel velocity PID controller with shared chassis power limiting for RMGO.
+    </description>
+  </class>
+  <class
     name="rmgo_core/ErrorPidController"
     type="rmgo_core::controller::pid::ErrorPidController"
     base_class_type="controller_interface::ChainableControllerInterface">
