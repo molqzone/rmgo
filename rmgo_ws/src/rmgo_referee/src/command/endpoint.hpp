@@ -6,7 +6,7 @@
 
 namespace rmgo_referee {
 
-enum class RefereeTransferResult {
+enum class TransferResult {
     Accepted,
     QueueFull,
     Inactive,
@@ -14,12 +14,12 @@ enum class RefereeTransferResult {
     Failed,
 };
 
-class RefereeTransferEndpoint {
+class TransferEndpoint {
 public:
-    virtual ~RefereeTransferEndpoint() = default;
+    virtual ~TransferEndpoint() = default;
 
     virtual std::uint16_t self_robot_id() const noexcept = 0;
-    virtual RefereeTransferResult
+    virtual TransferResult
         send_frame(std::uint16_t command_id, std::span<const std::byte> payload) noexcept = 0;
 };
 

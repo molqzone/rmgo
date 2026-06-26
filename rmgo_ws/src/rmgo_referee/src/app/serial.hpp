@@ -33,10 +33,10 @@
 
 namespace rmgo_referee {
 
-class RefereeSerialTransport final {
+class SerialTransport final {
 public:
     // Called synchronously from the RX thread; keep handlers short and non-blocking.
-    using FrameHandler = std::move_only_function<void(const RefereeFrame&)>;
+    using FrameHandler = std::move_only_function<void(const Frame&)>;
     using Result = std::expected<void, std::string>;
     using FdResult = std::expected<int, std::string>;
     using ReadResult = std::expected<std::optional<ssize_t>, std::string>;
@@ -59,7 +59,7 @@ public:
         std::size_t tx_queue_capacity = 0;
     };
 
-    RefereeSerialTransport(
+    SerialTransport(
         std::string device, int rx_buffer_size, int tx_queue_capacity, FrameHandler on_frame)
         : device_(std::move(device))
         , rx_buffer_size_(rx_buffer_size)
@@ -68,32 +68,32 @@ public:
               std::make_unique<TxQueue>(static_cast<std::size_t>(std::max(tx_queue_capacity, 1)))) {
     }
 
-    ~RefereeSerialTransport() {
+    ~SerialTransport() {
         const std::scoped_lock lock{transport_mutex_};
         stop_locked();
         close_serial();
     }
 
-    RefereeSerialTransport(const RefereeSerialTransport&) = delete;
-    RefereeSerialTransport& operator=(const RefereeSerialTransport&) = delete;
+    SerialTransport(const SerialTransport&) = delete;
+    SerialTransport& operator=(const SerialTransport&) = delete;
 
-    RefereeTransferResult
+    TransferResult
         send_frame(std::uint16_t command_id, std::span<const std::byte> payload) noexcept {
         const auto producer_guard = make_tx_producer_guard();
         if (!producer_guard.has_value()) {
-            return RefereeTransferResult::Failed;
+            return TransferResult::Failed;
         }
 
         if (!accepting_tx_frames_.load(std::memory_order_acquire)) {
-            return RefereeTransferResult::Inactive;
+            return TransferResult::Inactive;
         }
         if (command_id == 0 || payload.size() > max_referee_payload_size) {
-            return RefereeTransferResult::InvalidFrame;
+            return TransferResult::InvalidFrame;
         }
 
         const auto sender_guard = make_tx_sender_guard();
         if (!accepting_tx_frames_.load(std::memory_order_seq_cst)) {
-            return RefereeTransferResult::Inactive;
+            return TransferResult::Inactive;
         }
 
         auto frame = TxFrame{
@@ -104,11 +104,11 @@ public:
         std::copy(payload.begin(), payload.end(), frame.payload.begin());
         if (!tx_queue_->push(frame)) {
             set_diagnostic(DiagnosticLevel::Warn, "Referee serial TX queue full");
-            return RefereeTransferResult::QueueFull;
+            return TransferResult::QueueFull;
         }
         tx_queue_size_.fetch_add(1, std::memory_order_release);
         tx_queue_size_.notify_one();
-        return RefereeTransferResult::Accepted;
+        return TransferResult::Accepted;
     }
 
     void maintain() {
@@ -177,7 +177,7 @@ private:
     using TxQueue = realtime_tools::LockFreeSPSCQueue<TxFrame>;
     class TxSenderGuard {
     public:
-        explicit TxSenderGuard(RefereeSerialTransport& transport) noexcept
+        explicit TxSenderGuard(SerialTransport& transport) noexcept
             : transport_(&transport) {
             transport_->tx_active_senders_.fetch_add(1, std::memory_order_seq_cst);
         }
@@ -209,12 +209,12 @@ private:
             transport_ = nullptr;
         }
 
-        RefereeSerialTransport* transport_;
+        SerialTransport* transport_;
     };
 
     class TxProducerGuard {
     public:
-        explicit TxProducerGuard(RefereeSerialTransport& transport) noexcept
+        explicit TxProducerGuard(SerialTransport& transport) noexcept
             : transport_(&transport) {
 #ifndef NDEBUG
             if (transport_->tx_producer_busy_.test_and_set(std::memory_order_acquire)) {
@@ -251,7 +251,7 @@ private:
             transport_ = nullptr;
         }
 
-        RefereeSerialTransport* transport_;
+        SerialTransport* transport_;
     };
 
     void stop_locked() {
@@ -575,7 +575,7 @@ private:
     int serial_fd_ = invalid_fd;
     mutable std::mutex transport_mutex_;
     std::chrono::steady_clock::time_point last_open_attempt_;
-    RefereeFrameParser parser_;
+    FrameParser parser_;
     std::unique_ptr<TxQueue> tx_queue_;
     std::atomic_size_t tx_queue_size_{0};
     std::atomic_size_t tx_active_senders_{0};

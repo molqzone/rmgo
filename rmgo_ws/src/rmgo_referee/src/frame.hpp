@@ -73,7 +73,7 @@ static_assert(sizeof(FrameCrc) == referee_frame_crc_size);
 
 } // namespace referee_wire
 
-struct RefereeFrame {
+struct Frame {
     std::uint8_t sequence = 0;
     std::uint16_t command_id = 0;
     std::vector<std::byte> payload;
@@ -91,20 +91,19 @@ std::optional<std::size_t> pack_frame(
 std::uint16_t client_id_from_robot_id(std::uint16_t robot_id) noexcept;
 
 template <typename Callbacks>
-bool decode_referee_frame(const RefereeFrame& frame, Callbacks& callbacks) noexcept;
+bool decode_referee_frame(const Frame& frame, Callbacks& callbacks) noexcept;
 
-class RefereeFrameParser {
+class FrameParser {
 public:
-    explicit RefereeFrameParser(std::size_t max_payload_size = max_referee_payload_size);
-
-    std::optional<RefereeFrame> push(std::byte byte);
+    explicit FrameParser(std::size_t max_payload_size = max_referee_payload_size);
+    std::optional<Frame> push(std::byte byte);
     void reset() noexcept;
 
 private:
     std::span<const std::byte> readable_buffer() const noexcept;
     void drop_prefix(std::size_t count);
     void compact_buffer();
-    std::optional<RefereeFrame> try_parse();
+    std::optional<Frame> try_parse();
 
     std::vector<std::byte> buffer_;
     std::size_t head_ = 0;
@@ -246,7 +245,7 @@ inline std::uint16_t client_id_from_robot_id(std::uint16_t robot_id) noexcept {
 }
 
 template <typename Callbacks>
-inline bool decode_referee_frame(const RefereeFrame& frame, Callbacks& callbacks) noexcept {
+inline bool decode_referee_frame(const Frame& frame, Callbacks& callbacks) noexcept {
     const auto data = std::span<const std::byte>{frame.payload};
 
     switch (static_cast<CommandId>(frame.command_id)) {
@@ -358,12 +357,12 @@ inline bool decode_referee_frame(const RefereeFrame& frame, Callbacks& callbacks
     }
 }
 
-inline RefereeFrameParser::RefereeFrameParser(std::size_t max_payload_size)
+inline FrameParser::FrameParser(std::size_t max_payload_size)
     : max_payload_size_(max_payload_size) {
     buffer_.reserve(header_size + command_id_size + max_payload_size_ + frame_crc_size);
 }
 
-inline std::optional<RefereeFrame> RefereeFrameParser::push(std::byte byte) {
+inline std::optional<Frame> FrameParser::push(std::byte byte) {
     if (readable_buffer().empty() && byte != frame_sof) {
         return std::nullopt;
     }
@@ -372,21 +371,21 @@ inline std::optional<RefereeFrame> RefereeFrameParser::push(std::byte byte) {
     return try_parse();
 }
 
-inline void RefereeFrameParser::reset() noexcept {
+inline void FrameParser::reset() noexcept {
     buffer_.clear();
     head_ = 0;
 }
 
-inline std::span<const std::byte> RefereeFrameParser::readable_buffer() const noexcept {
+inline std::span<const std::byte> FrameParser::readable_buffer() const noexcept {
     return std::span<const std::byte>{buffer_}.subspan(head_);
 }
 
-inline void RefereeFrameParser::drop_prefix(std::size_t count) {
+inline void FrameParser::drop_prefix(std::size_t count) {
     head_ = std::min(buffer_.size(), head_ + count);
     compact_buffer();
 }
 
-inline void RefereeFrameParser::compact_buffer() {
+inline void FrameParser::compact_buffer() {
     if (head_ == 0) {
         return;
     }
@@ -401,7 +400,7 @@ inline void RefereeFrameParser::compact_buffer() {
     }
 }
 
-inline std::optional<RefereeFrame> RefereeFrameParser::try_parse() {
+inline std::optional<Frame> FrameParser::try_parse() {
     auto readable = readable_buffer();
     while (!readable.empty() && readable.front() != frame_sof) {
         drop_prefix(1);
@@ -435,7 +434,7 @@ inline std::optional<RefereeFrame> RefereeFrameParser::try_parse() {
     }
     const auto* body = body_as(frame_bytes);
 
-    auto frame = RefereeFrame{
+    auto frame = Frame{
         .sequence = header->sequence,
         .command_id = body->command_id,
         .payload = {},

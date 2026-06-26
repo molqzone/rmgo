@@ -9,7 +9,7 @@ namespace rmgo_referee {
 // Wire-frame fields mirrored by the referee status store. Keeping this index
 // list separate makes parser/store dependencies explicit without growing a
 // semantic "referee" object.
-enum class RefereeStatusField : std::size_t {
+enum class StatusField : std::size_t {
     online = 0,
     id,
     robot_level,
@@ -106,48 +106,42 @@ enum class RefereeStatusField : std::size_t {
     count,
 };
 
-constexpr std::size_t to_index(RefereeStatusField field) noexcept {
+constexpr std::size_t to_index(StatusField field) noexcept {
     return static_cast<std::size_t>(field);
 }
 
 inline constexpr std::array referee_robots_hp_fields{
-    RefereeStatusField::robots_hp_red_1,        RefereeStatusField::robots_hp_red_2,
-    RefereeStatusField::robots_hp_red_3,        RefereeStatusField::robots_hp_red_4,
-    RefereeStatusField::robots_hp_red_5,        RefereeStatusField::robots_hp_red_7,
-    RefereeStatusField::robots_hp_red_outpost,  RefereeStatusField::robots_hp_red_base,
-    RefereeStatusField::robots_hp_blue_1,       RefereeStatusField::robots_hp_blue_2,
-    RefereeStatusField::robots_hp_blue_3,       RefereeStatusField::robots_hp_blue_4,
-    RefereeStatusField::robots_hp_blue_5,       RefereeStatusField::robots_hp_blue_7,
-    RefereeStatusField::robots_hp_blue_outpost, RefereeStatusField::robots_hp_blue_base,
+    StatusField::robots_hp_red_1,        StatusField::robots_hp_red_2,
+    StatusField::robots_hp_red_3,        StatusField::robots_hp_red_4,
+    StatusField::robots_hp_red_5,        StatusField::robots_hp_red_7,
+    StatusField::robots_hp_red_outpost,  StatusField::robots_hp_red_base,
+    StatusField::robots_hp_blue_1,       StatusField::robots_hp_blue_2,
+    StatusField::robots_hp_blue_3,       StatusField::robots_hp_blue_4,
+    StatusField::robots_hp_blue_5,       StatusField::robots_hp_blue_7,
+    StatusField::robots_hp_blue_outpost, StatusField::robots_hp_blue_base,
 };
 
 inline constexpr std::array referee_radar_mark_fields{
-    RefereeStatusField::radar_mark_hero,       RefereeStatusField::radar_mark_engineer,
-    RefereeStatusField::radar_mark_infantry_3, RefereeStatusField::radar_mark_infantry_4,
-    RefereeStatusField::radar_mark_infantry_5, RefereeStatusField::radar_mark_sentry,
+    StatusField::radar_mark_hero,       StatusField::radar_mark_engineer,
+    StatusField::radar_mark_infantry_3, StatusField::radar_mark_infantry_4,
+    StatusField::radar_mark_infantry_5, StatusField::radar_mark_sentry,
 };
 
 inline constexpr std::array referee_ally_robot_position_fields{
-    RefereeStatusField::ally_hero_position_x,       RefereeStatusField::ally_hero_position_y,
-    RefereeStatusField::ally_engineer_position_x,   RefereeStatusField::ally_engineer_position_y,
-    RefereeStatusField::ally_infantry_3_position_x, RefereeStatusField::ally_infantry_3_position_y,
-    RefereeStatusField::ally_infantry_4_position_x, RefereeStatusField::ally_infantry_4_position_y,
-    RefereeStatusField::ally_infantry_5_position_x, RefereeStatusField::ally_infantry_5_position_y,
+    StatusField::ally_hero_position_x,       StatusField::ally_hero_position_y,
+    StatusField::ally_engineer_position_x,   StatusField::ally_engineer_position_y,
+    StatusField::ally_infantry_3_position_x, StatusField::ally_infantry_3_position_y,
+    StatusField::ally_infantry_4_position_x, StatusField::ally_infantry_4_position_y,
+    StatusField::ally_infantry_5_position_x, StatusField::ally_infantry_5_position_y,
 };
 
 inline constexpr std::array referee_opponent_robot_position_fields{
-    RefereeStatusField::opponent_hero_position_x,
-    RefereeStatusField::opponent_hero_position_y,
-    RefereeStatusField::opponent_engineer_position_x,
-    RefereeStatusField::opponent_engineer_position_y,
-    RefereeStatusField::opponent_infantry_3_position_x,
-    RefereeStatusField::opponent_infantry_3_position_y,
-    RefereeStatusField::opponent_infantry_4_position_x,
-    RefereeStatusField::opponent_infantry_4_position_y,
-    RefereeStatusField::opponent_uav_position_x,
-    RefereeStatusField::opponent_uav_position_y,
-    RefereeStatusField::opponent_sentry_position_x,
-    RefereeStatusField::opponent_sentry_position_y,
+    StatusField::opponent_hero_position_x,       StatusField::opponent_hero_position_y,
+    StatusField::opponent_engineer_position_x,   StatusField::opponent_engineer_position_y,
+    StatusField::opponent_infantry_3_position_x, StatusField::opponent_infantry_3_position_y,
+    StatusField::opponent_infantry_4_position_x, StatusField::opponent_infantry_4_position_y,
+    StatusField::opponent_uav_position_x,        StatusField::opponent_uav_position_y,
+    StatusField::opponent_sentry_position_x,     StatusField::opponent_sentry_position_y,
 };
 
 namespace referee_wire {

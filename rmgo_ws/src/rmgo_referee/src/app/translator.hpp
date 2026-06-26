@@ -9,31 +9,31 @@
 
 namespace rmgo_referee {
 
-struct RefereeStatusEvents {
+struct StatusEvents {
     bool game_status = false;
     bool robot_status = false;
     bool power_heat = false;
 };
 
-class RefereeStatusTranslator final {
+class StatusTranslator final {
 public:
-    explicit RefereeStatusTranslator(RefereeStatusStore& status)
+    explicit StatusTranslator(StatusStore& status)
         : status_(status) {}
 
-    RefereeStatusEvents maintain_safety() noexcept {
+    StatusEvents maintain_safety() noexcept {
         const auto safety = status_.maintain_safety();
-        return RefereeStatusEvents{
+        return StatusEvents{
             .game_status = safety.game_status_timeout,
             .robot_status = safety.robot_status_timeout,
             .power_heat = safety.power_heat_timeout,
         };
     }
 
-    RefereeStatusEvents handle_frame(const RefereeFrame& frame) noexcept {
-        auto events = RefereeStatusEvents{};
+    StatusEvents handle_frame(const Frame& frame) noexcept {
+        auto events = StatusEvents{};
         struct FrameCallbacks {
-            RefereeStatusTranslator& translator;
-            RefereeStatusEvents& events;
+            StatusTranslator& translator;
+            StatusEvents& events;
 
             void on_game_status(const referee_wire::GameStatus& payload) {
                 translator.accept_game_status(payload);
@@ -115,18 +115,16 @@ public:
 
 private:
     void mark_online() noexcept {
-        status_.set(RefereeStatusField::online, 1.0);
+        status_.set(StatusField::online, 1.0);
         status_.mark_online(std::chrono::steady_clock::now());
     }
 
     void accept_game_status(const referee_wire::GameStatus& payload) noexcept {
-        status_.set(RefereeStatusField::game_type, static_cast<double>(payload.game_type));
-        status_.set(RefereeStatusField::game_stage, static_cast<double>(payload.game_progress));
+        status_.set(StatusField::game_type, static_cast<double>(payload.game_type));
+        status_.set(StatusField::game_stage, static_cast<double>(payload.game_progress));
         status_.set(
-            RefereeStatusField::game_stage_remain_time,
-            static_cast<double>(payload.stage_remain_time));
-        status_.set(
-            RefereeStatusField::game_sync_timestamp, static_cast<double>(payload.sync_timestamp));
+            StatusField::game_stage_remain_time, static_cast<double>(payload.stage_remain_time));
+        status_.set(StatusField::game_sync_timestamp, static_cast<double>(payload.sync_timestamp));
     }
 
     void accept_game_robot_hp(const referee_wire::GameRobotHp& payload) noexcept {
@@ -138,53 +136,48 @@ private:
     void accept_event_data(const referee_wire::EventData& payload) noexcept {
         const auto event_data = payload.event_data;
         status_.set(
-            RefereeStatusField::event_ally_small_energy_activation_status,
+            StatusField::event_ally_small_energy_activation_status,
             static_cast<double>((event_data >> 3U) & 0x03U));
         status_.set(
-            RefereeStatusField::event_ally_big_energy_activation_status,
+            StatusField::event_ally_big_energy_activation_status,
             static_cast<double>((event_data >> 5U) & 0x03U));
         status_.set(
-            RefereeStatusField::event_ally_fortress_occupation_status,
+            StatusField::event_ally_fortress_occupation_status,
             static_cast<double>((event_data >> 25U) & 0x03U));
     }
 
     void accept_dart_status(const referee_wire::DartStatus& payload) noexcept {
         const auto dart_info = payload.dart_info;
         status_.set(
-            RefereeStatusField::dart_remaining_time,
-            static_cast<double>(payload.dart_remaining_time));
+            StatusField::dart_remaining_time, static_cast<double>(payload.dart_remaining_time));
+        status_.set(StatusField::dart_latest_hit_target, static_cast<double>(dart_info & 0x03U));
+        status_.set(StatusField::dart_hit_count, static_cast<double>((dart_info >> 3U) & 0x07U));
         status_.set(
-            RefereeStatusField::dart_latest_hit_target, static_cast<double>(dart_info & 0x03U));
-        status_.set(
-            RefereeStatusField::dart_hit_count, static_cast<double>((dart_info >> 3U) & 0x07U));
-        status_.set(
-            RefereeStatusField::dart_selected_target,
-            static_cast<double>((dart_info >> 6U) & 0x03U));
+            StatusField::dart_selected_target, static_cast<double>((dart_info >> 6U) & 0x03U));
     }
 
     void accept_robot_status(const referee_wire::RobotStatus& payload) noexcept {
         const auto power_management_status = payload.power_management_status;
-        status_.set(RefereeStatusField::id, static_cast<double>(payload.robot_id));
-        status_.set(RefereeStatusField::robot_level, static_cast<double>(payload.robot_level));
-        status_.set(RefereeStatusField::hp, static_cast<double>(payload.current_hp));
-        status_.set(RefereeStatusField::max_hp, static_cast<double>(payload.maximum_hp));
+        status_.set(StatusField::id, static_cast<double>(payload.robot_id));
+        status_.set(StatusField::robot_level, static_cast<double>(payload.robot_level));
+        status_.set(StatusField::hp, static_cast<double>(payload.current_hp));
+        status_.set(StatusField::max_hp, static_cast<double>(payload.maximum_hp));
         status_.set(
-            RefereeStatusField::shooter_cooling,
+            StatusField::shooter_cooling,
             static_cast<double>(payload.shooter_barrel_cooling_value));
         status_.set(
-            RefereeStatusField::shooter_heat_limit,
+            StatusField::shooter_heat_limit,
             static_cast<double>(payload.shooter_barrel_heat_limit));
         status_.set(
-            RefereeStatusField::chassis_power_limit,
-            static_cast<double>(payload.chassis_power_limit));
+            StatusField::chassis_power_limit, static_cast<double>(payload.chassis_power_limit));
         status_.set(
-            RefereeStatusField::gimbal_output_status,
+            StatusField::gimbal_output_status,
             static_cast<double>(power_management_status & 0x01U));
         status_.set(
-            RefereeStatusField::chassis_output_status,
+            StatusField::chassis_output_status,
             static_cast<double>((power_management_status >> 1U) & 0x01U));
         status_.set(
-            RefereeStatusField::shooter_output_status,
+            StatusField::shooter_output_status,
             static_cast<double>((power_management_status >> 2U) & 0x01U));
     }
 
@@ -194,58 +187,50 @@ private:
 
     void accept_power_heat_data(const referee_wire::PowerHeatDataWith42mm& payload) noexcept {
         update_power_heat_status(payload);
-        status_.set(
-            RefereeStatusField::shooter_42mm_heat, static_cast<double>(payload.shooter_42mm_heat));
+        status_.set(StatusField::shooter_42mm_heat, static_cast<double>(payload.shooter_42mm_heat));
     }
 
     template <typename PowerHeatPayload>
     void update_power_heat_status(const PowerHeatPayload& payload) noexcept {
+        status_.set(StatusField::chassis_voltage, static_cast<double>(payload.chassis_voltage));
+        status_.set(StatusField::chassis_current, static_cast<double>(payload.chassis_current));
+        status_.set(StatusField::chassis_power, static_cast<double>(payload.chassis_power));
         status_.set(
-            RefereeStatusField::chassis_voltage, static_cast<double>(payload.chassis_voltage));
-        status_.set(
-            RefereeStatusField::chassis_current, static_cast<double>(payload.chassis_current));
-        status_.set(RefereeStatusField::chassis_power, static_cast<double>(payload.chassis_power));
-        status_.set(
-            RefereeStatusField::chassis_buffer_energy,
-            static_cast<double>(payload.chassis_buffer_energy));
-        status_.set(
-            RefereeStatusField::shooter_1_heat, static_cast<double>(payload.shooter_1_heat));
-        status_.set(
-            RefereeStatusField::shooter_2_heat, static_cast<double>(payload.shooter_2_heat));
+            StatusField::chassis_buffer_energy, static_cast<double>(payload.chassis_buffer_energy));
+        status_.set(StatusField::shooter_1_heat, static_cast<double>(payload.shooter_1_heat));
+        status_.set(StatusField::shooter_2_heat, static_cast<double>(payload.shooter_2_heat));
     }
 
     void
         accept_projectile_allowance(const referee_wire::ProjectileAllowance17mm& payload) noexcept {
         status_.set(
-            RefereeStatusField::shooter_bullet_allowance,
+            StatusField::shooter_bullet_allowance,
             static_cast<double>(payload.projectile_allowance_17mm));
     }
 
     void
         accept_projectile_allowance(const referee_wire::ProjectileAllowanceBase& payload) noexcept {
         status_.set(
-            RefereeStatusField::shooter_bullet_allowance,
+            StatusField::shooter_bullet_allowance,
             static_cast<double>(payload.projectile_allowance_17mm));
         status_.set(
-            RefereeStatusField::shooter_42mm_bullet_allowance,
+            StatusField::shooter_42mm_bullet_allowance,
             static_cast<double>(payload.projectile_allowance_42mm));
         status_.set(
-            RefereeStatusField::remaining_gold_coin,
-            static_cast<double>(payload.remaining_gold_coin));
+            StatusField::remaining_gold_coin, static_cast<double>(payload.remaining_gold_coin));
     }
 
     void accept_projectile_allowance(const referee_wire::ProjectileAllowance& payload) noexcept {
         status_.set(
-            RefereeStatusField::shooter_bullet_allowance,
+            StatusField::shooter_bullet_allowance,
             static_cast<double>(payload.projectile_allowance_17mm));
         status_.set(
-            RefereeStatusField::shooter_42mm_bullet_allowance,
+            StatusField::shooter_42mm_bullet_allowance,
             static_cast<double>(payload.projectile_allowance_42mm));
         status_.set(
-            RefereeStatusField::remaining_gold_coin,
-            static_cast<double>(payload.remaining_gold_coin));
+            StatusField::remaining_gold_coin, static_cast<double>(payload.remaining_gold_coin));
         status_.set(
-            RefereeStatusField::shooter_fortress_17mm_bullet_allowance,
+            StatusField::shooter_fortress_17mm_bullet_allowance,
             static_cast<double>(payload.projectile_allowance_fortress));
     }
 
@@ -267,10 +252,9 @@ private:
     void accept_radar_info(const referee_wire::RadarInfo& payload) noexcept {
         const auto radar_info = payload.radar_info;
         status_.set(
-            RefereeStatusField::radar_double_effect_chance,
-            static_cast<double>(radar_info & 0x03U));
+            StatusField::radar_double_effect_chance, static_cast<double>(radar_info & 0x03U));
         status_.set(
-            RefereeStatusField::radar_double_effect_active,
+            StatusField::radar_double_effect_active,
             static_cast<double>((radar_info >> 2U) & 0x01U));
     }
 
@@ -278,51 +262,50 @@ private:
         const auto sentry_info = payload.sentry_info;
         const auto sentry_info_2 = payload.sentry_info_2;
         status_.set(
-            RefereeStatusField::sentry_exchanged_bullet_allowance,
+            StatusField::sentry_exchanged_bullet_allowance,
             static_cast<double>(sentry_info & 0x07FFU));
         status_.set(
-            RefereeStatusField::sentry_remote_bullet_exchange_count,
+            StatusField::sentry_remote_bullet_exchange_count,
             static_cast<double>((sentry_info >> 11U) & 0x0FU));
         status_.set(
-            RefereeStatusField::sentry_can_confirm_free_revive,
+            StatusField::sentry_can_confirm_free_revive,
             static_cast<double>((sentry_info >> 19U) & 0x01U));
         status_.set(
-            RefereeStatusField::sentry_can_exchange_instant_revive,
+            StatusField::sentry_can_exchange_instant_revive,
             static_cast<double>((sentry_info >> 20U) & 0x01U));
         status_.set(
-            RefereeStatusField::sentry_instant_revive_cost,
+            StatusField::sentry_instant_revive_cost,
             static_cast<double>((sentry_info >> 21U) & 0x03FFU));
         status_.set(
-            RefereeStatusField::sentry_exchangeable_bullet_allowance,
+            StatusField::sentry_exchangeable_bullet_allowance,
             static_cast<double>((sentry_info_2 >> 1U) & 0x07FFU));
+        status_.set(StatusField::sentry_mode, static_cast<double>((sentry_info_2 >> 12U) & 0x03U));
         status_.set(
-            RefereeStatusField::sentry_mode, static_cast<double>((sentry_info_2 >> 12U) & 0x03U));
-        status_.set(
-            RefereeStatusField::sentry_energy_mechanism_activatable,
+            StatusField::sentry_energy_mechanism_activatable,
             static_cast<double>((sentry_info_2 >> 14U) & 0x01U));
     }
 
     void accept_map_command(const referee_wire::MapCommand& payload) noexcept {
-        const auto previous_x = status_.get(RefereeStatusField::map_command_target_position_x);
-        const auto previous_y = status_.get(RefereeStatusField::map_command_target_position_y);
-        const auto previous_keyboard = status_.get(RefereeStatusField::map_command_keyboard);
-        const auto previous_target = status_.get(RefereeStatusField::map_command_target_robot_id);
-        const auto previous_source = status_.get(RefereeStatusField::map_command_source);
+        const auto previous_x = status_.get(StatusField::map_command_target_position_x);
+        const auto previous_y = status_.get(StatusField::map_command_target_position_y);
+        const auto previous_keyboard = status_.get(StatusField::map_command_keyboard);
+        const auto previous_target = status_.get(StatusField::map_command_target_robot_id);
+        const auto previous_source = status_.get(StatusField::map_command_source);
         const auto target_x = static_cast<double>(payload.target_position_x);
         const auto target_y = static_cast<double>(payload.target_position_y);
         const auto keyboard = static_cast<double>(payload.cmd_keyboard);
         const auto target = static_cast<double>(payload.target_robot_id);
         const auto source = static_cast<double>(payload.cmd_source);
-        status_.set(RefereeStatusField::map_command_target_position_x, target_x);
-        status_.set(RefereeStatusField::map_command_target_position_y, target_y);
-        status_.set(RefereeStatusField::map_command_keyboard, keyboard);
-        status_.set(RefereeStatusField::map_command_target_robot_id, target);
-        status_.set(RefereeStatusField::map_command_source, source);
+        status_.set(StatusField::map_command_target_position_x, target_x);
+        status_.set(StatusField::map_command_target_position_y, target_y);
+        status_.set(StatusField::map_command_keyboard, keyboard);
+        status_.set(StatusField::map_command_target_robot_id, target);
+        status_.set(StatusField::map_command_source, source);
         if (target_x != previous_x || target_y != previous_y || keyboard != previous_keyboard
             || target != previous_target || source != previous_source) {
             status_.set(
-                RefereeStatusField::map_command_sequence,
-                status_.get(RefereeStatusField::map_command_sequence) + 1.0);
+                StatusField::map_command_sequence,
+                status_.get(StatusField::map_command_sequence) + 1.0);
         }
     }
 
@@ -336,7 +319,7 @@ private:
         }
     }
 
-    RefereeStatusStore& status_;
+    StatusStore& status_;
 };
 
 } // namespace rmgo_referee

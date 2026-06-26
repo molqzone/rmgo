@@ -74,7 +74,7 @@ inline std::optional<InteractiveHeader> make_client_interactive_header(
 }
 
 inline std::optional<InteractiveHeader> make_client_interactive_header(
-    RefereeTransferEndpoint& endpoint, InteractiveDataCommandId data_command_id) noexcept {
+    TransferEndpoint& endpoint, InteractiveDataCommandId data_command_id) noexcept {
     return make_client_interactive_header(endpoint.self_robot_id(), data_command_id);
 }
 

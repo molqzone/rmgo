@@ -27,24 +27,23 @@ namespace rmgo_referee {
 
 namespace {
 
-class NodeTransferEndpoint final : public RefereeTransferEndpoint {
+class NodeTransferEndpoint final : public TransferEndpoint {
 public:
-    NodeTransferEndpoint(
-        RefereeStatusStore& status, std::unique_ptr<RefereeSerialTransport>& transport) noexcept
+    NodeTransferEndpoint(StatusStore& status, std::unique_ptr<SerialTransport>& transport) noexcept
         : status_(status)
         , transport_(transport) {}
 
     std::uint16_t self_robot_id() const noexcept override { return status_.robot_id(); }
 
-    RefereeTransferResult
+    TransferResult
         send_frame(std::uint16_t command_id, std::span<const std::byte> payload) noexcept override {
         return transport_ != nullptr ? transport_->send_frame(command_id, payload)
-                                     : RefereeTransferResult::Inactive;
+                                     : TransferResult::Inactive;
     }
 
 private:
-    RefereeStatusStore& status_;
-    std::unique_ptr<RefereeSerialTransport>& transport_;
+    StatusStore& status_;
+    std::unique_ptr<SerialTransport>& transport_;
 };
 
 } // namespace
@@ -172,9 +171,9 @@ private:
     }
 
     void create_referee_pipeline() {
-        translator_ = std::make_unique<RefereeStatusTranslator>(status_);
-        transport_ = std::make_unique<RefereeSerialTransport>(
-            device_, rx_buffer_size_, tx_queue_capacity_, [this](const RefereeFrame& frame) {
+        translator_ = std::make_unique<StatusTranslator>(status_);
+        transport_ = std::make_unique<SerialTransport>(
+            device_, rx_buffer_size_, tx_queue_capacity_, [this](const Frame& frame) {
                 publish_referee_events(translator_->handle_frame(frame), get_clock()->now());
             });
         endpoint_ = std::make_shared<NodeTransferEndpoint>(status_, transport_);
@@ -249,16 +248,16 @@ private:
         status.add("tx_queue_capacity", snapshot.tx_queue_capacity);
     }
 
-    static std::uint8_t to_diagnostic_level(RefereeSerialTransport::DiagnosticLevel level) {
+    static std::uint8_t to_diagnostic_level(SerialTransport::DiagnosticLevel level) {
         switch (level) {
-        case RefereeSerialTransport::DiagnosticLevel::Ok: return DiagnosticStatus::OK;
-        case RefereeSerialTransport::DiagnosticLevel::Warn: return DiagnosticStatus::WARN;
-        case RefereeSerialTransport::DiagnosticLevel::Error: return DiagnosticStatus::ERROR;
+        case SerialTransport::DiagnosticLevel::Ok: return DiagnosticStatus::OK;
+        case SerialTransport::DiagnosticLevel::Warn: return DiagnosticStatus::WARN;
+        case SerialTransport::DiagnosticLevel::Error: return DiagnosticStatus::ERROR;
         }
         return DiagnosticStatus::ERROR;
     }
 
-    void log_status_safety(const RefereeStatusEvents& events) const {
+    void log_status_safety(const StatusEvents& events) const {
         if (events.game_status) {
             RCLCPP_INFO(get_logger(), "Referee game status timeout; stage set to unknown");
         }
@@ -279,7 +278,7 @@ private:
         msg.header.frame_id = "referee";
     }
 
-    void publish_referee_events(const RefereeStatusEvents& events, const rclcpp::Time& stamp) {
+    void publish_referee_events(const StatusEvents& events, const rclcpp::Time& stamp) {
         if (events.game_status) {
             publish_game_status(stamp);
         }
@@ -333,9 +332,9 @@ private:
     std::chrono::duration<double> publish_period_{0.02};
     std::chrono::duration<double> ui_period_{0.01};
     std::chrono::duration<double> transport_watchdog_period_{0.5};
-    RefereeStatusStore status_;
-    std::unique_ptr<RefereeStatusTranslator> translator_;
-    std::unique_ptr<RefereeSerialTransport> transport_;
+    StatusStore status_;
+    std::unique_ptr<StatusTranslator> translator_;
+    std::unique_ptr<SerialTransport> transport_;
     std::shared_ptr<NodeTransferEndpoint> endpoint_;
     std::unique_ptr<UiStateAdapter> ui_state_adapter_;
     diagnostic_updater::Updater diagnostic_updater_;

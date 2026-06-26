@@ -26,12 +26,12 @@ std::pair<InteractiveDataCommandId, std::size_t> draw_command_for_count(std::siz
     return {InteractiveDataCommandId::client_draw_seven, 7};
 }
 
-RefereeTransferResult send_clear_all(RefereeTransferEndpoint& endpoint) {
+TransferResult send_clear_all(TransferEndpoint& endpoint) {
     auto payload = std::array<std::byte, interaction_header_size + 2>{};
     const auto header =
         make_client_interactive_header(endpoint, InteractiveDataCommandId::client_delete);
     if (!header.has_value()) {
-        return RefereeTransferResult::Inactive;
+        return TransferResult::Inactive;
     }
     (void)pack_interactive_payload(payload, *header, std::span<const std::byte>{});
     std::size_t payload_size = interaction_header_size;
@@ -56,15 +56,15 @@ Ui::Ui(std::chrono::milliseconds interaction_period)
 
 Ui::~Ui() = default;
 
-std::optional<RefereeTransferResult>
-    Ui::update(RefereeTransferEndpoint& endpoint, std::chrono::steady_clock::time_point now) {
+std::optional<TransferResult>
+    Ui::update(TransferEndpoint& endpoint, std::chrono::steady_clock::time_point now) {
     if (now < next_interaction_send_) {
         return std::nullopt;
     }
 
     if (pending_clear_all_count_ != 0) {
         const auto result = send_clear_all(endpoint);
-        if (result == RefereeTransferResult::Accepted) {
+        if (result == TransferResult::Accepted) {
             --pending_clear_all_count_;
             const auto frame_size = interaction_header_size + 2 + 9;
             next_interaction_send_ =
@@ -146,7 +146,7 @@ std::optional<RefereeTransferResult>
     const auto header = make_client_interactive_header(endpoint, draw_command);
     if (!header.has_value()) {
         requeue_selected(std::span<Shape* const>{selected}.first(selected_count));
-        return RefereeTransferResult::Inactive;
+        return TransferResult::Inactive;
     }
     (void)pack_interactive_payload(payload, *header, std::span<const std::byte>{});
     if (frame_kind == FrameKind::graphics) {
@@ -158,7 +158,7 @@ std::optional<RefereeTransferResult>
     const auto result = endpoint.send_frame(
         static_cast<std::uint16_t>(CommandId::student_interactive),
         std::span<const std::byte>{payload}.first(payload_size));
-    if (result != RefereeTransferResult::Accepted) {
+    if (result != TransferResult::Accepted) {
         requeue_selected(std::span<Shape* const>{selected}.first(selected_count));
         return result;
     }

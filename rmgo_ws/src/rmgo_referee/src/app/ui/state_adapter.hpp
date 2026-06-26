@@ -37,8 +37,7 @@ public:
     };
 
     UiStateAdapter(
-        rclcpp::Node& node, RefereeStatusStore& status, RefereeTransferEndpoint& endpoint,
-        Config config)
+        rclcpp::Node& node, StatusStore& status, TransferEndpoint& endpoint, Config config)
         : node_(node)
         , status_(status)
         , endpoint_(endpoint)
@@ -210,22 +209,22 @@ private:
     }
 
     void apply_referee_state(UiState& state) const noexcept {
-        state.online = status_.get(RefereeStatusField::online) > 0.5
-                    && status_.is_fresh(config_.online_timeout);
-        state.robot_id = status_.get(RefereeStatusField::id);
-        state.game_stage = status_.get(RefereeStatusField::game_stage);
-        state.stage_remain_time = status_.get(RefereeStatusField::game_stage_remain_time);
-        state.hp = status_.get(RefereeStatusField::hp);
-        state.max_hp = status_.get(RefereeStatusField::max_hp);
-        state.shooter_cooling = status_.get(RefereeStatusField::shooter_cooling);
-        state.shooter_heat_limit = status_.get(RefereeStatusField::shooter_heat_limit);
-        state.shooter_bullet_allowance = status_.get(RefereeStatusField::shooter_bullet_allowance);
-        state.shooter_1_heat = status_.get(RefereeStatusField::shooter_1_heat);
-        state.shooter_2_heat = status_.get(RefereeStatusField::shooter_2_heat);
-        state.chassis_power_limit = status_.get(RefereeStatusField::chassis_power_limit);
-        state.chassis_power = status_.get(RefereeStatusField::chassis_power);
-        state.chassis_buffer_energy = status_.get(RefereeStatusField::chassis_buffer_energy);
-        state.chassis_output_status = status_.get(RefereeStatusField::chassis_output_status);
+        state.online =
+            status_.get(StatusField::online) > 0.5 && status_.is_fresh(config_.online_timeout);
+        state.robot_id = status_.get(StatusField::id);
+        state.game_stage = status_.get(StatusField::game_stage);
+        state.stage_remain_time = status_.get(StatusField::game_stage_remain_time);
+        state.hp = status_.get(StatusField::hp);
+        state.max_hp = status_.get(StatusField::max_hp);
+        state.shooter_cooling = status_.get(StatusField::shooter_cooling);
+        state.shooter_heat_limit = status_.get(StatusField::shooter_heat_limit);
+        state.shooter_bullet_allowance = status_.get(StatusField::shooter_bullet_allowance);
+        state.shooter_1_heat = status_.get(StatusField::shooter_1_heat);
+        state.shooter_2_heat = status_.get(StatusField::shooter_2_heat);
+        state.chassis_power_limit = status_.get(StatusField::chassis_power_limit);
+        state.chassis_power = status_.get(StatusField::chassis_power);
+        state.chassis_buffer_energy = status_.get(StatusField::chassis_buffer_energy);
+        state.chassis_output_status = status_.get(StatusField::chassis_output_status);
     }
 
     void reset_remote_state_if_needed(const UiState& state) {
@@ -259,8 +258,8 @@ private:
     }
 
     rclcpp::Node& node_;
-    RefereeStatusStore& status_;
-    RefereeTransferEndpoint& endpoint_;
+    StatusStore& status_;
+    TransferEndpoint& endpoint_;
     Config config_;
     ui::Ui ui_;
     std::unique_ptr<UiProfile> profile_;

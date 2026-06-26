@@ -30,8 +30,8 @@ public:
     Ui(const Ui&) = delete;
     Ui& operator=(const Ui&) = delete;
 
-    std::optional<RefereeTransferResult> update(
-        RefereeTransferEndpoint& endpoint,
+    std::optional<TransferResult> update(
+        TransferEndpoint& endpoint,
         std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
     void set_serial_budget(double bytes_per_second) noexcept;
     void reset_remote_state();
