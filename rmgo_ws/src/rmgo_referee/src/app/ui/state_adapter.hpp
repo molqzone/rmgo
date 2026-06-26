@@ -70,7 +70,7 @@ private:
     using RemoteStatus = rmgo_msg::msg::RemoteStatus;
     using TargetStatus = rmgo_msg::msg::TargetStatus;
     using CapacitorStatus = rmgo_msg::msg::CapacitorStatus;
-    using UiState = ui::RefereeUiState;
+    using UiState = ui::UiState;
     using UiProfile = ui::UiProfile;
 
     template <typename Message>
