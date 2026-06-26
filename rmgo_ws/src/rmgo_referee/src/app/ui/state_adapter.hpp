@@ -8,6 +8,7 @@
 #include <utility>
 
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp_lifecycle/lifecycle_node.hpp>
 
 #include "app/ui/ui.hpp"
 #include "command/endpoint.hpp"
@@ -36,7 +37,8 @@ public:
     };
 
     UiStateAdapter(
-        rclcpp::Node& node, StatusStore& status, TransferEndpoint& endpoint, Config config)
+        rclcpp_lifecycle::LifecycleNode& node, StatusStore& status, TransferEndpoint& endpoint,
+        Config config)
         : node_(node)
         , status_(status)
         , endpoint_(endpoint)
@@ -260,7 +262,7 @@ private:
         return state_;
     }
 
-    rclcpp::Node& node_;
+    rclcpp_lifecycle::LifecycleNode& node_;
     StatusStore& status_;
     TransferEndpoint& endpoint_;
     Config config_;

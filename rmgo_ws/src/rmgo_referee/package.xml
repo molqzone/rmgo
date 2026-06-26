@@ -10,8 +10,10 @@
 
   <depend>diagnostic_msgs</depend>
   <depend>diagnostic_updater</depend>
+  <depend>lifecycle_msgs</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_components</depend>
+  <depend>rclcpp_lifecycle</depend>
   <depend>realtime_tools</depend>
   <depend>rmgo_msg</depend>
   <depend>rmgo_utility</depend>
