@@ -1,9 +1,5 @@
 #pragma once
 
-#if !defined(__linux__)
-# error "rmgo_utility::serial::SerialPort only supports Linux."
-#endif
-
 #include <cerrno>
 #include <chrono>
 #include <cstddef>
