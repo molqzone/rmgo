@@ -1,0 +1,57 @@
+name: clang-format
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".clang-format"
+      - ".github/workflows/clang-format.yml"
+      - "**/*.c"
+      - "**/*.cc"
+      - "**/*.cpp"
+      - "**/*.cxx"
+      - "**/*.h"
+      - "**/*.hh"
+      - "**/*.hpp"
+      - "**/*.hxx"
+
+permissions:
+  contents: read
+
+jobs:
+  clang-format:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install clang-format
+        shell: bash
+        run: |
+          python3 -m venv .venv-clang-format
+          .venv-clang-format/bin/python -m pip install --upgrade pip
+          .venv-clang-format/bin/python -m pip install "clang-format==21.1.8"
+          .venv-clang-format/bin/clang-format --version
+          echo "$PWD/.venv-clang-format/bin" >> "$GITHUB_PATH"
+
+      - name: Check changed C/C++ files
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          mapfile -d '' files < <(
+            git diff -z --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- \
+              "*.c" "*.cc" "*.cpp" "*.cxx" "*.h" "*.hh" "*.hpp" "*.hxx"
+          )
+
+          if ((${#files[@]} == 0)); then
+            echo "No changed C/C++ files to check."
+            exit 0
+          fi
+
+          printf "Checking %d changed C/C++ file(s):\n" "${#files[@]}"
+          printf "  %s\n" "${files[@]}"
+          clang-format --dry-run --Werror "${files[@]}"
