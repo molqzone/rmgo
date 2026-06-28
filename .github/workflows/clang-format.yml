@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           fetch-depth: 0
 
@@ -48,8 +48,20 @@ jobs:
           )
 
           if ((${#files[@]} == 0)); then
-            echo "No changed C/C++ files to check."
-            exit 0
+            if git diff --quiet --exit-code "$BASE_SHA" "$HEAD_SHA" -- .clang-format; then
+              echo "No changed C/C++ files to check."
+              exit 0
+            fi
+
+            mapfile -d '' tracked_files < <(
+              git ls-files -z -- "*.c" "*.cc" "*.cpp" "*.cxx" "*.h" "*.hh" "*.hpp" "*.hxx"
+            )
+            if ((${#tracked_files[@]} == 0)); then
+              echo "::error::.clang-format changed but no tracked C/C++ files were found."
+              exit 1
+            fi
+            files=("${tracked_files[0]}")
+            echo ".clang-format changed; checking ${files[0]} as a format smoke test."
           fi
 
           printf "Checking %d changed C/C++ file(s):\n" "${#files[@]}"
