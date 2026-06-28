@@ -51,8 +51,7 @@ public:
         std::size_t tx_queue_capacity = 0;
     };
 
-    Transport(
-        std::string device, int rx_buffer_size, int tx_queue_capacity, FrameHandler on_frame)
+    Transport(std::string device, int rx_buffer_size, int tx_queue_capacity, FrameHandler on_frame)
         : device_(std::move(device))
         , rx_buffer_size_(rx_buffer_size)
         , on_frame_(std::move(on_frame))
@@ -294,11 +293,12 @@ private:
     }
 
     SerialResult open_serial() {
-        return serial_port_.open(rmgo_utility::serial::Config{
-            .device = device_,
-            .baudrate = 115200,
-            .low_latency = true,
-        });
+        return serial_port_.open(
+            rmgo_utility::serial::Config{
+                .device = device_,
+                .baudrate = 115200,
+                .low_latency = true,
+            });
     }
 
     [[nodiscard]] bool serial_is_open() const noexcept { return serial_port_.is_open(); }
@@ -416,7 +416,8 @@ private:
             return system_error_message(
                 "Failed to apply referee serial device options", error.system_error);
         case ErrorCode::CloseFailed:
-            return system_error_message("Failed to close referee serial device", error.system_error);
+            return system_error_message(
+                "Failed to close referee serial device", error.system_error);
         case ErrorCode::ReadPollFailed:
             return system_error_message("Referee serial read poll failed", error.system_error);
         case ErrorCode::ReadPollErrorEvents: return poll_error_message("read", error.poll_events);

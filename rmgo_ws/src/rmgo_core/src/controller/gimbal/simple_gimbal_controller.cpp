@@ -54,10 +54,11 @@ public:
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        auto config = build_individual_config(std::array{
-            params_.yaw_joint_name + "/" + params_.state_interface_name,
-            params_.pitch_joint_name + "/" + params_.state_interface_name,
-        });
+        auto config = build_individual_config(
+            std::array{
+                params_.yaw_joint_name + "/" + params_.state_interface_name,
+                params_.pitch_joint_name + "/" + params_.state_interface_name,
+            });
         append_interface_names(
             config.names, rmgo_core::io_state_interfaces::gimbal_imu_orientation_state_interfaces);
         return config;

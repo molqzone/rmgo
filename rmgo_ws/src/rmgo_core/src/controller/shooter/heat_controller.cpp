@@ -61,12 +61,13 @@ public:
                 get_node()->create_subscription<rmgo_msg::msg::GameRobotStatus>(
                     game_robot_status_topic_, rclcpp::SystemDefaultsQoS(),
                     [this](const rmgo_msg::msg::GameRobotStatus& msg) {
-                        robot_status_buffer_.writeFromNonRT(BufferedRobotStatus{
-                            .cooling = static_cast<double>(msg.shooter_cooling),
-                            .heat_limit = static_cast<double>(msg.shooter_heat_limit),
-                            .stamp = steady_clock_.now(),
-                            .valid = true,
-                        });
+                        robot_status_buffer_.writeFromNonRT(
+                            BufferedRobotStatus{
+                                .cooling = static_cast<double>(msg.shooter_cooling),
+                                .heat_limit = static_cast<double>(msg.shooter_heat_limit),
+                                .stamp = steady_clock_.now(),
+                                .valid = true,
+                            });
                     });
         }
         reset();

@@ -82,16 +82,18 @@ public:
                     joint_interface.position_servo_velocity_feedforward =
                         position_servo->velocity_feedforward;
                 }
-                joint_interface.command_interfaces.push_back(JointCommandInterface{
-                    .name = command_interface.name,
-                    .value = 0.0,
-                });
+                joint_interface.command_interfaces.push_back(
+                    JointCommandInterface{
+                        .name = command_interface.name,
+                        .value = 0.0,
+                    });
             }
             for (const auto& state_interface : joint.state_interfaces) {
-                joint_interface.state_interfaces.push_back(JointStateInterface{
-                    .name = state_interface.name,
-                    .value = initial_state_value(state_interface),
-                });
+                joint_interface.state_interfaces.push_back(
+                    JointStateInterface{
+                        .name = state_interface.name,
+                        .value = initial_state_value(state_interface),
+                    });
             }
             joint_interfaces_.push_back(std::move(joint_interface));
         }
@@ -351,11 +353,12 @@ private:
                 if (!split_name.has_value()) {
                     continue;
                 }
-                interfaces.push_back(MockStateInterface{
-                    .prefix = split_name->prefix,
-                    .name = split_name->name,
-                    .index = interfaces.size(),
-                });
+                interfaces.push_back(
+                    MockStateInterface{
+                        .prefix = split_name->prefix,
+                        .name = split_name->name,
+                        .index = interfaces.size(),
+                    });
             }
         };
         append(rmgo_core::io_state_interfaces::remote_state_interfaces);

@@ -199,8 +199,9 @@ struct ControllerInterfaceMixin {
 
         const std::string controller_name = self.node_name();
         for (std::size_t index = 0; index < suffixes.size(); ++index) {
-            interfaces.emplace_back(std::make_shared<hardware_interface::CommandInterface>(
-                controller_name, suffixes[index], &values[index]));
+            interfaces.emplace_back(
+                std::make_shared<hardware_interface::CommandInterface>(
+                    controller_name, suffixes[index], &values[index]));
         }
         return interfaces;
     }
