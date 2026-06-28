@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <span>
 
-#include "app/serial.hpp"
+#include "app/transport.hpp"
 #include "command/result.hpp"
 #include "status/status.hpp"
 
@@ -12,7 +12,7 @@ namespace rmgo_referee {
 
 class TransferEndpoint final {
 public:
-    TransferEndpoint(StatusStore& status, SerialTransport& transport) noexcept
+    TransferEndpoint(StatusStore& status, Transport& transport) noexcept
         : status_(status)
         , transport_(transport) {}
 
@@ -24,7 +24,7 @@ public:
 
 private:
     StatusStore& status_;
-    SerialTransport& transport_;
+    Transport& transport_;
 };
 
 } // namespace rmgo_referee
