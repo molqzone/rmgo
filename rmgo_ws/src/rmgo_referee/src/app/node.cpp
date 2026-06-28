@@ -17,9 +17,9 @@
 #include "rmgo_msg/msg/power_heat_data.hpp"
 #include "rmgo_msg/msg/referee_status.hpp"
 #include "rmgo_utility/node_mixin.hpp"
-#include "serial.hpp"
 #include "status/status.hpp"
 #include "translator.hpp"
+#include "transport.hpp"
 #include "ui/state_adapter.hpp"
 
 namespace rmgo_referee {
@@ -168,7 +168,7 @@ private:
 
     void create_referee_pipeline() {
         translator_ = std::make_unique<StatusTranslator>(status_);
-        transport_ = std::make_unique<SerialTransport>(
+        transport_ = std::make_unique<Transport>(
             config_.device, config_.rx_buffer_size, config_.tx_queue_capacity,
             [this](const Frame& frame) {
                 publish_referee_events(translator_->handle_frame(frame), get_clock()->now());
@@ -268,11 +268,11 @@ private:
         status.add("tx_queue_capacity", snapshot.tx_queue_capacity);
     }
 
-    static std::uint8_t to_diagnostic_level(SerialTransport::DiagnosticLevel level) {
+    static std::uint8_t to_diagnostic_level(Transport::DiagnosticLevel level) {
         switch (level) {
-        case SerialTransport::DiagnosticLevel::Ok: return DiagnosticStatus::OK;
-        case SerialTransport::DiagnosticLevel::Warn: return DiagnosticStatus::WARN;
-        case SerialTransport::DiagnosticLevel::Error: return DiagnosticStatus::ERROR;
+        case Transport::DiagnosticLevel::Ok: return DiagnosticStatus::OK;
+        case Transport::DiagnosticLevel::Warn: return DiagnosticStatus::WARN;
+        case Transport::DiagnosticLevel::Error: return DiagnosticStatus::ERROR;
         }
         return DiagnosticStatus::ERROR;
     }
@@ -347,7 +347,7 @@ private:
     RefereeConfig config_;
     StatusStore status_;
     std::unique_ptr<StatusTranslator> translator_;
-    std::unique_ptr<SerialTransport> transport_;
+    std::unique_ptr<Transport> transport_;
     std::unique_ptr<TransferEndpoint> endpoint_;
     std::unique_ptr<UiStateAdapter> ui_state_adapter_;
     diagnostic_updater::Updater diagnostic_updater_;
