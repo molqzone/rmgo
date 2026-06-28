@@ -1,19 +1,10 @@
 name: clang-format
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
-    paths:
-      - ".clang-format"
-      - ".github/workflows/clang-format.yml"
-      - "**/*.c"
-      - "**/*.cc"
-      - "**/*.cpp"
-      - "**/*.cxx"
-      - "**/*.h"
-      - "**/*.hh"
-      - "**/*.hpp"
-      - "**/*.hxx"
 
 permissions:
   contents: read
@@ -28,43 +19,15 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install clang-format
+      - name: Install clang-format 21.1.8
         shell: bash
         run: |
           python3 -m venv .venv-clang-format
           .venv-clang-format/bin/python -m pip install --upgrade pip
           .venv-clang-format/bin/python -m pip install "clang-format==21.1.8"
           .venv-clang-format/bin/clang-format --version
-          echo "$PWD/.venv-clang-format/bin" >> "$GITHUB_PATH"
 
-      - name: Check changed C/C++ files
+      - name: Check clang-format via script
         shell: bash
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.sha }}
         run: |
-          mapfile -d '' files < <(
-            git diff -z --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- \
-              "*.c" "*.cc" "*.cpp" "*.cxx" "*.h" "*.hh" "*.hpp" "*.hxx"
-          )
-
-          if ((${#files[@]} == 0)); then
-            if git diff --quiet --exit-code "$BASE_SHA" "$HEAD_SHA" -- .clang-format; then
-              echo "No changed C/C++ files to check."
-              exit 0
-            fi
-
-            mapfile -d '' tracked_files < <(
-              git ls-files -z -- "*.c" "*.cc" "*.cpp" "*.cxx" "*.h" "*.hh" "*.hpp" "*.hxx"
-            )
-            if ((${#tracked_files[@]} == 0)); then
-              echo "::error::.clang-format changed but no tracked C/C++ files were found."
-              exit 1
-            fi
-            files=("${tracked_files[0]}")
-            echo ".clang-format changed; checking ${files[0]} as a format smoke test."
-          fi
-
-          printf "Checking %d changed C/C++ file(s):\n" "${#files[@]}"
-          printf "  %s\n" "${files[@]}"
-          clang-format --dry-run --Werror "${files[@]}"
+          tools/format_cpp_files.sh --check
