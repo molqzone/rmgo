@@ -72,6 +72,7 @@ enum class ErrorCode {
     WritePollErrorEvents,
     WriteFailed,
     WriteNoProgress,
+    WriteCanceled,
 };
 
 struct Error {
@@ -243,6 +244,9 @@ public:
             }
             written += static_cast<std::size_t>(count);
         }
+        if (written < bytes.size()) {
+            return std::unexpected{Error{.code = ErrorCode::WriteCanceled}};
+        }
         return {};
     }
 
@@ -375,12 +379,18 @@ private:
         if (error) {
             return device;
         }
-        for (const auto& entry : iter) {
-            const auto resolved = std::filesystem::canonical(entry.path(), error);
+        const auto end = std::filesystem::directory_iterator{};
+        while (iter != end) {
+            const auto path = iter->path();
+            const auto resolved = std::filesystem::canonical(path, error);
             if (!error && resolved == target) {
-                return entry.path().string();
+                return path.string();
             }
             error.clear();
+            iter.increment(error);
+            if (error) {
+                return device;
+            }
         }
         return device;
     }

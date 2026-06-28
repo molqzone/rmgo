@@ -135,8 +135,7 @@ public:
         }
         {
             const std::scoped_lock lock{transport_mutex_};
-            snapshot.device =
-                serial_port_.config().device.empty() ? device_ : serial_port_.device();
+            snapshot.device = serial_is_open() ? serial_port_.device() : device_;
             snapshot.serial_open = serial_is_open();
             snapshot.rx_thread_running = rx_thread_.joinable();
             snapshot.tx_thread_running = tx_thread_.joinable();
@@ -430,6 +429,7 @@ private:
         case ErrorCode::WriteFailed:
             return system_error_message("Referee serial write failed", error.system_error);
         case ErrorCode::WriteNoProgress: return "Referee serial write made no progress";
+        case ErrorCode::WriteCanceled: return "Referee serial write canceled";
         }
         return "Unknown referee serial error";
     }
