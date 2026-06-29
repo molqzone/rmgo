@@ -1,0 +1,33 @@
+name: clang-format
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  clang-format:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install clang-format 21.1.8
+        shell: bash
+        run: |
+          python3 -m venv .venv-clang-format
+          .venv-clang-format/bin/python -m pip install --upgrade pip
+          .venv-clang-format/bin/python -m pip install "clang-format==21.1.8"
+          .venv-clang-format/bin/clang-format --version
+
+      - name: Check clang-format via script
+        shell: bash
+        run: |
+          tools/format_cpp_files.sh --check

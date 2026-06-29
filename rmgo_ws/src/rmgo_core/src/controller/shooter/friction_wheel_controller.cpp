@@ -51,10 +51,11 @@ public:
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        auto config = build_individual_config(std::array{
-            params_.left_friction_joint_name + "/" + params_.friction_state_interface_name,
-            params_.right_friction_joint_name + "/" + params_.friction_state_interface_name,
-        });
+        auto config = build_individual_config(
+            std::array{
+                params_.left_friction_joint_name + "/" + params_.friction_state_interface_name,
+                params_.right_friction_joint_name + "/" + params_.friction_state_interface_name,
+            });
         return config;
     }
 

@@ -36,9 +36,11 @@ public:
     }
 
     controller_interface::InterfaceConfiguration state_interface_configuration() const override {
-        auto config = build_individual_config(std::array{
-            params_.bullet_feeder_joint_name + "/" + params_.feeder_velocity_state_interface_name,
-        });
+        auto config = build_individual_config(
+            std::array{
+                params_.bullet_feeder_joint_name + "/"
+                    + params_.feeder_velocity_state_interface_name,
+            });
         return config;
     }
 
