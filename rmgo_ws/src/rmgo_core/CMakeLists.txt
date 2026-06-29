@@ -77,7 +77,7 @@ generate_parameter_library(
 )
 
 add_library(
-  rmgo_chassis_controller SHARED
+  rmgo_omni_infantry_plugins SHARED
   src/controller/chassis/chassis_controller.cpp
   src/controller/chassis/chassis_power_controller.cpp
   src/controller/chassis/omni_wheel_controller.cpp
@@ -92,10 +92,10 @@ add_library(
   src/hardware/omni_infantry/omni_infantry_gz_interface.cpp
 )
 
-target_compile_features(rmgo_chassis_controller PUBLIC cxx_std_23)
+target_compile_features(rmgo_omni_infantry_plugins PUBLIC cxx_std_23)
 
 ament_target_dependencies(
-  rmgo_chassis_controller
+  rmgo_omni_infantry_plugins
   controller_interface
   angles
   geometry_msgs
@@ -113,7 +113,7 @@ ament_target_dependencies(
 )
 
 target_link_libraries(
-  rmgo_chassis_controller
+  rmgo_omni_infantry_plugins
   bullet_feeder_controller_17mm_config
   chassis_controller_config
   chassis_power_controller_config
@@ -129,13 +129,13 @@ target_link_libraries(
 )
 
 target_include_directories(
-  rmgo_chassis_controller
+  rmgo_omni_infantry_plugins
   PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
          $<INSTALL_INTERFACE:include>
   PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
 )
 
-install(TARGETS rmgo_chassis_controller DESTINATION lib/${PROJECT_NAME})
+install(TARGETS rmgo_omni_infantry_plugins DESTINATION lib/${PROJECT_NAME})
 
 pluginlib_export_plugin_description_file(controller_interface rmgo_core_plugins.xml)
 pluginlib_export_plugin_description_file(gz_ros2_control rmgo_hardware_plugins.xml)
