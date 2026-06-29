@@ -1,4 +1,4 @@
-<library path="rmgo_chassis_controller">
+<library path="rmgo_omni_infantry_plugins">
   <class
     name="rmgo_core/OmniInfantryGzInterface"
     type="rmgo_core::interface::OmniInfantryGzInterface"
